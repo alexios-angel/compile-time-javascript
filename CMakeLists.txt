@@ -14,7 +14,7 @@ if(NOT CMAKE_EXPERIMENTAL_CXX_STD AND NOT CMAKE_CXX_MODULE_STD)
     endif()
 endif()
 
-project(cthtml
+project(ctjs
   HOMEPAGE_URL "https://github.com/alexios-angel/compile-time-html"
   VERSION 0.1.0
   LANGUAGES CXX)
@@ -25,30 +25,30 @@ include(CMakeDependentOption)
 include(GNUInstallDirs)
 include(CTest)
 
-find_program(CTHTML_DPKG_BUILDPACKAGE_FOUND dpkg-buildpackage)
-find_program(CTHTML_RPMBUILD_FOUND rpmbuild)
+find_program(CTJS_DPKG_BUILDPACKAGE_FOUND dpkg-buildpackage)
+find_program(CTJS_RPMBUILD_FOUND rpmbuild)
 
-cmake_dependent_option(CTHTML_BUILD_TESTS "Build cthtml tests" ON
+cmake_dependent_option(CTJS_BUILD_TESTS "Build ctjs tests" ON
   "BUILD_TESTING;CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR" OFF)
-cmake_dependent_option(CTHTML_BUILD_EXAMPLES "Build cthtml examples" ON
+cmake_dependent_option(CTJS_BUILD_EXAMPLES "Build ctjs examples" ON
   "CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR" OFF)
-cmake_dependent_option(CTHTML_BUILD_PACKAGE "Build cthtml packages" ON
+cmake_dependent_option(CTJS_BUILD_PACKAGE "Build ctjs packages" ON
   "CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR" OFF)
-cmake_dependent_option(CTHTML_BUILD_PACKAGE_DEB
+cmake_dependent_option(CTJS_BUILD_PACKAGE_DEB
   "Create DEB package (${PROJECT_NAME})" ON
-  "CTHTML_BUILD_PACKAGE;CTHTML_DPKG_BUILDPACKAGE_FOUND" OFF)
-cmake_dependent_option(CTHTML_BUILD_PACKAGE_RPM
+  "CTJS_BUILD_PACKAGE;CTJS_DPKG_BUILDPACKAGE_FOUND" OFF)
+cmake_dependent_option(CTJS_BUILD_PACKAGE_RPM
   "Create RPM package (${PROJECT_NAME})" ON
-  "CTHTML_BUILD_PACKAGE;CTHTML_RPMBUILD_FOUND" OFF)
+  "CTJS_BUILD_PACKAGE;CTJS_RPMBUILD_FOUND" OFF)
 
-option(CTHTML_MODULE "build C++ module (experimental)" OFF)
+option(CTJS_MODULE "build C++ module (experimental)" OFF)
 # the ctlark grammar layer runs an Earley parse in the constant
 # evaluator; the interface carries the raised limits so consumers do
 # not have to know the flags
-option(CTHTML_CONSTEXPR_LIMITS "Raise constexpr evaluation limits on the interface" ON)
-option(CTHTML_PCH "Precompile cthtml.hpp for tests and examples" ON)
+option(CTJS_CONSTEXPR_LIMITS "Raise constexpr evaluation limits on the interface" ON)
+option(CTJS_PCH "Precompile ctjs.hpp for tests and examples" ON)
 
-set(CTHTML_CONSTEXPR_OPTIONS
+set(CTJS_CONSTEXPR_OPTIONS
   $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fconstexpr-steps=500000000;-fconstexpr-depth=1024;-fbracket-depth=2048>
   $<$<CXX_COMPILER_ID:GNU>:-fconstexpr-ops-limit=3000000000;-fconstexpr-loop-limit=10000000;-fconstexpr-depth=1024>
   $<$<CXX_COMPILER_ID:MSVC>:/constexpr:steps500000000;/constexpr:depth1024>)
@@ -56,49 +56,49 @@ set(CTHTML_CONSTEXPR_OPTIONS
 # ctlark and ctll live in a git submodule (git submodule update --init).
 # The extra .../include/ctlark and .../include/ctll entries let the headers'
 # relative `"../ctlark.hpp"`-style quoted includes resolve through the
-# quoted-include fallback; the install keeps the flat include/{cthtml,ctlark,ctll}
+# quoted-include fallback; the install keeps the flat include/{ctjs,ctlark,ctll}
 # layout, so installed consumers need neither.
-set(CTHTML_SUBMODULE_INCLUDE_DIRS
+set(CTJS_SUBMODULE_INCLUDE_DIRS
   "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include"
   "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include/ctlark"
   "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include/ctll")
 if(NOT EXISTS "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include/ctlark.hpp")
   message(FATAL_ERROR
-    "cthtml: the compile-time-lark submodule is missing - run `git submodule update --init`")
+    "ctjs: the compile-time-lark submodule is missing - run `git submodule update --init`")
 endif()
 
-set(CTHTML_HEADERS
-	include/cthtml.hpp
-	include/cthtml/bind.hpp
-	include/cthtml/entities.hpp
-	include/cthtml/grammar.hpp
-	include/cthtml/serialize.hpp
-	include/cthtml/treebuild.hpp
-	include/cthtml/types.hpp
-	include/cthtml/views.hpp)
-file(GLOB_RECURSE CTHTML_CTLARK_HEADERS CONFIGURE_DEPENDS
+set(CTJS_HEADERS
+	include/ctjs.hpp
+	include/ctjs/bind.hpp
+	include/ctjs/entities.hpp
+	include/ctjs/grammar.hpp
+	include/ctjs/serialize.hpp
+	include/ctjs/treebuild.hpp
+	include/ctjs/types.hpp
+	include/ctjs/views.hpp)
+file(GLOB_RECURSE CTJS_CTLARK_HEADERS CONFIGURE_DEPENDS
 	external/compile-time-lark/include/*.hpp)
 
-if(CTHTML_MODULE)
+if(CTJS_MODULE)
 	if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.29.20240416")
 		add_library(${PROJECT_NAME})
 
-		target_sources(${PROJECT_NAME} PUBLIC FILE_SET CXX_MODULES TYPE CXX_MODULES FILES cthtml.cppm)
+		target_sources(${PROJECT_NAME} PUBLIC FILE_SET CXX_MODULES TYPE CXX_MODULES FILES ctjs.cppm)
 		target_sources(${PROJECT_NAME} PUBLIC FILE_SET HEADERS TYPE HEADERS
 		    BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include"
 		        "${CMAKE_CURRENT_SOURCE_DIR}/external/compile-time-lark/include"
-		    FILES ${CTHTML_HEADERS} ${CTHTML_CTLARK_HEADERS})
+		    FILES ${CTJS_HEADERS} ${CTJS_CTLARK_HEADERS})
 		target_include_directories(${PROJECT_NAME} PUBLIC
-		    "$<BUILD_INTERFACE:${CTHTML_SUBMODULE_INCLUDE_DIRS}>")
+		    "$<BUILD_INTERFACE:${CTJS_SUBMODULE_INCLUDE_DIRS}>")
 
 		# we are using `import std;`
-		if (NOT DEFINED CTHTML_CXX_STANDARD OR CTHTML_CXX_STANDARD LESS 23)
-			set(CTHTML_CXX_STANDARD 23)
+		if (NOT DEFINED CTJS_CXX_STANDARD OR CTJS_CXX_STANDARD LESS 23)
+			set(CTJS_CXX_STANDARD 23)
 		endif()
 
-		target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_${CTHTML_CXX_STANDARD})
-		if(CTHTML_CONSTEXPR_LIMITS)
-			target_compile_options(${PROJECT_NAME} PUBLIC ${CTHTML_CONSTEXPR_OPTIONS})
+		target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_${CTJS_CXX_STANDARD})
+		if(CTJS_CONSTEXPR_LIMITS)
+			target_compile_options(${PROJECT_NAME} PUBLIC ${CTJS_CONSTEXPR_OPTIONS})
 		endif()
 
 		install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-targets
@@ -112,23 +112,23 @@ else()
 
 	target_include_directories(${PROJECT_NAME} INTERFACE
 	  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-	  "$<BUILD_INTERFACE:${CTHTML_SUBMODULE_INCLUDE_DIRS}>"
+	  "$<BUILD_INTERFACE:${CTJS_SUBMODULE_INCLUDE_DIRS}>"
 	  $<INSTALL_INTERFACE:include>)
 
-	if (NOT CTHTML_CXX_STANDARD)
-	  set(CTHTML_CXX_STANDARD 20)
+	if (NOT CTJS_CXX_STANDARD)
+	  set(CTJS_CXX_STANDARD 20)
 	endif()
 
-	target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_${CTHTML_CXX_STANDARD})
-	if(CTHTML_CONSTEXPR_LIMITS)
-		target_compile_options(${PROJECT_NAME} INTERFACE ${CTHTML_CONSTEXPR_OPTIONS})
+	target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_${CTJS_CXX_STANDARD})
+	if(CTJS_CONSTEXPR_LIMITS)
+		target_compile_options(${PROJECT_NAME} INTERFACE ${CTJS_CONSTEXPR_OPTIONS})
 	endif()
 	set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_SCAN_FOR_MODULES 0)
 
 	install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-targets)
 	install(DIRECTORY include/ DESTINATION include
 	    FILES_MATCHING PATTERN *.hpp)
-	# the installed tree stays flat - include/{cthtml,ctlark,ctll} side by side -
+	# the installed tree stays flat - include/{ctjs,ctlark,ctll} side by side -
 	# so the headers' relative includes keep working for installed consumers
 	install(DIRECTORY external/compile-time-lark/include/ DESTINATION include
 	    FILES_MATCHING PATTERN *.hpp)
@@ -150,7 +150,7 @@ configure_package_config_file(
   NO_SET_AND_CHECK_MACRO
   NO_CHECK_REQUIRED_COMPONENTS_MACRO)
 
-write_basic_package_version_file(cthtml-config-version.cmake
+write_basic_package_version_file(ctjs-config-version.cmake
   VERSION ${PROJECT_VERSION}
   COMPATIBILITY SameMajorVersion)
 
@@ -163,25 +163,25 @@ install(
     "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
 
-if(CTHTML_BUILD_TESTS)
+if(CTJS_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-if(CTHTML_BUILD_EXAMPLES)
+if(CTJS_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
 
-if (NOT CTHTML_BUILD_PACKAGE)
+if (NOT CTJS_BUILD_PACKAGE)
   return()
 endif()
 
 list(APPEND source-generators TBZ2 TGZ TXZ ZIP)
 
-if (CTHTML_BUILD_PACKAGE_DEB)
+if (CTJS_BUILD_PACKAGE_DEB)
   list(APPEND binary-generators "DEB")
 endif()
 
-if (CTHTML_BUILD_PACKAGE_RPM)
+if (CTJS_BUILD_PACKAGE_RPM)
   list(APPEND binary-generators "RPM")
 endif()
 

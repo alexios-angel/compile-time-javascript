@@ -9,7 +9,7 @@
 > [WHATWG](https://html.spec.whatwg.org/multipage/named-characters.html)'s.
 > Apache License 2.0 with LLVM Exceptions; see [NOTICE](NOTICE).
 
-# cthtml — compile-time HTML
+# ctjs — compile-time HTML
 
 HTML5 parsed while your code compiles. The DOM is a *type*: broken
 markup is a compile error, lookups are resolved at compile time, and
@@ -20,9 +20,9 @@ attributes — and get back a browser-shaped document:
 `html > (head, body)`, always.
 
 ```c++
-#include <cthtml.hpp>
+#include <ctjs.hpp>
 
-constexpr auto page = cthtml::parse<R"(<!DOCTYPE html>
+constexpr auto page = ctjs::parse<R"(<!DOCTYPE html>
 <title>demo &mdash; releases</title>
 <ul id=nav>
     <li><a href=/docs>docs &amp; guides</a>
@@ -35,9 +35,9 @@ static_assert(page.get<"body">().get<"ul">().count<"li">() == 2);
 static_assert(page["body"]["ul"]["li"]["a"].attribute("href") == "/docs");
 
 // author mistakes are a compile-time property:
-static_assert(!cthtml::is_valid<"<b><i>crossed</b></i>">);  // crossing close tag
-static_assert(!cthtml::is_valid<"<p x='1' x='2'></p>">);    // duplicate attribute
-static_assert(!cthtml::is_valid<"<div/>">);                 // only voids self-close
+static_assert(!ctjs::is_valid<"<b><i>crossed</b></i>">);  // crossing close tag
+static_assert(!ctjs::is_valid<"<p x='1' x='2'></p>">);    // duplicate attribute
+static_assert(!ctjs::is_valid<"<div/>">);                 // only voids self-close
 ```
 
 ## What is supported
@@ -74,8 +74,8 @@ HTML5 the way browsers read it, minus the repairs that hide bugs:
   `<![CDATA[...]]>` sections are dropped; whitespace-only text between
   elements is dropped (except inside `<pre>`/`<textarea>`)
 
-**Where cthtml is stricter than a browser** — the spec makes browsers
-*repair* these; cthtml makes them compile errors, because markup you
+**Where ctjs is stricter than a browser** — the spec makes browsers
+*repair* these; ctjs makes them compile errors, because markup you
 compile in is markup you control:
 
 * a stray end tag (`</p>` with no `<p>`, `</br>` at all)
@@ -96,10 +96,10 @@ encodings other than UTF-8/ASCII.
 
 ```c++
 // acceptability as a bool (never a compile error):
-template <ctll::fixed_string input> constexpr bool cthtml::is_valid;
+template <ctll::fixed_string input> constexpr bool ctjs::is_valid;
 
 // the parsed document, always the html element; invalid HTML fails the build:
-template <ctll::fixed_string input> constexpr auto cthtml::parse();
+template <ctll::fixed_string input> constexpr auto ctjs::parse();
 ```
 
 `parse` returns an `element`; its children are `element`s and `text`
@@ -111,16 +111,16 @@ nodes:
 | `text<chars...>` | `view()`, `c_str()` (null-terminated), `size()`, `empty()`, `==` with `std::string_view` |
 
 Name lookups are case-insensitive everywhere. Every type carries
-`static constexpr cthtml::kind type` for introspection
+`static constexpr ctjs::kind type` for introspection
 (`kind::element`, `kind::text`), and two free functions iterate at
 compile time:
 
 ```c++
-cthtml::for_each_child(doc, [](auto child) { /* each has its own type */ });
-cthtml::for_each_attribute(doc, [](auto name, auto value) { ... });
+ctjs::for_each_child(doc, [](auto child) { /* each has its own type */ });
+ctjs::for_each_attribute(doc, [](auto name, auto value) { ... });
 
 // render any element back to minified HTML, in static storage:
-static_assert(cthtml::serialize(cthtml::parse<"<ul id=nav><li>Docs</ul>">())
+static_assert(ctjs::serialize(ctjs::parse<"<ul id=nav><li>Docs</ul>">())
     == R"(<html><head></head><body><ul id="nav"><li>Docs</li></ul></body></html>)");
 ```
 
@@ -134,11 +134,11 @@ doc["body"].attribute("class");   // runtime names; attribute<"class">() stays t
 // begin/end yield uniform views (kind + name + text) from static storage,
 // so range-for and algorithms work - in constexpr evaluation included:
 for (const auto & n : doc) {
-    n.type;   // cthtml::kind::element or kind::text
+    n.type;   // ctjs::kind::element or kind::text
     n.name(); // elements: the tag; text nodes: empty
     n.text(); // elements: their direct text; text nodes: the content
 }
-for (const auto & a : cthtml::attributes(doc)) {
+for (const auto & a : ctjs::attributes(doc)) {
     a.name, a.value;   // std::string_views
 }
 ```
@@ -148,7 +148,7 @@ child itself. `operator[]` accepts an ordinary string or integer and returns
 a uniform `node_view`; when you need the child itself, with its typed
 accessors, use `get<...>()`, `child<I>()`, or `for_each_child`. The
 records are `node_view` and `attribute_view`
-([`views.hpp`](include/cthtml/views.hpp)), and
+([`views.hpp`](include/ctjs/views.hpp)), and
 [`examples/iteration.cpp`](examples/iteration.cpp) is a runnable tour.
 
 `serialize` renders HTML: text re-escapes `& < >` and attribute values
@@ -164,10 +164,10 @@ compile time. Syntax failures carry the location and the expected
 tokens:
 
 ```c++
-constexpr auto info = cthtml::error_info<"<p class=x">();
+constexpr auto info = ctjs::error_info<"<p class=x">();
 // info.kind (lex/parse/...), info.position, info.line, info.column
 
-constexpr auto why = cthtml::error_message<"<p class=x">();
+constexpr auto why = ctjs::error_message<"<p class=x">();
 // the rendered diagnostic: location, snippet with a caret, expected terminals
 ```
 
@@ -175,14 +175,14 @@ Documents that PARSE can still be rejected by tree construction; the
 error names the rule and the offending token:
 
 ```c++
-cthtml::bind_error<"<b><i>x</b></i>">();  // mismatched_tag, where == "</b>"
-cthtml::bind_error<"<p>x</p></p>">();     // stray_end_tag, where == "</p>"
-cthtml::bind_error<"<p a=1 a=2></p>">();  // duplicate_attribute, where == "a"
-cthtml::bind_error<"<div/>">();           // self_closing_non_void, where == "<div"
+ctjs::bind_error<"<b><i>x</b></i>">();  // mismatched_tag, where == "</b>"
+ctjs::bind_error<"<p>x</p></p>">();     // stray_end_tag, where == "</p>"
+ctjs::bind_error<"<p a=1 a=2></p>">();  // duplicate_attribute, where == "a"
+ctjs::bind_error<"<div/>">();           // self_closing_non_void, where == "<div"
 ```
 
 A failed `parse<>()` names the failing stage and the query to run in
-its `static_assert` message. `cthtml::debug` bundles the [ctlark
+its `static_assert` message. `ctjs::debug` bundles the [ctlark
 debugging toolbox](../compile-time-lark#debugging) with the HTML
 grammar baked in: `traced_parse<input>()` (a recorded event log, also
 runnable at runtime under a debugger), `parse_runtime(text)` (runtime
@@ -198,7 +198,7 @@ ctll::fixed_string` variables with linkage instead of string literals:
 static constexpr auto text = ctll::fixed_string{"<ul id=nav><li>Docs</ul>"};
 static constexpr ctll::fixed_string id_key = "id";
 
-constexpr auto doc = cthtml::parse<text>();
+constexpr auto doc = ctjs::parse<text>();
 static_assert(doc["body"]["ul"].attribute("id") == std::string_view{"nav"});
 ```
 
@@ -210,18 +210,18 @@ The grammar layer is
 grammar does not nest elements at all, because HTML tag nesting is not
 context-free (end tags may be omitted, `<html>/<head>/<body>` are
 implied). Instead, the *lark grammar string*
-([`grammar.hpp`](include/cthtml/grammar.hpp)) lexes the document into a
+([`grammar.hpp`](include/ctjs/grammar.hpp)) lexes the document into a
 FLAT chunk stream — open tags, close tags, text, and whole raw-text
 elements, whose `*_BODY` terminals swallow `<script>`/`<style>` content
 up to the first real close tag by riding ctlark's **contextual** lexer
 (they are the only candidate tokens right after the open tag's `>`).
 
-The binder ([`bind.hpp`](include/cthtml/bind.hpp)) lowers chunks into
+The binder ([`bind.hpp`](include/ctjs/bind.hpp)) lowers chunks into
 building blocks — names folded to lowercase, the three attribute value
 flavours plus booleans, character references decoded through the
-generated WHATWG table ([`entities.hpp`](include/cthtml/entities.hpp),
+generated WHATWG table ([`entities.hpp`](include/ctjs/entities.hpp),
 regenerate with `tools/gen-entities.py`). Then the tree-construction
-layer ([`treebuild.hpp`](include/cthtml/treebuild.hpp)) does what a
+layer ([`treebuild.hpp`](include/ctjs/treebuild.hpp)) does what a
 browser's tree builder does, at compile time, twice: a cheap
 value-level validator walks a name stack and reports the first author
 mistake (this is all `is_valid` costs), and a type-level fold — the
@@ -232,14 +232,14 @@ document type.
 
 Because that work happens in headers, a **precompiled header** makes
 it a one-time cost: `make pch` (done automatically by the test build)
-compiles `cthtml.hpp` once - grammar parse, table build and all - and
+compiles `ctjs.hpp` once - grammar parse, table build and all - and
 every translation unit that includes it afterwards starts from the
 baked result. The CMake tests and examples use
-`target_precompile_headers` the same way (`CTHTML_PCH`, default ON).
+`target_precompile_headers` the same way (`CTJS_PCH`, default ON).
 
 An Earley parse needs a raised constexpr budget; the CMake interface
 target carries the compiler-specific limit flags automatically
-(`CTHTML_CONSTEXPR_LIMITS`, default ON) and the Makefiles set them:
+(`CTJS_CONSTEXPR_LIMITS`, default ON) and the Makefiles set them:
 
 ```
 clang:  -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=2048
@@ -251,7 +251,7 @@ ctlark and ctll come in as a git submodule
 run `git submodule update --init`); never edit under `external/`. The
 build adds the submodule's include directories so the headers'
 relative `"../ctlark.hpp"`-style includes resolve, and the CMake
-install flattens everything back to `include/{cthtml,ctlark,ctll}`.
+install flattens everything back to `include/{ctjs,ctlark,ctll}`.
 
 ## Building and integrating
 
@@ -260,30 +260,30 @@ Header-only. Pick whichever fits your project:
 **CMake, as a subdirectory or via FetchContent:**
 
 ```cmake
-add_subdirectory(compile-time-html)   # or FetchContent_MakeAvailable(cthtml)
-target_link_libraries(your-target PRIVATE cthtml::cthtml)
+add_subdirectory(compile-time-html)   # or FetchContent_MakeAvailable(ctjs)
+target_link_libraries(your-target PRIVATE ctjs::ctjs)
 ```
 
 **CMake, installed** (`cmake -B build && cmake --install build`):
 
 ```cmake
-find_package(cthtml 0.1 REQUIRED)
-target_link_libraries(your-target PRIVATE cthtml::cthtml)
+find_package(ctjs 0.1 REQUIRED)
+target_link_libraries(your-target PRIVATE ctjs::ctjs)
 ```
 
-The install also ships a `pkg-config` file (`cthtml.pc`). Tests and
-examples build only when cthtml is the top-level project
-(`CTHTML_BUILD_TESTS`, `CTHTML_BUILD_EXAMPLES`); `CTHTML_CXX_STANDARD`
+The install also ships a `pkg-config` file (`ctjs.pc`). Tests and
+examples build only when ctjs is the top-level project
+(`CTJS_BUILD_TESTS`, `CTJS_BUILD_EXAMPLES`); `CTJS_CXX_STANDARD`
 selects the advertised standard (default 20). CPack can produce
 TGZ/ZIP archives (plus DEB/RPM where the tooling exists), and
-`-DCTHTML_MODULE=ON` builds `cthtml.cppm` as a named C++ module
+`-DCTJS_MODULE=ON` builds `ctjs.cppm` as a named C++ module
 (experimental; needs CMake 3.30+, a modules-capable toolchain and
 `import std`).
 
 **No build system:** add `include/` plus the submodule's
 `external/compile-time-lark/include` (and its `ctlark`/`ctll`
 subdirectories) to your include path, or copy the amalgamated
-[`single-header/cthtml.hpp`](single-header/cthtml.hpp)
+[`single-header/ctjs.hpp`](single-header/ctjs.hpp)
 (regenerate with `make single-header`, which needs the
 [quom](https://pypi.org/project/quom/) tool).
 
@@ -302,7 +302,7 @@ cmake -B build && cmake --build build && ctest --test-dir build
 
 ## Roadmap
 
-cthtml is the first brick of a compile-time web stack:
+ctjs is the first brick of a compile-time web stack:
 **compile-time-javascript** and **compile-time-css** come next, and
 they meet in **compile-time-browser** — HTML, CSS and JS parsed at
 compile time and lowered into an SDL3 application, as if the page had

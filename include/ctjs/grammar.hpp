@@ -1,5 +1,5 @@
-#ifndef CTHTML__GRAMMAR__HPP
-#define CTHTML__GRAMMAR__HPP
+#ifndef CTJS__GRAMMAR__HPP
+#define CTJS__GRAMMAR__HPP
 
 #include "../ctlark.hpp"
 
@@ -31,7 +31,7 @@
 // rejects them, so the binder decodes known ones and leaves the rest
 // literal.
 
-namespace cthtml::detail {
+namespace ctjs::detail {
 
 inline constexpr ctll::fixed_string html_grammar = R"x(
 start: (open_tag | script_el | style_el | title_el | textarea_el
@@ -74,8 +74,8 @@ _CDATA: /<!\[CDATA\[([^\]]|\]+[^\]>])*\]+\]>/
 inline constexpr ctll::fixed_string html_start = "start";
 
 static_assert(ctlark::grammar_valid<html_grammar>,
-              "cthtml: internal error - the HTML grammar failed to compile");
+              "ctjs: internal error - the HTML grammar failed to compile");
 
-} // namespace cthtml::detail
+} // namespace ctjs::detail
 
 #endif

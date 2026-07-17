@@ -1,8 +1,8 @@
-#ifndef CTXML__TYPES__HPP
-#define CTXML__TYPES__HPP
+#ifndef CTHTML__TYPES__HPP
+#define CTHTML__TYPES__HPP
 
 #include "../ctll/fixed_string.hpp"
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -17,7 +17,7 @@
 // An element's children are its child elements and its non-whitespace
 // text nodes, in document order.
 
-namespace ctxml {
+namespace cthtml {
 
 enum class kind {
 	element,
@@ -80,7 +80,7 @@ CTLL_EXPORT struct attribute_range {
 };
 
 CTLL_EXPORT struct node_view {
-	ctxml::kind type = kind::text;
+	cthtml::kind type = kind::text;
 	std::string_view tag{};
 	std::string_view content{};
 	const node_view * child_data = nullptr;
@@ -218,7 +218,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the attribute's value; a missing name is a compile-time error
 	template <ctll::fixed_string Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #else
@@ -227,18 +227,18 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (detail::text_matches<Key, typename Attributes::name_type>() || ...);
 	}
 	template <const auto & Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #endif
 
 	// positional access, for iterating attributes
 	template <size_t Index> static constexpr auto attribute_name() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::name_type{};
 	}
 	template <size_t Index> static constexpr auto attribute_value() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::value_type{};
 	}
 
@@ -252,7 +252,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 
 	template <size_t Index> static constexpr auto child() noexcept {
-		static_assert(Index < sizeof...(Children), "ctxml: child index out of range");
+		static_assert(Index < sizeof...(Children), "cthtml: child index out of range");
 		return detail::nth<Index, Children...>();
 	}
 
@@ -276,7 +276,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the first child element with this tag; missing is a compile error
 	template <ctll::fixed_string Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #else
@@ -287,7 +287,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (static_cast<size_t>(child_matches<Tag, Children>()) + ... + 0);
 	}
 	template <const auto & Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #endif
@@ -350,6 +350,6 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 	(f(typename Attributes::name_type{}, typename Attributes::value_type{}), ...);
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif

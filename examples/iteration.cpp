@@ -6,11 +6,11 @@
 //
 // Build: make iteration
 
-#include <ctxml.hpp>
+#include <cthtml.hpp>
 #include <algorithm>
 #include <iostream>
 
-constexpr auto feed = ctxml::parse<R"(<feed version="1.0" updated="2026-07-11">
+constexpr auto feed = cthtml::parse<R"(<feed version="1.0" updated="2026-07-11">
 	<title>release notes</title>
 	<entry id="1"><title>Brackets</title></entry>
 	<entry id="2"><title>Iterators</title></entry>
@@ -26,15 +26,15 @@ static_assert(feed["entry"]["title"].text() == "Brackets");
 // --- iteration: children and attributes as uniform views
 
 static_assert(std::count_if(begin(feed), end(feed),
-    [](const ctxml::node_view & n) { return n.name() == "entry"; }) == 2);
+    [](const cthtml::node_view & n) { return n.name() == "entry"; }) == 2);
 
-static_assert(ctxml::attributes(feed).size() == 2);
+static_assert(cthtml::attributes(feed).size() == 2);
 
 // range-for in constant evaluation: a named constexpr function (gcc 10
 // mishandles such loops inside a constexpr lambda)
 constexpr size_t attribute_chars() noexcept {
 	size_t total = 0;
-	for (const auto & a : ctxml::attributes(feed)) {
+	for (const auto & a : cthtml::attributes(feed)) {
 		total += a.name.size() + a.value.size();
 	}
 	return total;
@@ -44,12 +44,12 @@ static_assert(attribute_chars() == (7 + 3) + (7 + 10));
 int main() {
 	// walk any element's children: views are plain kinds and string_views
 	for (const auto & n : feed) {
-		if (n.type == ctxml::kind::element) {
+		if (n.type == cthtml::kind::element) {
 			std::cout << "<" << n.name() << "> " << n.text() << "\n";
 		}
 	}
 
-	for (const auto & a : ctxml::attributes(feed)) {
+	for (const auto & a : cthtml::attributes(feed)) {
 		std::cout << "@" << a.name << " = " << a.value << "\n";
 	}
 }

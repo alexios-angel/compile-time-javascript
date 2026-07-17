@@ -218,8 +218,8 @@ prospectively choose to deem waived or otherwise exclude such Section(s) of
 the License, but only in their entirety and only with respect to the Combined
 Software.
 */
-#ifndef CTXML__HPP
-#define CTXML__HPP
+#ifndef CTHTML__HPP
+#define CTHTML__HPP
 
 #ifndef CTLARK__HPP
 #define CTLARK__HPP
@@ -16130,8 +16130,8 @@ CTLL_EXPORT template <CTLARK_STRING_INPUT grammar> constexpr std::string_view du
 
 #endif
 
-#ifndef CTXML__GRAMMAR__HPP
-#define CTXML__GRAMMAR__HPP
+#ifndef CTHTML__GRAMMAR__HPP
+#define CTHTML__GRAMMAR__HPP
 
 #ifndef CTLARK__HPP
 #define CTLARK__HPP
@@ -32042,7 +32042,7 @@ CTLL_EXPORT template <CTLARK_STRING_INPUT grammar> constexpr std::string_view du
 
 #endif
 
-// The grammar layer: the ctxml XML subset written in lark's grammar
+// The grammar layer: the cthtml XML subset written in lark's grammar
 // language and parsed by ctlark. This grammar only tokenizes at all
 // because ctlark's lexer is CONTEXTUAL, like lark's: TEXT is a
 // candidate only where character data is expected, so it cannot
@@ -32063,7 +32063,7 @@ CTLL_EXPORT template <CTLARK_STRING_INPUT grammar> constexpr std::string_view du
 // attribute names must be unique, character references must be valid
 // code points - the binder (bind.hpp) checks, and is_valid includes.
 
-namespace ctxml::detail {
+namespace cthtml::detail {
 
 inline constexpr ctll::fixed_string xml_grammar = R"x(
 ?start: (_COMMENT | _PI)* element (_COMMENT | _PI)*
@@ -32089,14 +32089,14 @@ _PI: /<\?([^?]|\?+[^?>])*\?+>/
 inline constexpr ctll::fixed_string xml_start = "start";
 
 static_assert(ctlark::grammar_valid<xml_grammar>,
-              "ctxml: internal error - the XML grammar failed to compile");
+              "cthtml: internal error - the XML grammar failed to compile");
 
-} // namespace ctxml::detail
+} // namespace cthtml::detail
 
 #endif
 
-#ifndef CTXML__TYPES__HPP
-#define CTXML__TYPES__HPP
+#ifndef CTHTML__TYPES__HPP
+#define CTHTML__TYPES__HPP
 
 #ifndef CTLL__FIXED_STRING__GPP
 #define CTLL__FIXED_STRING__GPP
@@ -32585,7 +32585,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -32600,7 +32600,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 // An element's children are its child elements and its non-whitespace
 // text nodes, in document order.
 
-namespace ctxml {
+namespace cthtml {
 
 enum class kind {
 	element,
@@ -32663,7 +32663,7 @@ CTLL_EXPORT struct attribute_range {
 };
 
 CTLL_EXPORT struct node_view {
-	ctxml::kind type = kind::text;
+	cthtml::kind type = kind::text;
 	std::string_view tag{};
 	std::string_view content{};
 	const node_view * child_data = nullptr;
@@ -32801,7 +32801,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the attribute's value; a missing name is a compile-time error
 	template <ctll::fixed_string Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #else
@@ -32810,18 +32810,18 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (detail::text_matches<Key, typename Attributes::name_type>() || ...);
 	}
 	template <const auto & Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #endif
 
 	// positional access, for iterating attributes
 	template <size_t Index> static constexpr auto attribute_name() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::name_type{};
 	}
 	template <size_t Index> static constexpr auto attribute_value() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::value_type{};
 	}
 
@@ -32835,7 +32835,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 
 	template <size_t Index> static constexpr auto child() noexcept {
-		static_assert(Index < sizeof...(Children), "ctxml: child index out of range");
+		static_assert(Index < sizeof...(Children), "cthtml: child index out of range");
 		return detail::nth<Index, Children...>();
 	}
 
@@ -32859,7 +32859,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the first child element with this tag; missing is a compile error
 	template <ctll::fixed_string Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #else
@@ -32870,7 +32870,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (static_cast<size_t>(child_matches<Tag, Children>()) + ... + 0);
 	}
 	template <const auto & Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #endif
@@ -32933,15 +32933,15 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 	(f(typename Attributes::name_type{}, typename Attributes::value_type{}), ...);
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif
 
-#ifndef CTXML__BIND__HPP
-#define CTXML__BIND__HPP
+#ifndef CTHTML__BIND__HPP
+#define CTHTML__BIND__HPP
 
-#ifndef CTXML__GRAMMAR__HPP
-#define CTXML__GRAMMAR__HPP
+#ifndef CTHTML__GRAMMAR__HPP
+#define CTHTML__GRAMMAR__HPP
 
 #ifndef CTLARK__HPP
 #define CTLARK__HPP
@@ -48852,7 +48852,7 @@ CTLL_EXPORT template <CTLARK_STRING_INPUT grammar> constexpr std::string_view du
 
 #endif
 
-// The grammar layer: the ctxml XML subset written in lark's grammar
+// The grammar layer: the cthtml XML subset written in lark's grammar
 // language and parsed by ctlark. This grammar only tokenizes at all
 // because ctlark's lexer is CONTEXTUAL, like lark's: TEXT is a
 // candidate only where character data is expected, so it cannot
@@ -48873,7 +48873,7 @@ CTLL_EXPORT template <CTLARK_STRING_INPUT grammar> constexpr std::string_view du
 // attribute names must be unique, character references must be valid
 // code points - the binder (bind.hpp) checks, and is_valid includes.
 
-namespace ctxml::detail {
+namespace cthtml::detail {
 
 inline constexpr ctll::fixed_string xml_grammar = R"x(
 ?start: (_COMMENT | _PI)* element (_COMMENT | _PI)*
@@ -48899,14 +48899,14 @@ _PI: /<\?([^?]|\?+[^?>])*\?+>/
 inline constexpr ctll::fixed_string xml_start = "start";
 
 static_assert(ctlark::grammar_valid<xml_grammar>,
-              "ctxml: internal error - the XML grammar failed to compile");
+              "cthtml: internal error - the XML grammar failed to compile");
 
-} // namespace ctxml::detail
+} // namespace cthtml::detail
 
 #endif
 
-#ifndef CTXML__TYPES__HPP
-#define CTXML__TYPES__HPP
+#ifndef CTHTML__TYPES__HPP
+#define CTHTML__TYPES__HPP
 
 #ifndef CTLL__FIXED_STRING__GPP
 #define CTLL__FIXED_STRING__GPP
@@ -49395,7 +49395,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -49410,7 +49410,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 // An element's children are its child elements and its non-whitespace
 // text nodes, in document order.
 
-namespace ctxml {
+namespace cthtml {
 
 enum class kind {
 	element,
@@ -49473,7 +49473,7 @@ CTLL_EXPORT struct attribute_range {
 };
 
 CTLL_EXPORT struct node_view {
-	ctxml::kind type = kind::text;
+	cthtml::kind type = kind::text;
 	std::string_view tag{};
 	std::string_view content{};
 	const node_view * child_data = nullptr;
@@ -49611,7 +49611,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the attribute's value; a missing name is a compile-time error
 	template <ctll::fixed_string Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #else
@@ -49620,18 +49620,18 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (detail::text_matches<Key, typename Attributes::name_type>() || ...);
 	}
 	template <const auto & Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #endif
 
 	// positional access, for iterating attributes
 	template <size_t Index> static constexpr auto attribute_name() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::name_type{};
 	}
 	template <size_t Index> static constexpr auto attribute_value() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::value_type{};
 	}
 
@@ -49645,7 +49645,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 
 	template <size_t Index> static constexpr auto child() noexcept {
-		static_assert(Index < sizeof...(Children), "ctxml: child index out of range");
+		static_assert(Index < sizeof...(Children), "cthtml: child index out of range");
 		return detail::nth<Index, Children...>();
 	}
 
@@ -49669,7 +49669,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the first child element with this tag; missing is a compile error
 	template <ctll::fixed_string Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #else
@@ -49680,7 +49680,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (static_cast<size_t>(child_matches<Tag, Children>()) + ... + 0);
 	}
 	template <const auto & Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #endif
@@ -49743,17 +49743,17 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 	(f(typename Attributes::name_type{}, typename Attributes::value_type{}), ...);
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <utility>
 #endif
 
-// Lowering a ctlark parse tree into ctxml's document types, and
+// Lowering a ctlark parse tree into cthtml's document types, and
 // checking what the grammar cannot: a close tag must match its open
 // tag (name equality is TYPE equality), attribute names must be
 // unique within an element, and character references must denote
@@ -49765,7 +49765,7 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 // one text node - exactly as the old semantic actions accumulated
 // them - and whitespace-only text nodes are dropped.
 
-namespace ctxml {
+namespace cthtml {
 
 // why the binder rejected a document that PARSES - the well-formedness
 // rules the grammar itself cannot express
@@ -49797,9 +49797,9 @@ CTLL_EXPORT struct bind_error_t {
 	}
 };
 
-} // namespace ctxml
+} // namespace cthtml
 
-namespace ctxml::detail {
+namespace cthtml::detail {
 
 using bt_element = ctlark::text<'e', 'l', 'e', 'm', 'e', 'n', 't'>;
 using bt_attr = ctlark::text<'a', 't', 't', 'r'>;
@@ -49900,7 +49900,7 @@ template <typename Text, size_t From, size_t To> struct decode_entities {
 	static constexpr bool ok = data.ok;
 
 	template <size_t... I> static constexpr auto lift(std::index_sequence<I...>) noexcept {
-		return ctxml::text<data.buf[I]...>{};
+		return cthtml::text<data.buf[I]...>{};
 	}
 	using type = decltype(lift(std::make_index_sequence<data.len>{}));
 };
@@ -49910,7 +49910,7 @@ template <typename Text, size_t From, size_t To> struct decode_entities {
 template <typename Text, size_t From, size_t To> struct strip_span {
 	static constexpr size_t length = Text::size() - From - To;
 	template <size_t... I> static constexpr auto lift(std::index_sequence<I...>) noexcept {
-		return ctxml::text<Text::view()[From + I]...>{};
+		return cthtml::text<Text::view()[From + I]...>{};
 	}
 	using type = decltype(lift(std::make_index_sequence<length>{}));
 };
@@ -49951,8 +49951,8 @@ template <typename T> struct is_text_piece : std::false_type { };
 template <typename V> struct is_text_piece<ctlark::token<bt_TEXT, V>> : std::true_type { };
 template <typename V> struct is_text_piece<ctlark::token<bt_CDATA, V>> : std::true_type { };
 
-template <auto... A, auto... B> constexpr auto text_cat(ctxml::text<A...>, ctxml::text<B...>) noexcept {
-	return ctxml::text<A..., B...>{};
+template <auto... A, auto... B> constexpr auto text_cat(cthtml::text<A...>, cthtml::text<B...>) noexcept {
+	return cthtml::text<A..., B...>{};
 }
 
 template <typename Text> constexpr bool text_blank(Text) noexcept {
@@ -49968,7 +49968,7 @@ template <typename Node> struct bind_attr;
 template <typename Name, typename Value> struct bind_attr<ctlark::tree<bt_attr, Name, Value>> {
 	using name_type = typename strip_span<typename Name::value_type, 0, 0>::type;
 	using decoded = decode_entities<typename Value::value_type, 1, 1>;
-	using type = ctxml::attribute<name_type, typename decoded::type>;
+	using type = cthtml::attribute<name_type, typename decoded::type>;
 	static constexpr bool ok = decoded::ok;
 	static constexpr bind_error_t fail =
 		decoded::ok ? bind_error_t{} : bind_error_t{bind_reason::bad_reference, Value::value_type::view()};
@@ -50065,7 +50065,7 @@ constexpr auto fold_content(ctll::list<Ds...> done, P pending, bc<Ok>, Head, Res
 template <typename Name, typename AttrList, typename Content> struct assemble;
 template <typename Name, typename AttrList, typename... Cs>
 struct assemble<Name, AttrList, ctll::list<Cs...>> {
-	using type = ctxml::element<Name, AttrList, Cs...>;
+	using type = cthtml::element<Name, AttrList, Cs...>;
 };
 
 template <typename Name, typename AttrList, bool AOk, typename ContentResult> struct finish_element;
@@ -50175,15 +50175,15 @@ struct bind<ctlark::tree<bt_element, Open, Kids...>> {
 	static constexpr bind_error_t fail = element_fail<Open, Kids...>();
 };
 
-} // namespace ctxml::detail
+} // namespace cthtml::detail
 
 #endif
 
-#ifndef CTXML__SERIALIZE__HPP
-#define CTXML__SERIALIZE__HPP
+#ifndef CTHTML__SERIALIZE__HPP
+#define CTHTML__SERIALIZE__HPP
 
-#ifndef CTXML__TYPES__HPP
-#define CTXML__TYPES__HPP
+#ifndef CTHTML__TYPES__HPP
+#define CTHTML__TYPES__HPP
 
 #ifndef CTLL__FIXED_STRING__GPP
 #define CTLL__FIXED_STRING__GPP
@@ -50672,7 +50672,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -50687,7 +50687,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 // An element's children are its child elements and its non-whitespace
 // text nodes, in document order.
 
-namespace ctxml {
+namespace cthtml {
 
 enum class kind {
 	element,
@@ -50750,7 +50750,7 @@ CTLL_EXPORT struct attribute_range {
 };
 
 CTLL_EXPORT struct node_view {
-	ctxml::kind type = kind::text;
+	cthtml::kind type = kind::text;
 	std::string_view tag{};
 	std::string_view content{};
 	const node_view * child_data = nullptr;
@@ -50888,7 +50888,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the attribute's value; a missing name is a compile-time error
 	template <ctll::fixed_string Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #else
@@ -50897,18 +50897,18 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (detail::text_matches<Key, typename Attributes::name_type>() || ...);
 	}
 	template <const auto & Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #endif
 
 	// positional access, for iterating attributes
 	template <size_t Index> static constexpr auto attribute_name() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::name_type{};
 	}
 	template <size_t Index> static constexpr auto attribute_value() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::value_type{};
 	}
 
@@ -50922,7 +50922,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 
 	template <size_t Index> static constexpr auto child() noexcept {
-		static_assert(Index < sizeof...(Children), "ctxml: child index out of range");
+		static_assert(Index < sizeof...(Children), "cthtml: child index out of range");
 		return detail::nth<Index, Children...>();
 	}
 
@@ -50946,7 +50946,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the first child element with this tag; missing is a compile error
 	template <ctll::fixed_string Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #else
@@ -50957,7 +50957,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (static_cast<size_t>(child_matches<Tag, Children>()) + ... + 0);
 	}
 	template <const auto & Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #endif
@@ -51020,28 +51020,28 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 	(f(typename Attributes::name_type{}, typename Attributes::value_type{}), ...);
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <array>
 #include <cstddef>
 #include <string_view>
 #endif
 
-// Compile-time serialization: ctxml::serialize(doc) renders any element
+// Compile-time serialization: cthtml::serialize(doc) renders any element
 // back to minified XML in static storage and returns a std::string_view
 // of it - nothing happens at runtime.
 //
-//   constexpr auto doc = ctxml::parse<"<a  x='1' >hi<b/></a>">();
-//   static_assert(ctxml::serialize(doc) == R"(<a x="1">hi<b/></a>)");
+//   constexpr auto doc = cthtml::parse<"<a  x='1' >hi<b/></a>">();
+//   static_assert(cthtml::serialize(doc) == R"(<a x="1">hi<b/></a>)");
 //
 // Attribute values are double-quoted with & < " escaped; text content
 // escapes & < >; everything else, including multi-byte UTF-8, passes
 // through as-is. Elements without children use the self-closing form.
 
-namespace ctxml {
+namespace cthtml {
 
 namespace detail {
 
@@ -51162,15 +51162,15 @@ CTLL_EXPORT template <typename Node> constexpr std::string_view serialize(Node =
 	return std::string_view{storage::content.data(), storage::length};
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif
 
-#ifndef CTXML__VIEWS__HPP
-#define CTXML__VIEWS__HPP
+#ifndef CTHTML__VIEWS__HPP
+#define CTHTML__VIEWS__HPP
 
-#ifndef CTXML__TYPES__HPP
-#define CTXML__TYPES__HPP
+#ifndef CTHTML__TYPES__HPP
+#define CTHTML__TYPES__HPP
 
 #ifndef CTLL__FIXED_STRING__GPP
 #define CTLL__FIXED_STRING__GPP
@@ -51659,7 +51659,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -51674,7 +51674,7 @@ CTLL_EXPORT template <typename Traits, size_t N> std::basic_ostream<char, Traits
 // An element's children are its child elements and its non-whitespace
 // text nodes, in document order.
 
-namespace ctxml {
+namespace cthtml {
 
 enum class kind {
 	element,
@@ -51737,7 +51737,7 @@ CTLL_EXPORT struct attribute_range {
 };
 
 CTLL_EXPORT struct node_view {
-	ctxml::kind type = kind::text;
+	cthtml::kind type = kind::text;
 	std::string_view tag{};
 	std::string_view content{};
 	const node_view * child_data = nullptr;
@@ -51875,7 +51875,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the attribute's value; a missing name is a compile-time error
 	template <ctll::fixed_string Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #else
@@ -51884,18 +51884,18 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (detail::text_matches<Key, typename Attributes::name_type>() || ...);
 	}
 	template <const auto & Key> static constexpr auto attribute() noexcept {
-		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "ctxml: no attribute with this name");
+		static_assert((detail::text_matches<Key, typename Attributes::name_type>() || ...), "cthtml: no attribute with this name");
 		return find_attribute<Key, Attributes...>();
 	}
 #endif
 
 	// positional access, for iterating attributes
 	template <size_t Index> static constexpr auto attribute_name() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::name_type{};
 	}
 	template <size_t Index> static constexpr auto attribute_value() noexcept {
-		static_assert(Index < sizeof...(Attributes), "ctxml: attribute index out of range");
+		static_assert(Index < sizeof...(Attributes), "cthtml: attribute index out of range");
 		return typename decltype(detail::nth<Index, Attributes...>())::value_type{};
 	}
 
@@ -51909,7 +51909,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 
 	template <size_t Index> static constexpr auto child() noexcept {
-		static_assert(Index < sizeof...(Children), "ctxml: child index out of range");
+		static_assert(Index < sizeof...(Children), "cthtml: child index out of range");
 		return detail::nth<Index, Children...>();
 	}
 
@@ -51933,7 +51933,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 	}
 	// the first child element with this tag; missing is a compile error
 	template <ctll::fixed_string Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #else
@@ -51944,7 +51944,7 @@ struct element<Name, ctll::list<Attributes...>, Children...> {
 		return (static_cast<size_t>(child_matches<Tag, Children>()) + ... + 0);
 	}
 	template <const auto & Tag> static constexpr auto get() noexcept {
-		static_assert((child_matches<Tag, Children>() || ...), "ctxml: no child element with this tag");
+		static_assert((child_matches<Tag, Children>() || ...), "cthtml: no child element with this tag");
 		return find_child<Tag, Children...>();
 	}
 #endif
@@ -52007,11 +52007,11 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 	(f(typename Attributes::name_type{}, typename Attributes::value_type{}), ...);
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif
 
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <array>
 #include <cstddef>
 #include <string_view>
@@ -52024,14 +52024,14 @@ constexpr void for_each_attribute(element<Name, ctll::list<Attributes...>, Child
 // range-for, standard algorithms and constexpr loops all work:
 //
 //   for (const auto & n : doc) { ... n.type, n.name, n.text ... }
-//   for (const auto & a : ctxml::attributes(doc)) { ... a.name, a.value ... }
+//   for (const auto & a : cthtml::attributes(doc)) { ... a.name, a.value ... }
 //
 // Element children view their tag and direct text, text children just
 // their content - dispatch on .type when the distinction matters. For
 // type-preserving iteration (each child with its own accessors),
 // for_each_child and for_each_attribute remain the tools.
 
-namespace ctxml {
+namespace cthtml {
 
 CTLL_EXPORT constexpr attribute_range attributes(node_view node) noexcept {
 	return node.attributes();
@@ -52087,13 +52087,13 @@ attributes(element<Name, ctll::list<Attributes...>, Children...>) noexcept {
 	return detail::attr_views<Attributes...>::data;
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif
 
-// ctxml: compile-time XML.
+// cthtml: compile-time XML.
 //
-//   constexpr auto doc = ctxml::parse<R"(
+//   constexpr auto doc = cthtml::parse<R"(
 //       <server host="example.com" port="8080">
 //           <path>/api</path>
 //       </server>)">();
@@ -52101,8 +52101,8 @@ attributes(element<Name, ctll::list<Attributes...>, Children...>) noexcept {
 //   static_assert(doc.name() == "server");
 //   static_assert(doc.attribute<"port">() == "8080");
 //   static_assert(doc.get<"path">().text() == "/api");
-//   static_assert(ctxml::is_valid<"<a><b/></a>">);
-//   static_assert(!ctxml::is_valid<"<a></b>">); // mismatched tags
+//   static_assert(cthtml::is_valid<"<a><b/></a>">);
+//   static_assert(!cthtml::is_valid<"<a></b>">); // mismatched tags
 //
 // The document is parsed while your code compiles - malformed or
 // ill-formed XML (mismatched close tags, duplicate attributes) is a
@@ -52113,20 +52113,20 @@ attributes(element<Name, ctll::list<Attributes...>, Children...>) noexcept {
 // contextual, and bind.hpp lowers the parsed tree into the document
 // types, decoding entities and enforcing well-formedness on the way.
 
-namespace ctxml {
+namespace cthtml {
 
 #if CTLL_CNTTP_COMPILER_CHECK
-#define CTXML_STRING_INPUT ctll::fixed_string
+#define CTHTML_STRING_INPUT ctll::fixed_string
 #else
 // C++17: pass a constexpr ctll::fixed_string variable with linkage
-#define CTXML_STRING_INPUT const auto &
+#define CTHTML_STRING_INPUT const auto &
 #endif
 
 namespace detail {
 
 // grammar validity is a given (static_assert in grammar.hpp); input
 // validity is the parse plus the binder's well-formedness checks
-template <CTXML_STRING_INPUT input> constexpr bool valid_document() noexcept {
+template <CTHTML_STRING_INPUT input> constexpr bool valid_document() noexcept {
 	if constexpr (!ctlark::is_valid<xml_grammar, input, xml_start>) {
 		return false;
 	} else {
@@ -52137,25 +52137,25 @@ template <CTXML_STRING_INPUT input> constexpr bool valid_document() noexcept {
 } // namespace detail
 
 // does the input parse as well-formed XML (within the supported subset)?
-CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr bool is_valid =
+CTLL_EXPORT template <CTHTML_STRING_INPUT input> constexpr bool is_valid =
 	detail::valid_document<input>();
 
 // what failed and where, when it does not: kind, byte offset, line,
 // column and the expected terminals (kind none = the syntax is fine)
-CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr ctlark::error_info_t error_info() noexcept {
+CTLL_EXPORT template <CTHTML_STRING_INPUT input> constexpr ctlark::error_info_t error_info() noexcept {
 	return ctlark::error_info<detail::xml_grammar, input, detail::xml_start>();
 }
 
 // the rendered diagnostic - location, snippet with a caret, expected
 // terminals - as a static string ("" when the syntax is fine)
-CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr std::string_view error_message() noexcept {
+CTLL_EXPORT template <CTHTML_STRING_INPUT input> constexpr std::string_view error_message() noexcept {
 	return ctlark::error_message<detail::xml_grammar, input, detail::xml_start>();
 }
 
 // why the binder rejected a document that PARSES - mismatched close
 // tags, duplicate attributes, invalid character references; reason
 // none when the document is valid or when the syntax already failed
-CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr bind_error_t bind_error() noexcept {
+CTLL_EXPORT template <CTHTML_STRING_INPUT input> constexpr bind_error_t bind_error() noexcept {
 	if constexpr (!ctlark::is_valid<detail::xml_grammar, input, detail::xml_start>) {
 		return bind_error_t{};
 	} else {
@@ -52164,16 +52164,16 @@ CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr bind_error_t bind_erro
 }
 
 // parse the input into its root element; invalid XML fails to compile
-CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr auto parse() noexcept {
+CTLL_EXPORT template <CTHTML_STRING_INPUT input> constexpr auto parse() noexcept {
 #ifdef CTLARK_VERBOSE_ERRORS
 	(void)ctlark::verbose_report<detail::xml_grammar, input, detail::xml_start>();
 #endif
 	static_assert(ctlark::is_valid<detail::xml_grammar, input, detail::xml_start>,
-	              "ctxml: the input is not valid XML syntax - print ctxml::error_message<input>() "
+	              "cthtml: the input is not valid XML syntax - print cthtml::error_message<input>() "
 	              "for the location and the expected tokens");
 	static_assert(!ctlark::is_valid<detail::xml_grammar, input, detail::xml_start> || is_valid<input>,
-	              "ctxml: the input parses but is not well-formed (mismatched close tag, duplicate "
-	              "attribute, or bad character reference) - print ctxml::bind_error<input>() for the reason");
+	              "cthtml: the input parses but is not well-formed (mismatched close tag, duplicate "
+	              "attribute, or bad character reference) - print cthtml::bind_error<input>() for the reason");
 	if constexpr (is_valid<input>) {
 		using bound = detail::bind<decltype(ctlark::parse<detail::xml_grammar, input, detail::xml_start>())>;
 		return typename bound::type{};
@@ -52187,11 +52187,11 @@ CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr auto parse() noexcept 
 // against the compile-time tables, token and grammar dumps
 namespace debug {
 
-CTLL_EXPORT template <CTXML_STRING_INPUT input, size_t Cap = 4096> constexpr auto traced_parse() noexcept {
+CTLL_EXPORT template <CTHTML_STRING_INPUT input, size_t Cap = 4096> constexpr auto traced_parse() noexcept {
 	return ctlark::debug::traced_parse<detail::xml_grammar, input, detail::xml_start, Cap>();
 }
 
-CTLL_EXPORT template <CTXML_STRING_INPUT input> constexpr std::string_view dump_tokens() noexcept {
+CTLL_EXPORT template <CTHTML_STRING_INPUT input> constexpr std::string_view dump_tokens() noexcept {
 	return ctlark::debug::dump_tokens<detail::xml_grammar, input, detail::xml_start>();
 }
 
@@ -52206,6 +52206,6 @@ ctlark::debug::runtime_result parse_runtime(std::string_view in) {
 
 } // namespace debug
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif

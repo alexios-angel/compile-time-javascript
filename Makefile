@@ -1,4 +1,4 @@
-.PHONY: default all clean pch single-header single-header/ctxml.hpp
+.PHONY: default all clean pch single-header single-header/cthtml.hpp
 
 default: all
 
@@ -29,10 +29,10 @@ override CXXFLAGS := $(CXXFLAGS) -std=c++$(CXX_STANDARD) -Iinclude $(SUBMODULE_I
 # precompiled header: parsing the XML grammar text and compiling its
 # tables happens once here instead of once per translation unit
 ifeq ($(CXX_IS_CLANG),yes)
-PCH := ctxml.pch
+PCH := cthtml.pch
 PCH_USE = -include-pch $(PCH)
 else
-PCH := include/ctxml.hpp.gch
+PCH := include/cthtml.hpp.gch
 PCH_USE =
 endif
 
@@ -47,24 +47,24 @@ $(OBJECTS): %.o: %.cpp $(PCH)
 
 pch: $(PCH)
 
-$(PCH): include/ctxml.hpp
+$(PCH): include/cthtml.hpp
 	$(CXX) $(CXXFLAGS) -x c++-header $< -o $@
 
 -include $(DEPENDENCY_FILES)
 
 clean:
-	rm -f $(OBJECTS) $(DEPENDENCY_FILES) ctxml.pch include/ctxml.hpp.gch
+	rm -f $(OBJECTS) $(DEPENDENCY_FILES) cthtml.pch include/cthtml.hpp.gch
 
 # needs python3 with the quom package
-single-header: single-header/ctxml.hpp
+single-header: single-header/cthtml.hpp
 
-single-header/ctxml.hpp:
-	$(PYTHON) -m quom include/ctxml.hpp ctxml.hpp.tmp \
+single-header/cthtml.hpp:
+	$(PYTHON) -m quom include/cthtml.hpp cthtml.hpp.tmp \
 		-I external/compile-time-lark/include \
 		-I external/compile-time-lark/include/ctlark \
 		-I external/compile-time-lark/include/ctll
-	echo "/*" > single-header/ctxml.hpp
-	cat LICENSE >> single-header/ctxml.hpp
-	echo "*/" >> single-header/ctxml.hpp
-	cat ctxml.hpp.tmp >> single-header/ctxml.hpp
-	rm ctxml.hpp.tmp
+	echo "/*" > single-header/cthtml.hpp
+	cat LICENSE >> single-header/cthtml.hpp
+	echo "*/" >> single-header/cthtml.hpp
+	cat cthtml.hpp.tmp >> single-header/cthtml.hpp
+	rm cthtml.hpp.tmp

@@ -1,4 +1,4 @@
-#include <ctxml.hpp>
+#include <cthtml.hpp>
 
 void empty_symbol_17() { }
 
@@ -10,26 +10,26 @@ void empty_symbol_17() { }
 using namespace std::literals;
 
 // --- basics
-static_assert(ctxml::is_valid<"<a/>">);
-static_assert(ctxml::is_valid<"<a></a>">);
-static_assert(ctxml::is_valid<"<a><b/><c></c></a>">);
-static_assert(ctxml::is_valid<"  <a/>  ">);
+static_assert(cthtml::is_valid<"<a/>">);
+static_assert(cthtml::is_valid<"<a></a>">);
+static_assert(cthtml::is_valid<"<a><b/><c></c></a>">);
+static_assert(cthtml::is_valid<"  <a/>  ">);
 
 // --- THE feature: well-formedness is a compile-time property
-static_assert(!ctxml::is_valid<"<a></b>">);              // mismatched tags
-static_assert(!ctxml::is_valid<"<a><b></a></b>">);       // interleaved
-static_assert(!ctxml::is_valid<"<a x='1' x='2'/>">);     // duplicate attribute
-static_assert(!ctxml::is_valid<"<a>">);                  // unclosed
-static_assert(!ctxml::is_valid<"<a/><b/>">);             // two roots
-static_assert(!ctxml::is_valid<"text">);                 // no root element
-static_assert(!ctxml::is_valid<"">);
-static_assert(!ctxml::is_valid<"<a>&nbsp;</a>">);        // undefined entity
-static_assert(!ctxml::is_valid<"<!DOCTYPE html><a/>">);  // DTDs unsupported
-static_assert(!ctxml::is_valid<"<a><!-- x -- y --></a>">); // -- inside comment
-static_assert(!ctxml::is_valid<"<a b='<'/>">);           // raw < in attribute
+static_assert(!cthtml::is_valid<"<a></b>">);              // mismatched tags
+static_assert(!cthtml::is_valid<"<a><b></a></b>">);       // interleaved
+static_assert(!cthtml::is_valid<"<a x='1' x='2'/>">);     // duplicate attribute
+static_assert(!cthtml::is_valid<"<a>">);                  // unclosed
+static_assert(!cthtml::is_valid<"<a/><b/>">);             // two roots
+static_assert(!cthtml::is_valid<"text">);                 // no root element
+static_assert(!cthtml::is_valid<"">);
+static_assert(!cthtml::is_valid<"<a>&nbsp;</a>">);        // undefined entity
+static_assert(!cthtml::is_valid<"<!DOCTYPE html><a/>">);  // DTDs unsupported
+static_assert(!cthtml::is_valid<"<a><!-- x -- y --></a>">); // -- inside comment
+static_assert(!cthtml::is_valid<"<a b='<'/>">);           // raw < in attribute
 
 // --- a real document
-constexpr auto doc = ctxml::parse<R"(
+constexpr auto doc = cthtml::parse<R"(
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- server configuration -->
 <server host="example.com" port='8080' secure="true">
@@ -72,43 +72,43 @@ static_assert(doc.get<"raw">().text() == "literal <markup> & stuff"sv);
 static_assert(doc.get<"mixed">().text() == "onetwo"sv);
 static_assert(doc.get<"mixed">().child_count() == 3);
 static_assert(doc.get<"mixed">().child<1>().name() == "sep"sv);
-static_assert(doc.get<"mixed">().child<0>().type == ctxml::kind::text);
+static_assert(doc.get<"mixed">().child<0>().type == cthtml::kind::text);
 
 // --- more entity / CDATA edges
-static_assert(ctxml::parse<"<a>&apos;&quot;</a>">().text() == "'\""sv);
-static_assert(ctxml::parse<"<a><![CDATA[x]]y]]></a>">().text() == "x]]y"sv);
-static_assert(ctxml::parse<"<a><![CDATA[]]]]><![CDATA[>]]></a>">().text() == "]]>"sv);
-static_assert(ctxml::parse<"<a>x<!-- comment -->y</a>">().text() == "xy"sv);
-static_assert(ctxml::parse<"<a><?php echo ?>t</a>">().text() == "t"sv);
+static_assert(cthtml::parse<"<a>&apos;&quot;</a>">().text() == "'\""sv);
+static_assert(cthtml::parse<"<a><![CDATA[x]]y]]></a>">().text() == "x]]y"sv);
+static_assert(cthtml::parse<"<a><![CDATA[]]]]><![CDATA[>]]></a>">().text() == "]]>"sv);
+static_assert(cthtml::parse<"<a>x<!-- comment -->y</a>">().text() == "xy"sv);
+static_assert(cthtml::parse<"<a><?php echo ?>t</a>">().text() == "t"sv);
 
 // attribute values: entities decode, both quotes, empty values
-static_assert(ctxml::parse<R"(<a t="&lt;&#65;&gt;"/>)">().attribute<"t">() == "<A>"sv);
-static_assert(ctxml::parse<"<a t=''/>">().attribute<"t">().empty());
-static_assert(ctxml::parse<R"(<a t='say "hi"'/>)">().attribute<"t">() == "say \"hi\""sv);
+static_assert(cthtml::parse<R"(<a t="&lt;&#65;&gt;"/>)">().attribute<"t">() == "<A>"sv);
+static_assert(cthtml::parse<"<a t=''/>">().attribute<"t">().empty());
+static_assert(cthtml::parse<R"(<a t='say "hi"'/>)">().attribute<"t">() == "say \"hi\""sv);
 
 // utf-8 names work (bytes above 0x7F are name characters)
-static_assert(ctxml::parse<"<café tükör='ő'/>">().name() == "café"sv);
+static_assert(cthtml::parse<"<café tükör='ő'/>">().name() == "café"sv);
 
 // names may contain : . - digits (but not start with them)
-static_assert(ctxml::is_valid<"<ns:tag-1.2/>">);
-static_assert(!ctxml::is_valid<"<1a/>">);
+static_assert(cthtml::is_valid<"<ns:tag-1.2/>">);
+static_assert(!cthtml::is_valid<"<1a/>">);
 
 // whitespace tolerance in tags
-static_assert(ctxml::is_valid<"<a  x = '1'  ></a  >">);
+static_assert(cthtml::is_valid<"<a  x = '1'  ></a  >">);
 
 // --- serialization
-static_assert(ctxml::serialize(ctxml::parse<"<a  x = '1' >hi<b/></a>">()) == R"(<a x="1">hi<b/></a>)"sv);
-static_assert(ctxml::serialize(ctxml::parse<"<m>a &lt;b&gt;</m>">()) == "<m>a &lt;b&gt;</m>"sv);
-static_assert(ctxml::serialize(ctxml::parse<R"(<a q="a&quot;b"/>)">()) == R"(<a q="a&quot;b"/>)"sv);
+static_assert(cthtml::serialize(cthtml::parse<"<a  x = '1' >hi<b/></a>">()) == R"(<a x="1">hi<b/></a>)"sv);
+static_assert(cthtml::serialize(cthtml::parse<"<m>a &lt;b&gt;</m>">()) == "<m>a &lt;b&gt;</m>"sv);
+static_assert(cthtml::serialize(cthtml::parse<R"(<a q="a&quot;b"/>)">()) == R"(<a q="a&quot;b"/>)"sv);
 // round-trip: parse(serialize(x)) is the same type as x
-constexpr auto rt = ctxml::parse<R"(<a x="1"><b>t</b></a>)">();
-static_assert(std::is_same_v<decltype(ctxml::parse<ctll::fixed_string{R"(<a x="1"><b>t</b></a>)"}>()), std::remove_const_t<decltype(rt)>>);
+constexpr auto rt = cthtml::parse<R"(<a x="1"><b>t</b></a>)">();
+static_assert(std::is_same_v<decltype(cthtml::parse<ctll::fixed_string{R"(<a x="1"><b>t</b></a>)"}>()), std::remove_const_t<decltype(rt)>>);
 
 // --- iteration
 static_assert([] {
 	size_t elements = 0, texts = 0;
-	ctxml::for_each_child(doc, [&](auto child) {
-		if constexpr (decltype(child)::type == ctxml::kind::element) {
+	cthtml::for_each_child(doc, [&](auto child) {
+		if constexpr (decltype(child)::type == cthtml::kind::element) {
 			++elements;
 		} else {
 			++texts;
@@ -118,7 +118,7 @@ static_assert([] {
 }() == 70);
 static_assert([] {
 	size_t total = 0;
-	ctxml::for_each_attribute(doc, [&](auto name, auto value) {
+	cthtml::for_each_attribute(doc, [&](auto name, auto value) {
 		total += name.size() + value.size();
 	});
 	return total;
@@ -128,14 +128,14 @@ void empty_symbol() { }
 
 #endif
 
-// --- operator[] and iterators (see include/ctxml/views.hpp)
+// --- operator[] and iterators (see include/cthtml/views.hpp)
 
 #if CTLL_CNTTP_COMPILER_CHECK
 
 namespace bracket_tests {
 
 
-constexpr auto cfg = ctxml::parse<
+constexpr auto cfg = cthtml::parse<
     R"(<service name="demo"><endpoint host="a" tls="true"/><endpoint host="b"/><motd>hi</motd></service>)">();
 
 // [] is get (first child element with the tag) or child (by position),
@@ -153,8 +153,8 @@ static_assert(cfg["missing"][0]["still-missing"].name().empty());
 // name TYPES work as [] arguments in any standard
 static_assert([] {
 	size_t found = 0;
-	ctxml::for_each_child(cfg, [&](auto child) {
-		if constexpr (decltype(child)::type == ctxml::kind::element) {
+	cthtml::for_each_child(cfg, [&](auto child) {
+		if constexpr (decltype(child)::type == cthtml::kind::element) {
 			if (cfg[child.name()].name() == child.name()) {
 				++found;
 			}
@@ -169,7 +169,7 @@ static_assert([] {
 	size_t elements = 0;
 	size_t texts = 0;
 	for (const auto & n : cfg) {
-		if (n.type == ctxml::kind::element) {
+		if (n.type == cthtml::kind::element) {
 			++elements;
 		} else {
 			++texts;
@@ -189,11 +189,11 @@ static_assert([] {
 
 // mixed content: text children view their content, with no name
 // (gcc 10 wants this loop in a named function rather than a constexpr lambda)
-constexpr auto mixed = ctxml::parse<"<a>x<b/>y</a>">();
+constexpr auto mixed = cthtml::parse<"<a>x<b/>y</a>">();
 constexpr size_t mixed_text_chars() {
 	size_t text_chars = 0;
 	for (const auto & n : mixed) {
-		if (n.type == ctxml::kind::text) {
+		if (n.type == cthtml::kind::text) {
 			text_chars += n.text().size();
 		}
 	}
@@ -205,49 +205,49 @@ static_assert(mixed_text_chars() == 2);
 // (gcc 10 wants this loop in a named function rather than a constexpr lambda)
 constexpr size_t endpoint_attribute_chars() {
 	size_t chars = 0;
-	for (const auto & a : ctxml::attributes(cfg["endpoint"])) {
+	for (const auto & a : cthtml::attributes(cfg["endpoint"])) {
 		chars += a.name.size() + a.value.size();
 	}
 	return chars;
 }
 static_assert(endpoint_attribute_chars() == (4 + 1) + (3 + 4));
-static_assert(ctxml::attributes(cfg).size() == 1);
+static_assert(cthtml::attributes(cfg).size() == 1);
 
 // childless elements iterate zero times
-static_assert(ctxml::begin(ctxml::parse<"<a/>">()) == ctxml::end(ctxml::parse<"<a/>">()));
+static_assert(cthtml::begin(cthtml::parse<"<a/>">()) == cthtml::end(cthtml::parse<"<a/>">()));
 
 } // namespace bracket_tests
 
 // --- diagnostics: error_info, error_message, bind_error, debug tools
 
 // valid documents report nothing
-static_assert(ctxml::error_info<"<a><b/></a>">().ok());
-static_assert(ctxml::error_message<"<a><b/></a>">() == ""sv);
-static_assert(ctxml::bind_error<"<a><b/></a>">().ok());
+static_assert(cthtml::error_info<"<a><b/></a>">().ok());
+static_assert(cthtml::error_message<"<a><b/></a>">() == ""sv);
+static_assert(cthtml::bind_error<"<a><b/></a>">().ok());
 
 // an unclosed element: kind, offset, line, column, expected tokens
-constexpr auto unclosed = ctxml::error_info<"<a><b></b>">();
+constexpr auto unclosed = cthtml::error_info<"<a><b></b>">();
 static_assert(unclosed.kind == ctlark::error_kind::parse);
 static_assert(unclosed.position == 10 && unclosed.line == 1 && unclosed.column == 11);
-static_assert(ctxml::error_message<"<a><b></b>">() ==
+static_assert(cthtml::error_message<"<a><b></b>">() ==
               "ctlark: syntax error at line 1, column 11: unexpected end of input\n"
               "  <a><b></b>\n"
               "            ^\n"
               "expected: _COMMENT, _PI, OPEN, TEXT, CDATA, CLOSE"sv);
 
 // well-formedness failures name the rule and the offending token
-constexpr auto mismatched = ctxml::bind_error<"<a><b></c></a>">();
-static_assert(mismatched.reason == ctxml::bind_reason::mismatched_tag);
+constexpr auto mismatched = cthtml::bind_error<"<a><b></c></a>">();
+static_assert(mismatched.reason == cthtml::bind_reason::mismatched_tag);
 static_assert(mismatched.where == "</c>"sv);
-constexpr auto dup_attr = ctxml::bind_error<R"(<a x="1" x="2"/>)">();
-static_assert(dup_attr.reason == ctxml::bind_reason::duplicate_attribute);
+constexpr auto dup_attr = cthtml::bind_error<R"(<a x="1" x="2"/>)">();
+static_assert(dup_attr.reason == cthtml::bind_reason::duplicate_attribute);
 static_assert(dup_attr.where == "x"sv);
-constexpr auto bad_ref = ctxml::bind_error<"<a>&#x0;</a>">();
-static_assert(bad_ref.reason == ctxml::bind_reason::bad_reference);
+constexpr auto bad_ref = cthtml::bind_error<"<a>&#x0;</a>">();
+static_assert(bad_ref.reason == cthtml::bind_reason::bad_reference);
 static_assert(bad_ref.where == "&#x0;"sv);
 
 // the ctlark debugging toolbox with the XML grammar baked in
-static_assert(ctxml::debug::dump_tokens<"<a x=\"1\">hi</a>">() ==
+static_assert(cthtml::debug::dump_tokens<"<a x=\"1\">hi</a>">() ==
               "OPEN '<a' @0..2\n"
               "NAME 'x' @3..4\n"
               "EQUAL '=' @4..5\n"
@@ -255,9 +255,9 @@ static_assert(ctxml::debug::dump_tokens<"<a x=\"1\">hi</a>">() ==
               "MORETHAN '>' @8..9\n"
               "TEXT 'hi' @9..11\n"
               "CLOSE '</a>' @11..15\n"sv);
-constexpr auto traced = ctxml::debug::traced_parse<"<a></b>">();
+constexpr auto traced = cthtml::debug::traced_parse<"<a></b>">();
 static_assert(traced.ok); // the SYNTAX parses; the binder rejects it
 static_assert(traced.log.events > 0);
-static_assert(ctxml::debug::dump_grammar().find("terminal OPEN") != std::string_view::npos);
+static_assert(cthtml::debug::dump_grammar().find("terminal OPEN") != std::string_view::npos);
 
 #endif

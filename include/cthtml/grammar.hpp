@@ -1,9 +1,9 @@
-#ifndef CTXML__GRAMMAR__HPP
-#define CTXML__GRAMMAR__HPP
+#ifndef CTHTML__GRAMMAR__HPP
+#define CTHTML__GRAMMAR__HPP
 
 #include "../ctlark.hpp"
 
-// The grammar layer: the ctxml XML subset written in lark's grammar
+// The grammar layer: the cthtml XML subset written in lark's grammar
 // language and parsed by ctlark. This grammar only tokenizes at all
 // because ctlark's lexer is CONTEXTUAL, like lark's: TEXT is a
 // candidate only where character data is expected, so it cannot
@@ -24,7 +24,7 @@
 // attribute names must be unique, character references must be valid
 // code points - the binder (bind.hpp) checks, and is_valid includes.
 
-namespace ctxml::detail {
+namespace cthtml::detail {
 
 inline constexpr ctll::fixed_string xml_grammar = R"x(
 ?start: (_COMMENT | _PI)* element (_COMMENT | _PI)*
@@ -50,8 +50,8 @@ _PI: /<\?([^?]|\?+[^?>])*\?+>/
 inline constexpr ctll::fixed_string xml_start = "start";
 
 static_assert(ctlark::grammar_valid<xml_grammar>,
-              "ctxml: internal error - the XML grammar failed to compile");
+              "cthtml: internal error - the XML grammar failed to compile");
 
-} // namespace ctxml::detail
+} // namespace cthtml::detail
 
 #endif

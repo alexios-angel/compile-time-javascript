@@ -5,10 +5,10 @@
 //
 // Build: make config
 
-#include <ctxml.hpp>
+#include <cthtml.hpp>
 #include <iostream>
 
-constexpr auto config = ctxml::parse<R"(<?xml version="1.0" encoding="UTF-8"?>
+constexpr auto config = cthtml::parse<R"(<?xml version="1.0" encoding="UTF-8"?>
 <service name="demo" workers="8">
 	<!-- upstream endpoints, tried in order -->
 	<endpoint host="a.example.com" port="443" tls="true"/>
@@ -38,8 +38,8 @@ int main() {
 	std::cout << "greeting: " << config.get<"greeting">().text() << "\n";
 
 	std::cout << "endpoints:\n";
-	ctxml::for_each_child(config, [](auto child) {
-		if constexpr (decltype(child)::type == ctxml::kind::element) {
+	cthtml::for_each_child(config, [](auto child) {
+		if constexpr (decltype(child)::type == cthtml::kind::element) {
 			if constexpr (decltype(child)::name() == std::string_view{"endpoint"}) {
 				std::cout << "  " << child.template attribute<"host">().view()
 				          << ":" << child.template attribute<"port">().view()

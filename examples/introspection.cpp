@@ -5,30 +5,30 @@
 //
 // Build: make introspection
 
-#include <ctxml.hpp>
+#include <cthtml.hpp>
 #include <iostream>
 #include <string>
 
 template <typename Node> void print(Node node, int indent = 0) {
 	const std::string pad(static_cast<size_t>(indent) * 2, ' ');
-	if constexpr (Node::type == ctxml::kind::text) {
+	if constexpr (Node::type == cthtml::kind::text) {
 		std::cout << pad << '"' << Node::view() << '"' << "\n";
 	} else {
 		std::cout << pad << '<' << Node::name();
-		ctxml::for_each_attribute(node, [](auto name, auto value) {
+		cthtml::for_each_attribute(node, [](auto name, auto value) {
 			std::cout << ' ' << name.view() << "=\"" << value.view() << '"';
 		});
 		if constexpr (Node::child_count() == 0) {
 			std::cout << "/>\n";
 		} else {
 			std::cout << ">\n";
-			ctxml::for_each_child(node, [&](auto child) { print(child, indent + 1); });
+			cthtml::for_each_child(node, [&](auto child) { print(child, indent + 1); });
 			std::cout << pad << "</" << Node::name() << ">\n";
 		}
 	}
 }
 
-constexpr auto doc = ctxml::parse<R"(
+constexpr auto doc = cthtml::parse<R"(
 <feed version="1.1">
 	<entry id="1" starred="yes">
 		<title>Compile-time everything</title>
@@ -44,6 +44,6 @@ int main() {
 	print(doc);
 
 	// the same document, re-serialized to minified form at compile time
-	constexpr auto minified = ctxml::serialize(doc);
+	constexpr auto minified = cthtml::serialize(doc);
 	std::cout << "\nminified (" << minified.size() << " bytes):\n" << minified << "\n";
 }

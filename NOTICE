@@ -1,4 +1,4 @@
-This repository ("compile-time-xml" / ctxml) is a derivative work
+This repository ("compile-time-xml" / cthtml) is a derivative work
 built on:
 
     notre (a fork of Compile Time Regular Expressions)
@@ -20,7 +20,7 @@ ctll::fixed_string and supporting headers) is copied from notre, where
 it descends from Hana Dusikova's CTRE with modifications. The build and
 packaging scaffolding follows the sibling projects compile-time-json
 and compile-time-json5 (https://github.com/alexios-angel/). The XML
-grammar, parse table, document types, semantic actions and the ctxml
+grammar, parse table, document types, semantic actions and the cthtml
 API are original to this repository, but follow the architecture CTRE
 established (a Tablewright-generated LL(1) table driven by CTLL with
 semantic actions building a type-level result).

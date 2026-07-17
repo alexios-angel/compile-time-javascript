@@ -1,25 +1,25 @@
-#ifndef CTXML__SERIALIZE__HPP
-#define CTXML__SERIALIZE__HPP
+#ifndef CTHTML__SERIALIZE__HPP
+#define CTHTML__SERIALIZE__HPP
 
 #include "types.hpp"
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <array>
 #include <cstddef>
 #include <string_view>
 #endif
 
-// Compile-time serialization: ctxml::serialize(doc) renders any element
+// Compile-time serialization: cthtml::serialize(doc) renders any element
 // back to minified XML in static storage and returns a std::string_view
 // of it - nothing happens at runtime.
 //
-//   constexpr auto doc = ctxml::parse<"<a  x='1' >hi<b/></a>">();
-//   static_assert(ctxml::serialize(doc) == R"(<a x="1">hi<b/></a>)");
+//   constexpr auto doc = cthtml::parse<"<a  x='1' >hi<b/></a>">();
+//   static_assert(cthtml::serialize(doc) == R"(<a x="1">hi<b/></a>)");
 //
 // Attribute values are double-quoted with & < " escaped; text content
 // escapes & < >; everything else, including multi-byte UTF-8, passes
 // through as-is. Elements without children use the self-closing form.
 
-namespace ctxml {
+namespace cthtml {
 
 namespace detail {
 
@@ -140,6 +140,6 @@ CTLL_EXPORT template <typename Node> constexpr std::string_view serialize(Node =
 	return std::string_view{storage::content.data(), storage::length};
 }
 
-} // namespace ctxml
+} // namespace cthtml
 
 #endif

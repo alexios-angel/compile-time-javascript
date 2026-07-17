@@ -1,15 +1,15 @@
-#ifndef CTXML__BIND__HPP
-#define CTXML__BIND__HPP
+#ifndef CTHTML__BIND__HPP
+#define CTHTML__BIND__HPP
 
 #include "grammar.hpp"
 #include "types.hpp"
-#ifndef CTXML_IN_A_MODULE
+#ifndef CTHTML_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
 #include <utility>
 #endif
 
-// Lowering a ctlark parse tree into ctxml's document types, and
+// Lowering a ctlark parse tree into cthtml's document types, and
 // checking what the grammar cannot: a close tag must match its open
 // tag (name equality is TYPE equality), attribute names must be
 // unique within an element, and character references must denote
@@ -21,7 +21,7 @@
 // one text node - exactly as the old semantic actions accumulated
 // them - and whitespace-only text nodes are dropped.
 
-namespace ctxml {
+namespace cthtml {
 
 // why the binder rejected a document that PARSES - the well-formedness
 // rules the grammar itself cannot express
@@ -53,9 +53,9 @@ CTLL_EXPORT struct bind_error_t {
 	}
 };
 
-} // namespace ctxml
+} // namespace cthtml
 
-namespace ctxml::detail {
+namespace cthtml::detail {
 
 using bt_element = ctlark::text<'e', 'l', 'e', 'm', 'e', 'n', 't'>;
 using bt_attr = ctlark::text<'a', 't', 't', 'r'>;
@@ -156,7 +156,7 @@ template <typename Text, size_t From, size_t To> struct decode_entities {
 	static constexpr bool ok = data.ok;
 
 	template <size_t... I> static constexpr auto lift(std::index_sequence<I...>) noexcept {
-		return ctxml::text<data.buf[I]...>{};
+		return cthtml::text<data.buf[I]...>{};
 	}
 	using type = decltype(lift(std::make_index_sequence<data.len>{}));
 };
@@ -166,7 +166,7 @@ template <typename Text, size_t From, size_t To> struct decode_entities {
 template <typename Text, size_t From, size_t To> struct strip_span {
 	static constexpr size_t length = Text::size() - From - To;
 	template <size_t... I> static constexpr auto lift(std::index_sequence<I...>) noexcept {
-		return ctxml::text<Text::view()[From + I]...>{};
+		return cthtml::text<Text::view()[From + I]...>{};
 	}
 	using type = decltype(lift(std::make_index_sequence<length>{}));
 };
@@ -207,8 +207,8 @@ template <typename T> struct is_text_piece : std::false_type { };
 template <typename V> struct is_text_piece<ctlark::token<bt_TEXT, V>> : std::true_type { };
 template <typename V> struct is_text_piece<ctlark::token<bt_CDATA, V>> : std::true_type { };
 
-template <auto... A, auto... B> constexpr auto text_cat(ctxml::text<A...>, ctxml::text<B...>) noexcept {
-	return ctxml::text<A..., B...>{};
+template <auto... A, auto... B> constexpr auto text_cat(cthtml::text<A...>, cthtml::text<B...>) noexcept {
+	return cthtml::text<A..., B...>{};
 }
 
 template <typename Text> constexpr bool text_blank(Text) noexcept {
@@ -224,7 +224,7 @@ template <typename Node> struct bind_attr;
 template <typename Name, typename Value> struct bind_attr<ctlark::tree<bt_attr, Name, Value>> {
 	using name_type = typename strip_span<typename Name::value_type, 0, 0>::type;
 	using decoded = decode_entities<typename Value::value_type, 1, 1>;
-	using type = ctxml::attribute<name_type, typename decoded::type>;
+	using type = cthtml::attribute<name_type, typename decoded::type>;
 	static constexpr bool ok = decoded::ok;
 	static constexpr bind_error_t fail =
 		decoded::ok ? bind_error_t{} : bind_error_t{bind_reason::bad_reference, Value::value_type::view()};
@@ -321,7 +321,7 @@ constexpr auto fold_content(ctll::list<Ds...> done, P pending, bc<Ok>, Head, Res
 template <typename Name, typename AttrList, typename Content> struct assemble;
 template <typename Name, typename AttrList, typename... Cs>
 struct assemble<Name, AttrList, ctll::list<Cs...>> {
-	using type = ctxml::element<Name, AttrList, Cs...>;
+	using type = cthtml::element<Name, AttrList, Cs...>;
 };
 
 template <typename Name, typename AttrList, bool AOk, typename ContentResult> struct finish_element;
@@ -431,7 +431,7 @@ struct bind<ctlark::tree<bt_element, Open, Kids...>> {
 	static constexpr bind_error_t fail = element_fail<Open, Kids...>();
 };
 
-} // namespace ctxml::detail
+} // namespace cthtml::detail
 
 
 #endif

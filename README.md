@@ -6,7 +6,7 @@
 > [compile-time-json5](https://github.com/alexios-angel/compile-time-json5).
 > Apache License 2.0 with LLVM Exceptions; see [NOTICE](NOTICE).
 
-# ctxml — compile-time XML
+# cthtml — compile-time XML
 
 XML parsed while your code compiles. The document is a *type*: malformed
 — or **ill-formed** — XML is a compile error, lookups are resolved at
@@ -15,9 +15,9 @@ compile time, and every accessor is `constexpr` — usable in
 cost.
 
 ```c++
-#include <ctxml.hpp>
+#include <cthtml.hpp>
 
-constexpr auto doc = ctxml::parse<R"(<?xml version="1.0"?>
+constexpr auto doc = cthtml::parse<R"(<?xml version="1.0"?>
 <server host="example.com" port="8080">
     <!-- routes -->
     <path>/api</path>
@@ -31,9 +31,9 @@ static_assert(doc.get<"path">().text() == "/api");
 static_assert(doc.get<"raw">().text() == "literal <markup> & stuff");
 
 // well-formedness is a compile-time property:
-static_assert(!ctxml::is_valid<"<a></b>">);           // mismatched tags
-static_assert(!ctxml::is_valid<"<a x='1' x='2'/>">);  // duplicate attribute
-static_assert(!ctxml::is_valid<"<a><!-- x -- y --></a>">); // "--" in comment
+static_assert(!cthtml::is_valid<"<a></b>">);           // mismatched tags
+static_assert(!cthtml::is_valid<"<a x='1' x='2'/>">);  // duplicate attribute
+static_assert(!cthtml::is_valid<"<a><!-- x -- y --></a>">); // "--" in comment
 ```
 
 ## What is supported
@@ -65,10 +65,10 @@ name characters), and encodings other than UTF-8/ASCII.
 
 ```c++
 // validity as a bool (never a compile error):
-template <ctll::fixed_string input> constexpr bool ctxml::is_valid;
+template <ctll::fixed_string input> constexpr bool cthtml::is_valid;
 
 // the parsed root element; invalid XML fails the build:
-template <ctll::fixed_string input> constexpr auto ctxml::parse();
+template <ctll::fixed_string input> constexpr auto cthtml::parse();
 ```
 
 `parse` returns an `element`; its children are `element`s and `text`
@@ -79,16 +79,16 @@ nodes:
 | `element<name, attrs, children...>` | `name()`, `attribute<"key">()`, `has_attribute<"key">()`, `attribute_count()`, positional `attribute_name<I>()` / `attribute_value<I>()`, `get<"tag">()` / `["tag"]` (first matching child element), `contains<"tag">()`, `count<"tag">()`, `child<I>()` / `[N]`, `child_count()`, `empty()`, `text()` |
 | `text<chars...>` | `view()`, `c_str()` (null-terminated), `size()`, `empty()`, `==` with `std::string_view` |
 
-Every type carries `static constexpr ctxml::kind type` for
+Every type carries `static constexpr cthtml::kind type` for
 introspection (`kind::element`, `kind::text`), and two free functions
 iterate at compile time:
 
 ```c++
-ctxml::for_each_child(doc, [](auto child) { /* each has its own type */ });
-ctxml::for_each_attribute(doc, [](auto name, auto value) { ... });
+cthtml::for_each_child(doc, [](auto child) { /* each has its own type */ });
+cthtml::for_each_attribute(doc, [](auto name, auto value) { ... });
 
 // render any element back to minified XML, in static storage:
-static_assert(ctxml::serialize(ctxml::parse<"<a  x = '1' >hi<b/></a>">())
+static_assert(cthtml::serialize(cthtml::parse<"<a  x = '1' >hi<b/></a>">())
     == R"(<a x="1">hi<b/></a>)");
 ```
 
@@ -102,11 +102,11 @@ doc["endpoint"].attribute("host");   // runtime names; attribute<"host">() stays
 // begin/end yield uniform views (kind + name + text) from static storage,
 // so range-for and algorithms work - in constexpr evaluation included:
 for (const auto & n : doc) {
-    n.type;   // ctxml::kind::element or kind::text
+    n.type;   // cthtml::kind::element or kind::text
     n.name(); // elements: the tag; text nodes: empty
     n.text(); // elements: their direct text; text nodes: the content
 }
-for (const auto & a : ctxml::attributes(doc)) {
+for (const auto & a : cthtml::attributes(doc)) {
     a.name, a.value;   // std::string_views
 }
 ```
@@ -116,7 +116,7 @@ child itself. `operator[]` accepts an ordinary string or integer and returns
 a uniform `node_view`; when you need the child itself, with its typed
 accessors, use `get<...>()`, `child<I>()`, or `for_each_child`. The
 records are `node_view` and `attribute_view`
-([`views.hpp`](include/ctxml/views.hpp)), and
+([`views.hpp`](include/cthtml/views.hpp)), and
 [`examples/iteration.cpp`](examples/iteration.cpp) is a runnable tour.
 
 `serialize` re-escapes text (`& < >`) and attribute values (`& < "`),
@@ -130,10 +130,10 @@ compile time. Syntax failures carry the location and the expected
 tokens:
 
 ```c++
-constexpr auto info = ctxml::error_info<"<a><b></b>">();
+constexpr auto info = cthtml::error_info<"<a><b></b>">();
 // info.kind (lex/parse/...), info.position, info.line, info.column
 
-constexpr auto why = ctxml::error_message<"<a><b></b>">();
+constexpr auto why = cthtml::error_message<"<a><b></b>">();
 //   ctlark: syntax error at line 1, column 11: unexpected end of input
 //     <a><b></b>
 //               ^
@@ -144,13 +144,13 @@ Documents that PARSE can still be ill-formed; the binder names the
 well-formedness rule and the offending token:
 
 ```c++
-ctxml::bind_error<"<a><b></c></a>">();     // mismatched_tag, where == "</c>"
-ctxml::bind_error<R"(<a x="1" x="2"/>)">(); // duplicate_attribute, where == "x"
-ctxml::bind_error<"<a>&#x0;</a>">();       // bad_reference, where == "&#x0;"
+cthtml::bind_error<"<a><b></c></a>">();     // mismatched_tag, where == "</c>"
+cthtml::bind_error<R"(<a x="1" x="2"/>)">(); // duplicate_attribute, where == "x"
+cthtml::bind_error<"<a>&#x0;</a>">();       // bad_reference, where == "&#x0;"
 ```
 
 A failed `parse<>()` names the failing stage and the query to run in
-its `static_assert` message. `ctxml::debug` bundles the [ctlark
+its `static_assert` message. `cthtml::debug` bundles the [ctlark
 debugging toolbox](../compile-time-lark#debugging) with the XML grammar
 baked in: `traced_parse<input>()` (a recorded event log, also runnable
 at runtime under a debugger), `parse_runtime(text)` (runtime inputs
@@ -166,7 +166,7 @@ ctll::fixed_string` variables with linkage instead of string literals:
 static constexpr auto text = ctll::fixed_string{R"(<cfg port="8080"/>)"};
 static constexpr ctll::fixed_string port_key = "port";
 
-constexpr auto doc = ctxml::parse<text>();
+constexpr auto doc = cthtml::parse<text>();
 static_assert(doc.template attribute<port_key>() == std::string_view{"8080"});
 ```
 
@@ -175,14 +175,14 @@ static_assert(doc.template attribute<port_key>() == std::string_view{"8080"});
 The grammar layer is
 [ctlark](https://github.com/alexios-angel/compile-time-lark)
 (compile-time Lark): the XML grammar is a *lark grammar string*
-([`grammar.hpp`](include/ctxml/grammar.hpp)) that ctlark parses and
+([`grammar.hpp`](include/cthtml/grammar.hpp)) that ctlark parses and
 compiles to constexpr tables while your code compiles, then runs its
 constexpr Earley parser over your document. XML only tokenizes because
 ctlark's lexing is **contextual**, like lark's: `TEXT` is a candidate
 only where character data is expected, so it cannot swallow attribute
 syntax inside a tag, and content whitespace survives while
 inter-attribute whitespace is ignored. The binder
-([`bind.hpp`](include/ctxml/bind.hpp)) lowers the lark tree into the
+([`bind.hpp`](include/cthtml/bind.hpp)) lowers the lark tree into the
 document types - decoding entities, merging adjacent text with CDATA,
 dropping whitespace-only text nodes - and checks what a grammar
 cannot: the close tag must match its open tag (name equality is type
@@ -191,14 +191,14 @@ must denote valid code points; all folded into `is_valid`.
 
 Because that work happens in headers, a **precompiled header** makes
 it a one-time cost: `make pch` (done automatically by the test build)
-compiles `ctxml.hpp` once - grammar parse, table build and all - and
+compiles `cthtml.hpp` once - grammar parse, table build and all - and
 every translation unit that includes it afterwards starts from the
 baked result. The CMake tests and examples use
-`target_precompile_headers` the same way (`CTXML_PCH`, default ON).
+`target_precompile_headers` the same way (`CTHTML_PCH`, default ON).
 
 An Earley parse needs a raised constexpr budget; the CMake interface
 target carries the compiler-specific limit flags automatically
-(`CTXML_CONSTEXPR_LIMITS`, default ON) and the Makefiles set them:
+(`CTHTML_CONSTEXPR_LIMITS`, default ON) and the Makefiles set them:
 
 ```
 clang:  -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=2048
@@ -210,7 +210,7 @@ ctlark and ctll come in as a git submodule
 run `git submodule update --init`); never edit under `external/`. The
 build adds the submodule's include directories so the headers'
 relative `"../ctlark.hpp"`-style includes resolve, and the CMake
-install flattens everything back to `include/{ctxml,ctlark,ctll}`.
+install flattens everything back to `include/{cthtml,ctlark,ctll}`.
 
 ## Building and integrating
 
@@ -219,30 +219,30 @@ Header-only. Pick whichever fits your project:
 **CMake, as a subdirectory or via FetchContent:**
 
 ```cmake
-add_subdirectory(compile-time-xml)   # or FetchContent_MakeAvailable(ctxml)
-target_link_libraries(your-target PRIVATE ctxml::ctxml)
+add_subdirectory(compile-time-xml)   # or FetchContent_MakeAvailable(cthtml)
+target_link_libraries(your-target PRIVATE cthtml::cthtml)
 ```
 
 **CMake, installed** (`cmake -B build && cmake --install build`):
 
 ```cmake
-find_package(ctxml 0.1 REQUIRED)
-target_link_libraries(your-target PRIVATE ctxml::ctxml)
+find_package(cthtml 0.1 REQUIRED)
+target_link_libraries(your-target PRIVATE cthtml::cthtml)
 ```
 
-The install also ships a `pkg-config` file (`ctxml.pc`). Tests and
-examples build only when ctxml is the top-level project
-(`CTXML_BUILD_TESTS`, `CTXML_BUILD_EXAMPLES`); `CTXML_CXX_STANDARD`
+The install also ships a `pkg-config` file (`cthtml.pc`). Tests and
+examples build only when cthtml is the top-level project
+(`CTHTML_BUILD_TESTS`, `CTHTML_BUILD_EXAMPLES`); `CTHTML_CXX_STANDARD`
 selects the advertised standard (default 20). CPack can produce
 TGZ/ZIP archives (plus DEB/RPM where the tooling exists), and
-`-DCTXML_MODULE=ON` builds `ctxml.cppm` as a named C++ module
+`-DCTHTML_MODULE=ON` builds `cthtml.cppm` as a named C++ module
 (experimental; needs CMake 3.30+, a modules-capable toolchain and
 `import std`).
 
 **No build system:** add `include/` plus the submodule's
 `external/compile-time-lark/include` (and its `ctlark`/`ctll`
 subdirectories) to your include path, or copy the amalgamated
-[`single-header/ctxml.hpp`](single-header/ctxml.hpp)
+[`single-header/cthtml.hpp`](single-header/cthtml.hpp)
 (regenerate with `make single-header`, which needs the
 [quom](https://pypi.org/project/quom/) tool).
 

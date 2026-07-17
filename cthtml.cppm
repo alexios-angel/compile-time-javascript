@@ -1,9 +1,9 @@
 module;
 
-export module ctxml;
+export module cthtml;
 import std;
 
-#define CTXML_IN_A_MODULE
+#define CTHTML_IN_A_MODULE
 #define CTLARK_IN_A_MODULE
 #define CTLL_IN_A_MODULE
 
@@ -17,4 +17,4 @@ using std::uint32_t;
 using std::uint64_t;
 using std::uint8_t;
 
-#include "include/ctxml.hpp"
+#include "include/cthtml.hpp"

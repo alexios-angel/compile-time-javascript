@@ -15,10 +15,10 @@ if(NOT CMAKE_EXPERIMENTAL_CXX_STD AND NOT CMAKE_CXX_MODULE_STD)
 endif()
 
 project(cthtml
-  HOMEPAGE_URL "https://github.com/alexios-angel/compile-time-xml"
+  HOMEPAGE_URL "https://github.com/alexios-angel/compile-time-html"
   VERSION 0.1.0
   LANGUAGES CXX)
-set(PROJECT_DESCRIPTION "Compile-time XML: parse while you compile, query with constexpr accessors.")
+set(PROJECT_DESCRIPTION "Compile-time HTML5: parse while you compile, query the DOM with constexpr accessors.")
 
 include(CMakePackageConfigHelpers)
 include(CMakeDependentOption)
@@ -70,8 +70,10 @@ endif()
 set(CTHTML_HEADERS
 	include/cthtml.hpp
 	include/cthtml/bind.hpp
+	include/cthtml/entities.hpp
 	include/cthtml/grammar.hpp
 	include/cthtml/serialize.hpp
+	include/cthtml/treebuild.hpp
 	include/cthtml/types.hpp
 	include/cthtml/views.hpp)
 file(GLOB_RECURSE CTHTML_CTLARK_HEADERS CONFIGURE_DEPENDS

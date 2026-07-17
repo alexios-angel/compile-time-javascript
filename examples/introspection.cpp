@@ -18,27 +18,24 @@ template <typename Node> void print(Node node, int indent = 0) {
 		cthtml::for_each_attribute(node, [](auto name, auto value) {
 			std::cout << ' ' << name.view() << "=\"" << value.view() << '"';
 		});
-		if constexpr (Node::child_count() == 0) {
-			std::cout << "/>\n";
-		} else {
-			std::cout << ">\n";
+		std::cout << ">\n";
+		if constexpr (Node::child_count() != 0) {
 			cthtml::for_each_child(node, [&](auto child) { print(child, indent + 1); });
 			std::cout << pad << "</" << Node::name() << ">\n";
 		}
 	}
 }
 
-constexpr auto doc = cthtml::parse<R"(
-<feed version="1.1">
-	<entry id="1" starred="yes">
-		<title>Compile-time everything</title>
-		<summary>types &amp; templates</summary>
-	</entry>
-	<entry id="2">
-		<title>Parsers as tables</title>
-	</entry>
-	<generator/>
-</feed>)">();
+constexpr auto doc = cthtml::parse<R"(<!DOCTYPE html>
+<title>feed</title>
+<section id=s1 class=starred>
+	<h2>Compile-time everything</h2>
+	<p>types &amp; templates
+</section>
+<section id=s2>
+	<h2>Parsers as tables</h2>
+</section>
+<hr>)">();
 
 int main() {
 	print(doc);

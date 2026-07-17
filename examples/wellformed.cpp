@@ -1,34 +1,36 @@
-// Well-formedness as a compile-time property: is_valid answers as a
-// bool without failing the build, so shipping malformed markup becomes
-// impossible - the checks below run in the compiler, not in production.
+// Acceptability as a compile-time property: is_valid answers as a
+// bool without failing the build, so shipping broken markup becomes
+// impossible - the checks below run in the compiler, not in
+// production. HTML5's conveniences are not errors; author mistakes
+// browsers would silently repair are.
 //
 // Build: make wellformed
 
 #include <cthtml.hpp>
 #include <iostream>
 
-// what parses
-static_assert(cthtml::is_valid<"<a/>">);
-static_assert(cthtml::is_valid<"<a x='1'><b>text</b></a>">);
-static_assert(cthtml::is_valid<"<r>&lt;&#65;&#x42;&gt;</r>">);
-static_assert(cthtml::is_valid<"<r><![CDATA[<raw>]]></r>">);
-static_assert(cthtml::is_valid<"<ns:tag-1.2 attr.name='v'/>">);
-static_assert(cthtml::is_valid<"<café>ő</café>">); // utf-8 names
+// the conveniences: all valid
+static_assert(cthtml::is_valid<"<p>no closing tag needed">);
+static_assert(cthtml::is_valid<"<br>">);                       // void element
+static_assert(cthtml::is_valid<"<ul><li>a<li>b</ul>">);        // li auto-closes
+static_assert(cthtml::is_valid<"<table><tr><td>x<td>y</table>">);
+static_assert(cthtml::is_valid<"<INPUT type=checkbox CHECKED>">); // case, unquoted, boolean
+static_assert(cthtml::is_valid<"<!DOCTYPE html><title>t</title>">);
+static_assert(cthtml::is_valid<R"(<script>if(a<b)say("</p>")</script>)">); // raw text
+static_assert(cthtml::is_valid<"<p>&copy; &#169; &notaref;</p>">); // refs never fail
 
-// what the grammar rejects
-static_assert(!cthtml::is_valid<"<a>">);                    // unclosed
-static_assert(!cthtml::is_valid<"<a/><b/>">);               // two roots
-static_assert(!cthtml::is_valid<"<a>&nbsp;</a>">);          // undefined entity
-static_assert(!cthtml::is_valid<"<a b='<'/>">);             // raw < in attribute
-static_assert(!cthtml::is_valid<"<a><!-- x -- y --></a>">); // "--" inside comment
-static_assert(!cthtml::is_valid<"<1a/>">);                  // names cannot start with a digit
-static_assert(!cthtml::is_valid<"<!DOCTYPE html><a/>">);    // DTDs unsupported, by design
+// the mistakes: all compile errors (or false from is_valid)
+static_assert(!cthtml::is_valid<"<b><i>crossed</b></i>">);  // crossing close tag
+static_assert(!cthtml::is_valid<"<p>x</p></p>">);           // stray close tag
+static_assert(!cthtml::is_valid<"<a x='1' x='2'></a>">);    // duplicate attribute
+static_assert(!cthtml::is_valid<"<div/>">);                 // self-closed non-void
+static_assert(!cthtml::is_valid<"</br>">);                  // closing a void
+static_assert(!cthtml::is_valid<"<div><b>x</div>">);        // </div> cannot close <b>
+static_assert(!cthtml::is_valid<"a < b">);                  // write &lt;
 
-// what the SEMANTIC checks reject: these are grammatical, but not
-// well-formed - caught by the actions, still at compile time
-static_assert(!cthtml::is_valid<"<a></b>">);                // close tag mismatch
-static_assert(!cthtml::is_valid<"<a><b></a></b>">);         // interleaved elements
-static_assert(!cthtml::is_valid<"<a x='1' x='2'/>">);       // duplicate attribute
+// and the reason is queryable
+static_assert(cthtml::bind_error<"<div/>">().reason ==
+              cthtml::bind_reason::self_closing_non_void);
 
 int main() {
 	std::cout << "every claim in this file was proven during compilation\n";

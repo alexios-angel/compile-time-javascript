@@ -3,78 +3,168 @@
 
 #include "../ctlark.hpp"
 
-// The grammar layer: HTML5 written FLAT in lark's grammar language and
-// parsed by ctlark. Unlike XML, HTML tag nesting is not context-free -
-// end tags may be omitted (<li>, <p>, <td>...) and <html>/<head>/<body>
-// are implied - so the grammar does not nest elements at all: a
-// document is a sequence of chunks (open tags, close tags, text, whole
-// raw-text elements) and the tree-construction layer (treebuild.hpp)
-// builds the DOM from that stream the way a browser's tree builder
-// does.
+// The grammar layer: the ctjs JavaScript subset written in lark's
+// grammar language and parsed by ctlark at compile time. Unlike the
+// document-format siblings this is a full token-level programming
+// language grammar: a precedence LADDER of ?-inlined rules encodes
+// binding strength (assignment > ternary > ?? > || > && > equality >
+// relational > additive > multiplicative > ** > unary > postfix), so
+// precedence never needs a separate folding pass - the tree IS the
+// expression structure.
 //
-// The grammar only tokenizes because ctlark's lexer is CONTEXTUAL,
-// like lark's: TEXT is a candidate only where character data is
-// expected, and the *_BODY terminals are the only candidates right
-// after the ">" of a raw-text element's open tag, so <script>/<style>
-// (raw text) and <title>/<textarea> (RCDATA) swallow their content -
-// markup, "</div>", stray <, all of it - up to the first matching
-// close tag, unrolled letter by letter because the regex subset has no
-// lookarounds. The *_OPEN terminals take priority .2 so they beat OPEN
-// on a tie ("<script"), while "<scripty" still lexes as OPEN because
-// longest-match wins before priority breaks ties.
+// Operator FAMILIES are single terminals (EQ_OP, REL_OP, MUL_OP,
+// ASSIGN_OP, INCDEC) rather than one alternative per operator - the
+// lexer's longest-match rule keeps them apart ("=" vs "==" vs "===")
+// and the lowering reads the matched text; this keeps the Earley
+// tables (built once, in the PCH) a fraction of the naive size.
+// Keywords are plain string literals: contextual lexing plus
+// longest-match keeps "let" a keyword exactly where a keyword can
+// appear while "letter" stays a NAME.
 //
-// Attributes may be double-quoted, single-quoted, unquoted (UNQVAL) or
-// bare boolean (the [...] maybe in attr). DOCTYPE and comments (HTML
-// rules: "--" is fine inside, the first --> ends it) are _-prefixed so
-// they vanish from trees; CDATA sections are tolerated and dropped the
-// same way. Entity references are NOT validated here - HTML never
-// rejects them, so the binder decodes known ones and leaves the rest
-// literal.
+// Assignment targets are a dedicated lhs rule (NAME, member, index),
+// so "f() = 1" is a SYNTAX error, not a runtime surprise. Semicolons
+// are required (no ASI, by design). No regex literals, template
+// literals, classes, this, or new in v0.1 - see the README.
+
+// ctjs is C++20-only (the runtime layer leans on it), but the source
+// NTTP mechanism is the family's usual one
+#if CTLL_CNTTP_COMPILER_CHECK
+#define CTJS_STRING_INPUT ctll::fixed_string
+#else
+#define CTJS_STRING_INPUT const auto &
+#endif
 
 namespace ctjs::detail {
 
-inline constexpr ctll::fixed_string html_grammar = R"x(
-start: (open_tag | script_el | style_el | title_el | textarea_el
-      | CLOSE | TEXT | _COMMENT | _CDATA | _DOCTYPE)*
+inline constexpr ctll::fixed_string js_grammar = R"x(
+start: stmt*
 
-open_tag: OPEN attr* ">"
-        | OPEN attr* "/>" -> self_tag
+?stmt: block
+     | var_stmt
+     | fn_decl
+     | if_stmt
+     | while_stmt
+     | do_stmt
+     | for_stmt
+     | forof_stmt
+     | return_stmt
+     | break_stmt
+     | continue_stmt
+     | throw_stmt
+     | try_stmt
+     | empty_stmt
+     | expr_stmt
 
-script_el: SCRIPT_OPEN attr* ">" SCRIPT_BODY
-style_el: STYLE_OPEN attr* ">" STYLE_BODY
-title_el: TITLE_OPEN attr* ">" TITLE_BODY
-textarea_el: TEXTAREA_OPEN attr* ">" TEXTAREA_BODY
+block: "{" stmt* "}"
+var_stmt: "let" declarator ("," declarator)* ";"   -> let_stmt
+        | "const" declarator ("," declarator)* ";" -> const_stmt
+        | "var" declarator ("," declarator)* ";"   -> varkw_stmt
+declarator: NAME ["=" assign]
+fn_decl: "function" NAME "(" params ")" block
+params: [NAME ("," NAME)*]
+if_stmt: "if" "(" expr ")" stmt ["else" stmt]
+while_stmt: "while" "(" expr ")" stmt
+do_stmt: "do" stmt "while" "(" expr ")" ";"
+for_stmt: "for" "(" for_init ";" for_cond ";" for_step ")" stmt
+for_init: "let" declarator ("," declarator)*   -> forinit_let
+        | "const" declarator ("," declarator)* -> forinit_const
+        | "var" declarator ("," declarator)*   -> forinit_var
+        | [expr]
+for_cond: [expr]
+for_step: [expr]
+forof_stmt: "for" "(" "let" NAME "of" expr ")" stmt   -> forof_let
+          | "for" "(" "const" NAME "of" expr ")" stmt -> forof_const
+          | "for" "(" "var" NAME "of" expr ")" stmt   -> forof_var
+return_stmt: "return" [expr] ";"
+break_stmt: "break" ";"
+continue_stmt: "continue" ";"
+throw_stmt: "throw" expr ";"
+try_stmt: "try" block "catch" "(" NAME ")" block                  -> try_catch
+        | "try" block "catch" "(" NAME ")" block "finally" block  -> try_catch_fin
+        | "try" block "finally" block                             -> try_fin
+empty_stmt: ";"
+expr_stmt: expr ";"
 
-attr: NAME ["=" (DQVAL | SQVAL | UNQVAL)]
+?expr: assign
 
-SCRIPT_OPEN.2: /<script/i
-STYLE_OPEN.2: /<style/i
-TITLE_OPEN.2: /<title/i
-TEXTAREA_OPEN.2: /<textarea/i
+?assign: nullish
+       | nullish "?" assign ":" assign -> ternary
+       | lhs ASSIGN_OP assign          -> assign_op
 
-SCRIPT_BODY: /([^<]|<+[^\/<]|<+\/[^s<]|<+\/s[^c<]|<+\/sc[^r<]|<+\/scr[^i<]|<+\/scri[^p<]|<+\/scrip[^t<])*<+\/script[ \x09\x0a\x0d]*>/i
-STYLE_BODY: /([^<]|<+[^\/<]|<+\/[^s<]|<+\/s[^t<]|<+\/st[^y<]|<+\/sty[^l<]|<+\/styl[^e<])*<+\/style[ \x09\x0a\x0d]*>/i
-TITLE_BODY: /([^<]|<+[^\/<]|<+\/[^t<]|<+\/t[^i<]|<+\/ti[^t<]|<+\/tit[^l<]|<+\/titl[^e<])*<+\/title[ \x09\x0a\x0d]*>/i
-TEXTAREA_BODY: /([^<]|<+[^\/<]|<+\/[^t<]|<+\/t[^e<]|<+\/te[^x<]|<+\/tex[^t<]|<+\/text[^a<]|<+\/texta[^r<]|<+\/textar[^e<]|<+\/textare[^a<])*<+\/textarea[ \x09\x0a\x0d]*>/i
+lhs: NAME                    -> lhs_name
+   | postfix "." NAME        -> lhs_member
+   | postfix "[" expr "]"    -> lhs_index
 
-OPEN: /<[A-Za-z][A-Za-z0-9:._\-]*/
-CLOSE: /<\/[A-Za-z][A-Za-z0-9:._\-]*[ \x09\x0a\x0d]*>/
-NAME: /[^ \x09\x0a\x0d\/>="'<]+/
-DQVAL: /"[^"]*"/
-SQVAL: /'[^']*'/
-UNQVAL: /[^ \x09\x0a\x0d"'=<>`]+/
-TEXT: /[^<]+/
-_DOCTYPE: /<!doctype[^>]*>/i
-_COMMENT: /<!--([^-]|-+[^->])*-+->/
-_CDATA: /<!\[CDATA\[([^\]]|\]+[^\]>])*\]+\]>/
+?nullish: oror
+        | nullish "??" oror -> nullish_op
+?oror: andand
+     | oror "||" andand -> or_op
+?andand: equality
+       | andand "&&" equality -> and_op
+?equality: relational
+         | equality EQ_OP relational -> cmp_eq
+?relational: additive
+           | relational REL_OP additive -> cmp_rel
+?additive: multiplicative
+         | additive "+" multiplicative -> add_op
+         | additive "-" multiplicative -> sub_op
+?multiplicative: exponent
+               | multiplicative MUL_OP exponent -> mul_op
+?exponent: unary
+         | unary "**" exponent -> pow_op
+?unary: postfix
+      | "!" unary      -> not_op
+      | "-" unary      -> neg_op
+      | "+" unary      -> pos_op
+      | "typeof" unary -> typeof_op
+      | INCDEC lhs     -> pre_incdec
+?postfix: primary
+        | postfix "(" args ")"   -> call
+        | postfix "." NAME       -> member
+        | postfix "[" expr "]"   -> index
+        | lhs INCDEC             -> post_incdec
+args: [assign ("," assign)*]
+?primary: NAME
+        | NUMBER
+        | DQSTRING
+        | SQSTRING
+        | "true"      -> true_lit
+        | "false"     -> false_lit
+        | "null"      -> null_lit
+        | array_lit
+        | object_lit
+        | fn_expr
+        | arrow_fn
+        | "(" expr ")" -> paren
+array_lit: "[" [assign ("," assign)*] "]"
+object_lit: "{" [prop ("," prop)*] "}"
+prop: NAME ":" assign     -> prop_name
+    | DQSTRING ":" assign -> prop_str
+    | SQSTRING ":" assign -> prop_str2
+fn_expr: "function" "(" params ")" block
+arrow_fn: "(" params ")" "=>" arrow_body
+        | NAME "=>" arrow_body
+?arrow_body: block | assign
+
+NAME: /[A-Za-z_$][A-Za-z0-9_$]*/
+NUMBER: /0[xX][0-9a-fA-F]+|(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+\-]?[0-9]+)?|\.[0-9]+/
+DQSTRING: /"([^"\\\x0a]|\\[\s\S])*"/
+SQSTRING: /'([^'\\\x0a]|\\[\s\S])*'/
+ASSIGN_OP: /(\*\*|[+\-*\/%])?=/
+EQ_OP: /[=!]==?/
+REL_OP: /[<>]=?/
+MUL_OP: /[*\/%]/
+INCDEC: /\+\+|--/
 
 %ignore /[ \x09\x0a\x0d]+/
+%ignore /\/\/[^\x0a]*/
+%ignore /\/\*([^*]|\*+[^*\/])*\*+\//
 )x";
 
-inline constexpr ctll::fixed_string html_start = "start";
+inline constexpr ctll::fixed_string js_start = "start";
 
-static_assert(ctlark::grammar_valid<html_grammar>,
-              "ctjs: internal error - the HTML grammar failed to compile");
+static_assert(ctlark::grammar_valid<js_grammar>,
+              "ctjs: internal error - the JavaScript grammar failed to compile");
 
 } // namespace ctjs::detail
 

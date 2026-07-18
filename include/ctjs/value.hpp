@@ -293,6 +293,11 @@ public:
 		return false;
 	}
 
+	// C++-side drilling: obj["key"], arr[2] - misses yield undefined and
+	// chain harmlessly (null-object style, like the family's views)
+	value operator[](std::string_view key) const;
+	value operator[](size_t i) const;
+
 	// C++-side extraction: to<double>(), to<int>(), to<bool>(),
 	// to<std::string>() - JS coercion rules apply
 	template <typename T> T to() const {
@@ -310,6 +315,17 @@ public:
 private:
 	storage v_;
 };
+
+inline value value::operator[](std::string_view key) const {
+	if (is_object()) {
+		if (const value * v = as_object()->find(key)) { return *v; }
+	}
+	return value{};
+}
+inline value value::operator[](size_t i) const {
+	if (is_array() && i < as_array()->size()) { return (*as_array())[i]; }
+	return value{};
+}
 
 inline value * object_t::find(std::string_view key) {
 	for (auto & [k, v] : props) {

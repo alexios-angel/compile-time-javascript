@@ -1,98 +1,65 @@
-# CLAUDE.md — compile-time-html (ctjs)
+# CLAUDE.md — compile-time-javascript (ctjs)
 
-Header-only, compile-time (constexpr) HTML5 parser. A document is a
-*type*: `ctjs::parse<...>()` always yields `html > (head, body)` like a
-browser DOM; broken markup is a compile error (or `false` from
-`is_valid`). HTML5 conveniences (void elements, optional end tags,
-implied html/head/body, case-insensitive names, boolean/unquoted
-attributes, DOCTYPE, raw-text script/style) parse silently; author
-mistakes (stray/crossing close tags, duplicate attributes, `<div/>`)
-are errors. Namespace `ctjs`. Compile-time ONLY — no runtime document
-load. Work on `main`. Prefer `rg` over `grep`.
+Header-only C++20. JavaScript **parsed at COMPILE time** (the script is
+an NTTP; a syntax error is a compile error; the AST is a TYPE) and
+**executed at RUNTIME** (the interpreter is specialized per script, so
+the optimizer emits script-specific code; values are dynamic with real
+closures). Namespace `ctjs`. Work on `main`. Prefer `rg` over `grep`.
 
-## Build & test — "compiling the tests IS the test"
-Tests under `tests/*.cpp` are `static_assert` suites; each compiles to a `.o`.
+## Build & test
+Every `tests/*.cpp` is an EXECUTABLE: its scripts parse during
+compilation, then it runs its checks (non-zero exit = failure).
 ```bash
-make                                   # C++20 (default), one .o per test
-make CXX=clang++                       # clang
-make CXX=clang++ CXX_STANDARD=17       # C++17 path (variable-form API)
+make                # builds the grammar PCH once (SLOW - see below), compiles + RUNS suites
+make CXX=clang++
 make clean
 cmake -B build && cmake --build build && ctest --test-dir build
 ```
-Flags are `-O2 -pedantic -Wall -Wextra -Werror -Wconversion` — keep every
-change warning-clean. A PCH of the umbrella header (`make pch`, done
-automatically) compiles the grammar + tables ONCE; TUs start from the baked
-result. gcc uses `include/ctjs.hpp.gch`; clang uses `ctjs.pch` (`-include-pch`).
+Flags: `-O2 -pedantic -Wall -Wextra -Werror -Wconversion` — stay
+warning-clean. C++20 ONLY (no C++17 path; the runtime layer needs it).
+
+**THE ONE-TIME COST:** building the Earley tables for the JS grammar is
+a ~10-minute, ~4 GB constexpr evaluation. It lives in the PCH
+(`make pch`, automatic): gcc `include/ctjs.hpp.gch`, clang `ctjs.pch`
+via `-include-pch`. Examples reuse the same PCH (`examples/Makefile`).
+NEVER build two of these repos in parallel on this machine (7.5 GB
+WSL2) — see the memory notes; `make -j1` for anything grammar-touching.
 
 ## Layout
-- `include/ctjs.hpp` — umbrella (includes the pieces below); public API.
-- `include/ctjs/grammar.hpp` — the HTML grammar as a **lark grammar string**, deliberately FLAT (HTML nesting is not context-free): it lexes a chunk stream; raw-text `*_BODY` terminals ride ctlark's contextual lexing.
-- `include/ctjs/bind.hpp` — lowers chunks: lowercased names, 3 attribute value flavours + booleans, HTML character-reference decoding (never fails), raw-body close-tag stripping.
-- `include/ctjs/treebuild.hpp` — HTML5 tree construction, TWO passes: a value-level validator (name stack → first `bind_error_t`; all `is_valid` costs) and a type-level fold (frame stack → the document type; total, never errors on its own).
-- `include/ctjs/entities.hpp` — GENERATED WHATWG named-reference table; regenerate with `python3 tools/gen-entities.py`, never edit by hand.
-- `include/ctjs/types.hpp` — `element` / `text` node types, `kind` enum, accessors, case-insensitive matching (`ascii_iequals`, `is_void_tag`).
-- `include/ctjs/views.hpp` — `node_view` / `attribute_view` (uniform runtime views for `operator[]`, iteration).
-- `include/ctjs/serialize.hpp` — `serialize()` back to minified HTML (voids bare, boolean attrs bare, raw script/style bodies unescaped).
-- `external/compile-time-lark/` — git SUBMODULE providing ctlark + ctll (see GOTCHAS).
-- `tests/` (`document.cpp` — a real page, `html5.cpp` — the feature matrix, `cxx17.cpp`), `examples/` (`page`, `wellformed`, `introspection`, `iteration`), `single-header/ctjs.hpp`, `ctjs.cppm` (module, `import std`).
+- `include/ctjs.hpp` — umbrella; public compile-time API (`is_valid`, `error_info/message`, `debug::*`).
+- `include/ctjs/grammar.hpp` — the JS subset as a token-level **lark grammar string**: precedence LADDER of `?`-inlined rules (the tree IS the expression structure); operator FAMILIES as single terminals (`EQ_OP`, `REL_OP`, `MUL_OP`, `ASSIGN_OP`, `INCDEC`) to keep table size down; a dedicated `lhs` rule makes bad assignment targets syntax errors; semicolons REQUIRED.
+- `include/ctjs/ast.hpp` — empty-template-struct AST nodes; literal spellings ride as `ctlark::text<...>` params, cooked lazily at runtime (`num_of`/`str_of`, static per instantiation).
+- `include/ctjs/lower.hpp` — parse tree → AST, dispatched on RULE NAME via `if constexpr (Name::view() == "...")` chains (no char-pack tag types).
+- `include/ctjs/value.hpp` — runtime `value` (variant: undefined/null/bool/double/string/array/object/function via shared_ptr = JS reference semantics), `environment` chains (closures), `context` (console capture, `last`, depth guard), coercions, `strict_equals`/`loose_equals`, ECMA `number_to_string`, `js_throw`.
+- `include/ctjs/builtins.hpp` — `get_member`/`set_member`/`get_index`/`set_index` (array/string/number methods materialize as receiver-BOUND native fns), `call_value`, `make_globals()` (console/Math/JSON/parseInt/...), node-style `inspect` for console.log.
+- `include/ctjs/interp.hpp` — `eval_<Expr>`/`exec_<Stmt>` specializations; `flow` enum for break/continue/return; C++ exceptions for `throw`; `fn_maker` builds closures capturing the env chain; function declarations HOIST per scope.
+- `include/ctjs/script.hpp` — `script<Src>.run(bindings)`, `run_result` (ok/exception/console/result/operator[]/call), `ctjs::binding`, `ctjs::native`.
+- `external/compile-time-lark/` — git SUBMODULE (ctlark + ctll). Never edit here.
+- `tests/` (`parse.cpp` — compile-time static_asserts, `runtime.cpp` — behavior vs node), `examples/` (`hello`, `host`).
 
-## Public API (all `template <fixed_string input>`)
-- `ctjs::is_valid<input>` — `bool`, never a compile error.
-- `ctjs::parse<input>()` — the `html` root element; invalid HTML fails the build with a message naming the query to run.
-- `ctjs::error_info<input>()` / `error_message<input>()` — syntax failure location + expected tokens (rendered caret).
-- `ctjs::bind_error<input>()` — why a document that PARSES is rejected: `bind_reason::{stray_end_tag, mismatched_tag, duplicate_attribute, self_closing_non_void, depth_overflow}` (defined in `bind.hpp`), plus `.where`.
-- `ctjs::serialize(...)`, `ctjs::for_each_child`, `ctjs::for_each_attribute`, `attributes(...)`.
-- `ctjs::debug::{traced_parse, parse_runtime, dump_tokens, dump_grammar}` — ctlark toolbox with the HTML grammar baked in.
-- Diagnostics macros: `CTLARK_VERBOSE_ERRORS`, `CTLARK_DEBUG`, `CTLARK_CONSTEXPR_ASSERT`.
-
-## Conventions
-- C++17/C++20 split via `CTLL_CNTTP_COMPILER_CHECK`: C++20 takes string-literal
-  NTTPs; C++17 takes a `const auto&` to a `constexpr ctll::fixed_string`
-  variable with linkage. Test both — `cxx17.cpp` guards the C++17 form.
-- Constexpr/Earley parsing needs HUGE budgets (Makefile sets them; CMake
-  attaches via `CTJS_CONSTEXPR_LIMITS`, opt out `-DCTJS_CONSTEXPR_LIMITS=OFF`):
-  - gcc: `-fconstexpr-ops-limit=3000000000 -fconstexpr-loop-limit=10000000 -fconstexpr-depth=1024`
-  - clang: `-fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=2048`
-  Hitting the compiler's own step cap is a distinct failure from the library's
-  queryable overflow/depth errors.
-- CMake toggles: `CTJS_PCH`, `CTJS_BUILD_TESTS`, `CTJS_BUILD_EXAMPLES`, `CTJS_CXX_STANDARD` (default 20), `CTJS_MODULE`.
-
-## HTML semantics decisions (keep these consistent)
-- Every parse synthesizes `html > (head, body)`; explicit
-  `<html>/<head>/<body>` tags merge attributes, never nest. Metadata
-  before content → head; after content starts → stays in body.
-- Auto-close applies at the TOP of the open stack only (documented v0.1
-  divergence: `<p>a<b>c<p>` nests the second p inside b).
-- `</body>`/`</html>` close open elements only through omissible end
-  tags; EOF closes anything. `</head>` is only valid while in head.
-- Whitespace-only text is dropped except inside `<pre>`/`<textarea>`;
-  one leading newline after `<pre>`/`<textarea>` open is stripped.
-- References decode leniently (unknown → literal); entity names are
-  case-SENSITIVE but tag/attr names fold to lowercase at lift time —
-  lookups fold too.
-- Raw-text limits (documented): a literal `</script` in script content
-  must be followed by `>` or whitespace-`>`; `a < b` in text is a lex
-  error (write `&lt;`).
+## Semantics decisions (keep consistent; all in README too)
+- No ASI. `var` == `let` scoping. `const` doesn't reject reassignment.
+  Classic `for` = one binding per loop; `for...of` binds per iteration.
+  No `this`. Keywords usable as names where unambiguous (`let let`).
+  Strings are bytes. `Math.random` seeded deterministically.
+- Number printing follows ECMA-262 Number::toString exactly (shortest
+  digits via to_chars, fixed for exponent in (-7,21), else exponential).
+  Careful: `from_chars` rejects the `+` in `to_chars` exponents.
+- Errors: spec shapes as `{name, message}` objects thrown via
+  `js_throw`; uncaught → `run_result.exception()`. TypeError message
+  strings mirror node ("Cannot read properties of null (reading 'x')").
 
 ## GOTCHAS
-- **ctlark and ctll are a git SUBMODULE, never edit here:**
-  `external/compile-time-lark` — run `git submodule update --init` once
-  after cloning; bump by checking out a new commit inside the submodule and
-  committing the gitlink. The build adds `<sub>/include` AND
-  `<sub>/include/ctlark` / `<sub>/include/ctll` to the include path so the
-  headers' relative `"../ctlark.hpp"`-style includes resolve via the
-  quoted-include fallback; the CMake install flattens everything back to
-  include/{ctjs,ctlark,ctll}. Regenerate the single-header after bumps.
-- **single-header** — `make single-header` (needs `quom`); prepends `LICENSE`,
-  amalgamates `include/ctjs.hpp` into `single-header/ctjs.hpp`.
-- **entities.hpp is generated** — `python3 tools/gen-entities.py` (data
-  from CPython's `html.entities.html5`, i.e. the WHATWG table); commit
-  the result, never hand-edit.
-- **Grammar tables via Tablewright** — the only generated table left is
-  ctlark's own `lark.hpp` (the grammar-of-grammars), which lives in the
-  compile-time-lark submodule; regenerate it THERE (`make regrammar` in
-  compile-time-lark). ctjs's own HTML grammar is a plain data string in
-  `grammar.hpp` — no codegen step.
-- **Attribution** — CTLL is Hana Dusíková's (via `notre`, from CTRE); the Lark
-  grammar language is the lark-parser project's; the entity data is the
-  WHATWG's. Preserve `NOTICE` and `LICENSE` (Apache-2.0 w/ LLVM Exceptions).
+- **Grammar changes re-bake the PCH** (~10 min). Iterate on grammar
+  with `ctjs::debug::parse_runtime` (runtime inputs, compile once).
+- **ctlark tie-breaks**: keyword literals beat NAME on exact ties via
+  contextual candidates; `letter` stays NAME via longest-match. The
+  `lhs INCDEC` postfix rule and `lhs ASSIGN_OP` keep targets sane.
+- **ctlark and ctll are a git SUBMODULE**: `git submodule update
+  --init` once; bump = checkout in submodule + commit gitlink. Build
+  adds `<sub>/include` + `/ctlark` + `/ctll` to -I (quoted-include
+  fallback for `"../ctlark.hpp"`).
+- **single-header** — `make single-header` (needs `quom`); prepends LICENSE.
+- **Attribution** — CTLL is Hana Dusíková's (via `notre`, from CTRE);
+  the Lark grammar language is the lark-parser project's. Preserve
+  `NOTICE` and `LICENSE` (Apache-2.0 w/ LLVM Exceptions).

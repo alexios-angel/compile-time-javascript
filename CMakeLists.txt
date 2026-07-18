@@ -18,7 +18,7 @@ project(ctjs
   HOMEPAGE_URL "https://github.com/alexios-angel/compile-time-html"
   VERSION 0.1.0
   LANGUAGES CXX)
-set(PROJECT_DESCRIPTION "Compile-time HTML5: parse while you compile, query the DOM with constexpr accessors.")
+set(PROJECT_DESCRIPTION "Compile-time JavaScript: parsed while you compile, runs when you run - scripts as types, closures and all.")
 
 include(CMakePackageConfigHelpers)
 include(CMakeDependentOption)
@@ -69,13 +69,13 @@ endif()
 
 set(CTJS_HEADERS
 	include/ctjs.hpp
-	include/ctjs/bind.hpp
-	include/ctjs/entities.hpp
+	include/ctjs/ast.hpp
+	include/ctjs/builtins.hpp
 	include/ctjs/grammar.hpp
-	include/ctjs/serialize.hpp
-	include/ctjs/treebuild.hpp
-	include/ctjs/types.hpp
-	include/ctjs/views.hpp)
+	include/ctjs/interp.hpp
+	include/ctjs/lower.hpp
+	include/ctjs/script.hpp
+	include/ctjs/value.hpp)
 file(GLOB_RECURSE CTJS_CTLARK_HEADERS CONFIGURE_DEPENDS
 	external/compile-time-lark/include/*.hpp)
 
@@ -162,6 +162,19 @@ install(
     "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-config-version.cmake"
     "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
+
+# One shared PCH for every test and example target: baking the grammar
+# tables is a long constexpr evaluation, so it must happen ONCE - the
+# anchor target owns the PCH and everything else REUSE_FROMs it.
+if(CTJS_PCH AND (CTJS_BUILD_TESTS OR CTJS_BUILD_EXAMPLES)
+   AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
+  file(WRITE "${CMAKE_BINARY_DIR}/ctjs-pch-anchor.cpp"
+    "int ctjs_pch_anchor_symbol = 0;\n")
+  add_library(ctjs-pch-anchor OBJECT "${CMAKE_BINARY_DIR}/ctjs-pch-anchor.cpp")
+  target_link_libraries(ctjs-pch-anchor PRIVATE ctjs::ctjs)
+  target_precompile_headers(ctjs-pch-anchor PRIVATE
+    "${PROJECT_SOURCE_DIR}/include/ctjs.hpp")
+endif()
 
 if(CTJS_BUILD_TESTS)
   add_subdirectory(tests)

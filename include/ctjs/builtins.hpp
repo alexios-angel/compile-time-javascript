@@ -477,7 +477,9 @@ inline value string_member(const value & recv, std::string_view name) {
 	if (name == "padStart" || name == "padEnd") {
 		const bool at_start = name == "padStart";
 		return bound(std::string{name}, [s, at_start](context &, const std::vector<value> & a) {
-			const double want = a.empty() ? 0 : a[0].to_number();
+			const double want_d = a.empty() ? 0 : a[0].to_number();
+			const size_t want =
+			    std::isnan(want_d) || want_d < 0 ? 0 : static_cast<size_t>(want_d);
 			const std::string pad =
 			    a.size() < 2 || a[1].is_undefined() ? " " : a[1].to_string();
 			std::string out = s;

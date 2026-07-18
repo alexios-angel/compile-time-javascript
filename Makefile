@@ -26,8 +26,9 @@ SUBMODULE_INCLUDES := \
 
 override CXXFLAGS := $(CXXFLAGS) -std=c++$(CXX_STANDARD) -Iinclude $(SUBMODULE_INCLUDES) $(CONSTEXPR_FLAGS) -O2 -pedantic -Wall -Wextra -Werror -Wconversion
 
-# precompiled header: parsing the XML grammar text and compiling its
-# tables happens once here instead of once per translation unit
+# precompiled header: parsing the JavaScript grammar text and compiling
+# its Earley tables happens ONCE here (several minutes - this is the
+# big one-time cost) instead of once per translation unit
 ifeq ($(CXX_IS_CLANG),yes)
 PCH := ctjs.pch
 PCH_USE = -include-pch $(PCH)
@@ -36,14 +37,20 @@ PCH := include/ctjs.hpp.gch
 PCH_USE =
 endif
 
+# scripts PARSE during each test's compilation; the tests then RUN -
+# every tests/*.cpp is an executable with checks, and `make` executes
+# them all (a failing check is a non-zero exit)
 TESTS := $(wildcard tests/*.cpp)
-OBJECTS := $(TESTS:%.cpp=%.o)
-DEPENDENCY_FILES := $(OBJECTS:%.o=%.d)
+BINARIES := $(TESTS:%.cpp=%)
+DEPENDENCY_FILES := $(TESTS:%.cpp=%.d)
 
-all: $(OBJECTS)
+all: run-tests
 
-$(OBJECTS): %.o: %.cpp $(PCH)
-	$(CXX) $(CXXFLAGS) $(PCH_USE) -MMD -c $< -o $@
+$(BINARIES): %: %.cpp $(PCH)
+	$(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
+
+run-tests: $(BINARIES)
+	@for t in $(BINARIES); do printf '== %s\n' "$$t"; ./$$t || exit 1; done
 
 pch: $(PCH)
 
@@ -53,7 +60,7 @@ $(PCH): include/ctjs.hpp
 -include $(DEPENDENCY_FILES)
 
 clean:
-	rm -f $(OBJECTS) $(DEPENDENCY_FILES) ctjs.pch include/ctjs.hpp.gch
+	rm -f $(BINARIES) $(DEPENDENCY_FILES) ctjs.pch include/ctjs.hpp.gch
 
 # needs python3 with the quom package
 single-header: single-header/ctjs.hpp

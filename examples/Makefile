@@ -16,10 +16,23 @@ CXXFLAGS := -std=c++20 -I../include $(SUBMODULE_INCLUDES) $(CONSTEXPR_FLAGS) -O2
 SOURCES := $(wildcard *.cpp)
 TARGETS := $(SOURCES:%.cpp=%)
 
+# reuse (or build) the grammar PCH - the one-time slow step; gcc picks
+# up ../include/ctjs.hpp.gch automatically, clang needs -include-pch
+ifeq ($(CXX_IS_CLANG),yes)
+PCH := ../ctjs.pch
+PCH_USE = -include-pch $(PCH)
+else
+PCH := ../include/ctjs.hpp.gch
+PCH_USE =
+endif
+
 all: $(TARGETS)
 
-%: %.cpp
-	$(CXX) $(CXXFLAGS) $< -o $@
+$(PCH): ../include/ctjs.hpp
+	$(CXX) $(CXXFLAGS) -x c++-header $< -o $@
+
+%: %.cpp $(PCH)
+	$(CXX) $(CXXFLAGS) $(PCH_USE) $< -o $@
 
 run: all
 	@for t in $(TARGETS); do printf '== %s ==\n' "$$t"; ./$$t; echo; done

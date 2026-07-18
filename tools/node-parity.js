@@ -74,6 +74,9 @@ function eq(label, actual, expected) {
      [9, 11, 265, 44.5, 255, 13]);
   eq("nan-arr", [isNaN(parseInt("nope")), Array.isArray([1]) && !Array.isArray("no")], [true, true]);
   eq("tostr", (255).toString() + "/" + (3.14159).toFixed(2), "255/3.14");
+  eq("trig", String(Math.sin(0) + Math.cos(0) + Math.atan2(1, 1)), "1.7853981633974483");
+  eq("hypot-log", Math.hypot(3, 4) + Math.log(Math.exp(2)) + Math.log2(8), 10);
+  eq("tan45", Math.round(Math.tan(Math.PI / 4)), 1);
 }
 // console.log rendering of arrays (node inspect style)
 console.log([6, 2, 8, 2, 10, 18, 4]);

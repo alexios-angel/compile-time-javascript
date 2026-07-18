@@ -216,6 +216,9 @@ static void math_and_builtins() {
 		let g = isNaN(parseInt("nope"));
 		let h = Array.isArray([1]) && !Array.isArray("no");
 		let i = (255).toString() + "/" + (3.14159).toFixed(2);
+		let j = Math.sin(0) + Math.cos(0) + Math.atan2(1, 1);
+		let k = Math.hypot(3, 4) + Math.log(Math.exp(2)) + Math.log2(8);
+		let l2 = Math.round(Math.tan(Math.PI / 4));
 	)">();
 	CHECK(out.ok());
 	CHECK(out["a"].to<int>() == 9);
@@ -227,6 +230,9 @@ static void math_and_builtins() {
 	CHECK(out["g"].to<bool>());
 	CHECK(out["h"].to<bool>());
 	CHECK(out["i"].to<std::string>() == "255/3.14");
+	CHECK(out["j"].to<std::string>() == "1.7853981633974483"); // 0 + 1 + pi/4
+	CHECK(out["k"].to<double>() == 10.0);                      // 5 + 2 + 3
+	CHECK(out["l2"].to<int>() == 1);
 }
 
 int main() {

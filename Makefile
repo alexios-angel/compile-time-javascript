@@ -54,7 +54,7 @@ run-tests: $(BINARIES)
 
 pch: $(PCH)
 
-$(PCH): include/ctjs.hpp
+$(PCH): include/ctjs.hpp $(wildcard include/ctjs/*.hpp)
 	$(CXX) $(CXXFLAGS) -x c++-header $< -o $@
 
 -include $(DEPENDENCY_FILES)

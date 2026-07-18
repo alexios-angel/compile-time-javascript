@@ -634,6 +634,34 @@ inline value make_math() {
 	math.set("sign", math_fn("sign", [](double d) {
 		         return d > 0 ? 1.0 : d < 0 ? -1.0 : d;
 	         }));
+	// the trigonometry and friends a game loop lives on
+	math.set("sin", math_fn("sin", [](double d) { return std::sin(d); }));
+	math.set("cos", math_fn("cos", [](double d) { return std::cos(d); }));
+	math.set("tan", math_fn("tan", [](double d) { return std::tan(d); }));
+	math.set("asin", math_fn("asin", [](double d) { return std::asin(d); }));
+	math.set("acos", math_fn("acos", [](double d) { return std::acos(d); }));
+	math.set("atan", math_fn("atan", [](double d) { return std::atan(d); }));
+	math.set("exp", math_fn("exp", [](double d) { return std::exp(d); }));
+	math.set("log", math_fn("log", [](double d) { return std::log(d); }));
+	math.set("log2", math_fn("log2", [](double d) { return std::log2(d); }));
+	math.set("log10", math_fn("log10", [](double d) { return std::log10(d); }));
+	math.set("cbrt", math_fn("cbrt", [](double d) { return std::cbrt(d); }));
+	math.set("atan2", value::function(
+	                      [](context &, const std::vector<value> & a) {
+		                      return value{std::atan2(arg_or_undefined(a, 0).to_number(),
+		                                              arg_or_undefined(a, 1).to_number())};
+	                      },
+	                      "atan2"));
+	math.set("hypot", value::function(
+	                      [](context &, const std::vector<value> & a) {
+		                      double sum = 0;
+		                      for (const value & v : a) {
+			                      const double d = v.to_number();
+			                      sum += d * d;
+		                      }
+		                      return value{std::sqrt(sum)};
+	                      },
+	                      "hypot"));
 	math.set("pow", value::function(
 	                    [](context &, const std::vector<value> & a) {
 		                    return value{std::pow(arg_or_undefined(a, 0).to_number(),

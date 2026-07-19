@@ -49,6 +49,8 @@ template <typename L, typename R> struct instanceof_op { };
 template <typename T> struct delete_op { };
 template <typename E> struct yield_op { }; // E = void for bare `yield`
 template <typename Text> struct regex_lit { }; // raw spelling, slashes included
+struct this_lit { };  // `this` — resolves to the call receiver
+struct super_lit { }; // `super` — only valid as super(...) / super.x
 template <typename Fn, typename... Args> struct call { };
 template <typename Obj, typename NameText> struct member { };
 template <typename Obj, typename Index> struct index { };
@@ -116,8 +118,12 @@ template <typename Name, typename Params, typename Body> struct class_method { }
 // NAME(...) accessor shape - get/set stay ordinary identifiers)
 template <char Kind, typename Name, typename Params, typename Body>
 struct class_accessor { };
-template <typename Name, typename... Methods> struct class_decl { };
-template <typename Name, typename SuperName, typename... Methods> struct class_ext { };
+template <typename KeyExpr, typename Params, typename Body> struct class_computed_method { };
+template <typename Name, typename Init> struct class_field { };     // Init = void when absent
+template <typename KeyExpr, typename Init> struct class_computed_field { };
+template <typename Inner> struct static_member { };                 // `static` prefix
+template <typename Name, typename... Members> struct class_decl { };
+template <typename Name, typename SuperName, typename... Members> struct class_ext { };
 template <typename E, typename... Ss> struct case_clause { };
 template <typename... Ss> struct default_clause { };
 template <typename D, typename... Clauses> struct switch_stmt { };

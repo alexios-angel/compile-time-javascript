@@ -23,8 +23,9 @@
 //
 // Assignment targets are a dedicated lhs rule (NAME, member, index),
 // so "f() = 1" is a SYNTAX error, not a runtime surprise. Semicolons
-// are required (no ASI, by design). No regex literals, template
-// literals, classes, this, or new in v0.1 - see the README.
+// are required (no ASI, by design). Reserved words lex as IDENT-
+// excluding keywords, so `let let = 1` is a syntax error while
+// `p.catch(f)` (keyword as a property name) is fine - see the README.
 
 // ctjs is C++20-only (the runtime layer leans on it), but the source
 // NTTP mechanism is the family's usual one
@@ -62,18 +63,18 @@ block: "{" stmt* "}"
 var_stmt: "let" declarator ("," declarator)* ";"   -> let_stmt
         | "const" declarator ("," declarator)* ";" -> const_stmt
         | "var" declarator ("," declarator)* ";"   -> varkw_stmt
-declarator: NAME ["=" assign]
-          | "[" [NAME ("," NAME)*] "]" "=" assign     -> destr_array
+declarator: IDENT ["=" assign]
+          | "[" [IDENT ("," IDENT)*] "]" "=" assign     -> destr_array
           | "{" [dprop ("," dprop)*] "}" "=" assign   -> destr_object
 dprop: NAME            -> dprop_shorthand
-     | NAME ":" NAME   -> dprop_renamed
-fn_decl: "function" NAME "(" params ")" block
-       | "async" "function" NAME "(" params ")" block -> async_fn_decl
-       | "function" "*" NAME "(" params ")" block     -> gen_fn_decl
+     | NAME ":" IDENT   -> dprop_renamed
+fn_decl: "function" IDENT "(" params ")" block
+       | "async" "function" IDENT "(" params ")" block -> async_fn_decl
+       | "function" "*" IDENT "(" params ")" block     -> gen_fn_decl
 params: [param ("," param)*]
-param: NAME               -> param_plain
-     | NAME "=" assign    -> param_default
-     | "..." NAME         -> param_rest
+param: IDENT               -> param_plain
+     | IDENT "=" assign    -> param_default
+     | "..." IDENT         -> param_rest
 if_stmt: "if" "(" expr ")" stmt ["else" stmt]
 while_stmt: "while" "(" expr ")" stmt
 do_stmt: "do" stmt "while" "(" expr ")" ";"
@@ -84,26 +85,34 @@ for_init: "let" declarator ("," declarator)*   -> forinit_let
         | [expr]
 for_cond: [expr]
 for_step: [expr]
-forof_stmt: "for" "(" "let" NAME "of" expr ")" stmt   -> forof_let
-          | "for" "(" "const" NAME "of" expr ")" stmt -> forof_const
-          | "for" "(" "var" NAME "of" expr ")" stmt   -> forof_var
+forof_stmt: "for" "(" "let" IDENT "of" expr ")" stmt   -> forof_let
+          | "for" "(" "const" IDENT "of" expr ")" stmt -> forof_const
+          | "for" "(" "var" IDENT "of" expr ")" stmt   -> forof_var
 return_stmt: "return" [expr] ";"
 break_stmt: "break" ";"
-          | "break" NAME ";" -> break_label
+          | "break" IDENT ";" -> break_label
 continue_stmt: "continue" ";"
-             | "continue" NAME ";" -> continue_label
+             | "continue" IDENT ";" -> continue_label
 throw_stmt: "throw" expr ";"
-try_stmt: "try" block "catch" "(" NAME ")" block                  -> try_catch
-        | "try" block "catch" "(" NAME ")" block "finally" block  -> try_catch_fin
+try_stmt: "try" block "catch" "(" IDENT ")" block                  -> try_catch
+        | "try" block "catch" "(" IDENT ")" block "finally" block  -> try_catch_fin
         | "try" block "finally" block                             -> try_fin
-class_decl: "class" NAME "{" class_member* "}"
-          | "class" NAME "extends" NAME "{" class_member* "}" -> class_extends
-class_member: NAME "(" params ")" block -> class_method
-            | NAME NAME "(" params ")" block -> class_accessor
+class_decl: "class" IDENT "{" class_member* "}"
+          | "class" IDENT "extends" IDENT "{" class_member* "}" -> class_extends
+class_member: NAME "(" params ")" block                      -> class_method
+            | NAME NAME "(" params ")" block                   -> class_accessor
+            | "[" expr "]" "(" params ")" block                -> class_computed_method
+            | NAME ["=" assign] ";"                            -> class_field
+            | "[" expr "]" "=" assign ";"                      -> class_computed_field
+            | "static" NAME "(" params ")" block               -> static_method
+            | "static" NAME NAME "(" params ")" block          -> static_accessor
+            | "static" "[" expr "]" "(" params ")" block       -> static_computed_method
+            | "static" NAME ["=" assign] ";"                   -> static_field
+            | "static" "[" expr "]" "=" assign ";"             -> static_computed_field
 switch_stmt: "switch" "(" expr ")" "{" switch_clause* "}"
 switch_clause: "case" expr ":" stmt*  -> case_clause
              | "default" ":" stmt*     -> default_clause
-labeled_stmt: NAME ":" stmt
+labeled_stmt: IDENT ":" stmt
 empty_stmt: ";"
 expr_stmt: expr ";"
 
@@ -116,7 +125,7 @@ expr_stmt: expr ";"
        | "yield" assign                -> yield_op
        | "yield"                       -> yield_bare
 
-lhs: NAME                    -> lhs_name
+lhs: IDENT                   -> lhs_name
    | postfix "." NAME        -> lhs_member
    | postfix "[" expr "]"    -> lhs_index
 
@@ -162,7 +171,9 @@ lhs: NAME                    -> lhs_name
 args: [arg ("," arg)*]
 ?arg: assign
     | "..." assign -> spread_arg
-?primary: NAME
+?primary: IDENT
+        | "this"      -> this_lit
+        | "super"     -> super_lit
         | NUMBER
         | DQSTRING
         | SQSTRING
@@ -192,10 +203,11 @@ fn_expr: "function" "(" params ")" block
        | "async" "function" "(" params ")" block -> async_fn_expr
        | "function" "*" "(" params ")" block     -> gen_fn_expr
 arrow_fn: "(" params ")" "=>" arrow_body
-        | NAME "=>" arrow_body
+        | IDENT "=>" arrow_body
 ?arrow_body: block | assign
 
 NAME: /[A-Za-z_$][A-Za-z0-9_$]*/
+IDENT: /(?!(?:await|break|case|catch|class|const|continue|default|delete|do|else|extends|false|finally|for|function|if|in|instanceof|let|new|null|return|super|switch|this|throw|true|try|typeof|var|void|while|with|yield)(?![A-Za-z0-9_$]))[A-Za-z_$][A-Za-z0-9_$]*/
 NUMBER: /0[xX][0-9a-fA-F]+|(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+\-]?[0-9]+)?|\.[0-9]+/
 DQSTRING: /"([^"\\\x0a]|\\[\s\S])*"/
 TEMPLATE_FULL: /`([^`\\$]|\\[\s\S]|\$(?!\{))*`/

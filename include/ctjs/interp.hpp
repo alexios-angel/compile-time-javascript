@@ -204,6 +204,58 @@ template <typename Text> struct eval_<ident<Text>> {
 		throw_error("ReferenceError", std::string{Text::view()} + " is not defined");
 	}
 };
+template <> struct eval_<this_lit> {
+	static value go(const env_ptr & env, context &) {
+		if (const value * t = env->find("this")) { return *t; }
+		return value{};
+	}
+};
+// bare `super` is never a value; only super(...) / super.x are legal
+template <> struct eval_<super_lit> {
+	static value go(const env_ptr &, context &) {
+		throw_error("SyntaxError", "'super' keyword unexpected here");
+	}
+};
+// super.x — read a property off the parent prototype, `this` unchanged
+template <typename Name> struct eval_<member<super_lit, Name>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value * sp = env->find("__super_proto__");
+		if (sp == nullptr || !sp->is_object()) {
+			throw_error("SyntaxError", "'super' keyword unexpected here");
+		}
+		return get_member(cx, *sp, Name::view());
+	}
+};
+// super(args) — run the parent constructor against the current `this`
+template <typename... Args> struct eval_<call<super_lit, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value * sc = env->find("__super_ctor__");
+		if (sc == nullptr || !sc->is_function()) {
+			throw_error("SyntaxError", "'super' call outside a derived constructor");
+		}
+		const value * self = env->find("this");
+		std::vector<value> args = gather_args<Args...>(env, cx);
+		cx.pending_this = self != nullptr ? *self : value{};
+		(void)call_value(cx, *sc, std::move(args));
+		return value{};
+	}
+};
+// super.method(args) — parent-prototype method, current `this`
+template <typename Name, typename... Args>
+struct eval_<call<member<super_lit, Name>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value * sp = env->find("__super_proto__");
+		if (sp == nullptr || !sp->is_object()) {
+			throw_error("SyntaxError", "'super' keyword unexpected here");
+		}
+		const value fn = get_member(cx, *sp, Name::view());
+		const value * self = env->find("this");
+		std::vector<value> args = gather_args<Args...>(env, cx);
+		cx.pending_this = self != nullptr ? *self : value{};
+		return call_value(cx, fn, std::move(args));
+	}
+};
+
 template <typename Text> struct eval_<num_lit<Text>> {
 	static value go(const env_ptr &, context &) { return value{num_of<Text>()}; }
 };
@@ -503,15 +555,23 @@ template <typename L, typename R> struct eval_<instanceof_op<L, R>> {
 			            "Right-hand side of 'instanceof' is not callable");
 		}
 		if (!lhs.is_object()) { return value{false}; }
-		const value * ctor = lhs.as_object()->find("__ctor");
-		if (ctor == nullptr || !ctor->is_function()) { return value{false}; }
-		value cur = *ctor;
-		for (int hops = 0; hops < 64 && cur.is_function(); ++hops) {
-			if (cur.as_function() == rhs.as_function()) { return value{true}; }
-			const auto & supers = class_supers();
-			const auto it = supers.find(cur.as_function().get());
-			if (it == supers.end()) { break; }
-			cur = it->second;
+		// primary check: is rhs.prototype anywhere in lhs's [[Prototype]]
+		// chain? (this is what covers class inheritance)
+		if (rhs.as_function()->props) {
+			if (const value * pt = rhs.as_function()->props->find("prototype");
+			    pt != nullptr && pt->is_object()) {
+				const object_t * target = pt->as_object().get();
+				for (object_t * o = lhs.as_object()->proto.get(); o != nullptr;
+				     o = o->proto.get()) {
+					if (o == target) { return value{true}; }
+				}
+			}
+		}
+		// fallback: constructor identity (Date, plain-function `new`)
+		if (const value * ctor = lhs.as_object()->find("__ctor");
+		    ctor != nullptr && ctor->is_function() &&
+		    ctor->as_function().get() == rhs.as_function().get()) {
+			return value{true};
 		}
 		return value{false};
 	}
@@ -624,7 +684,14 @@ template <typename Callee, typename... Args> struct eval_<new_op<Callee, Args...
 		const value fn = ev<Callee>(env, cx);
 		std::vector<value> args = gather_args<Args...>(env, cx);
 		value obj = value::object();
-		obj.as_object()->set("__ctor", fn); // instanceof identity
+		obj.as_object()->set("__ctor", fn); // instanceof fallback (Date, plain fns)
+		// the instance's [[Prototype]] is the constructor's .prototype
+		if (fn.is_function() && fn.as_function()->props) {
+			if (const value * pt = fn.as_function()->props->find("prototype");
+			    pt != nullptr && pt->is_object()) {
+				obj.as_object()->proto = pt->as_object();
+			}
+		}
 		cx.pending_this = obj;
 		const value ret = call_value(cx, fn, std::move(args));
 		return ret.is_object() ? ret : obj;
@@ -995,23 +1062,93 @@ struct exec_<fn_decl<N, P, B, A, G>> {
 // new) attaches every method to the fresh instance, then runs the
 // constructor body with `this` bound. Methods are per-instance
 // closures - prototype-equivalent for observable behavior.
-template <typename M> struct attach_method;
-template <typename N, typename P, typename B> struct attach_method<class_method<N, P, B>> {
-	static constexpr bool is_ctor = false;
-	static void attach(const env_ptr & defn_env, const value & obj) {
-		obj.as_object()->set(N::view(), fn_maker<P, B, false>::make(defn_env,
-		                                                            std::string{N::view()}));
+// --- classes with a real prototype chain, super, statics and fields.
+// Methods live ONCE on a shared prototype object; the constructor
+// function carries that prototype under its .prototype static, plus
+// any static members. Instances get [[Prototype]] = C.prototype
+// (new_op), so get_member walks up to the methods. `super` resolves
+// through hidden __super_ctor__/__super_proto__ bindings the methods
+// close over.
+
+using field_init = std::function<value(context &, const value &)>;
+
+struct class_build {
+	object_t * proto;                          // methods land here
+	std::shared_ptr<object_t> statics;         // becomes the ctor's .props
+	env_ptr cenv;                              // methods' defn env (super bindings)
+	env_ptr defn;                              // outer env (computed keys/static fields)
+	context * cx;
+	value ctor_closure;                        // set iff a `constructor` exists
+	std::vector<std::pair<std::string, field_init>> ifields; // per-instance
+	std::vector<std::pair<std::string, field_init>> sfields; // per-class
+};
+
+// install one member node onto the prototype or the statics object
+template <typename Inner> struct node_installer;
+template <typename N, typename P, typename B>
+struct node_installer<class_method<N, P, B>> {
+	static void go(class_build & cb, bool st) {
+		if constexpr (N::view() == std::string_view{"constructor"}) {
+			if (!st) { cb.ctor_closure = fn_maker<P, B, false>::make(cb.cenv, "constructor"); }
+		} else {
+			object_t & tgt = st ? *cb.statics : *cb.proto;
+			tgt.set(N::view(), fn_maker<P, B, false>::make(cb.cenv, std::string{N::view()}));
+		}
 	}
-	static value ctor(const env_ptr &) { return value{}; }
 };
 template <char Kd, typename N, typename P, typename B>
-struct attach_method<class_accessor<Kd, N, P, B>> {
-	static constexpr bool is_ctor = false;
-	static void attach(const env_ptr & defn_env, const value & obj) {
-		attach_accessor(*obj.as_object(), N::view(), Kd,
-		                fn_maker<P, B, false>::make(defn_env, std::string{N::view()}));
+struct node_installer<class_accessor<Kd, N, P, B>> {
+	static void go(class_build & cb, bool st) {
+		attach_accessor(st ? *cb.statics : *cb.proto, N::view(), Kd,
+		                fn_maker<P, B, false>::make(cb.cenv, std::string{N::view()}));
 	}
-	static value ctor(const env_ptr &) { return value{}; }
+};
+template <typename KeyE, typename P, typename B>
+struct node_installer<class_computed_method<KeyE, P, B>> {
+	static void go(class_build & cb, bool st) {
+		const std::string key = ev<KeyE>(cb.defn, *cb.cx).to_string();
+		(st ? *cb.statics : *cb.proto)
+		    .set(key, fn_maker<P, B, false>::make(cb.cenv, key));
+	}
+};
+template <typename N> struct node_installer<class_field<N, void>> {
+	static void go(class_build & cb, bool st) {
+		(st ? cb.sfields : cb.ifields)
+		    .push_back({std::string{N::view()}, [](context &, const value &) { return value{}; }});
+	}
+};
+template <typename N, typename Init> struct node_installer<class_field<N, Init>> {
+	static void go(class_build & cb, bool st) {
+		const env_ptr cenv = cb.cenv;
+		(st ? cb.sfields : cb.ifields)
+		    .push_back({std::string{N::view()}, [cenv](context & cx, const value & self) {
+			                auto le = std::make_shared<environment>();
+			                le->parent = cenv;
+			                le->declare("this", self);
+			                return ev<Init>(le, cx);
+		                }});
+	}
+};
+template <typename KeyE, typename Init>
+struct node_installer<class_computed_field<KeyE, Init>> {
+	static void go(class_build & cb, bool st) {
+		const std::string key = ev<KeyE>(cb.defn, *cb.cx).to_string();
+		const env_ptr cenv = cb.cenv;
+		(st ? cb.sfields : cb.ifields)
+		    .push_back({key, [cenv](context & cx, const value & self) {
+			                auto le = std::make_shared<environment>();
+			                le->parent = cenv;
+			                le->declare("this", self);
+			                return ev<Init>(le, cx);
+		                }});
+	}
+};
+
+template <typename M> struct member_installer {
+	static void go(class_build & cb) { node_installer<M>::go(cb, false); }
+};
+template <typename Inner> struct member_installer<static_member<Inner>> {
+	static void go(class_build & cb) { node_installer<Inner>::go(cb, true); }
 };
 
 template <typename M> struct method_is_ctor : std::false_type { };
@@ -1019,78 +1156,91 @@ template <typename N, typename P, typename B>
 struct method_is_ctor<class_method<N, P, B>>
     : std::bool_constant<N::view() == std::string_view{"constructor"}> { };
 
-template <typename P, typename B> struct ctor_of {
-	static value make(const env_ptr & env) { return fn_maker<P, B, false>::make(env, "constructor"); }
-};
+// finish a class: wire the constructor value, run static-field inits,
+// declare the binding. `base` is undefined for a base class.
+inline value finish_class(std::string name, const std::shared_ptr<object_t> & proto,
+                          const std::shared_ptr<object_t> & statics, class_build & cb,
+                          context & cx, const value & base) {
+	const value protoval = value{proto};
+	auto ifields = std::make_shared<std::vector<std::pair<std::string, field_init>>>(
+	    std::move(cb.ifields));
+	const value ctor_closure = cb.ctor_closure;
+	const bool has_ctor = ctor_closure.is_function();
+	value cls = value::function(
+	    [ctor_closure, protoval, ifields, base, has_ctor](
+	        context & c2, const std::vector<value> & args) -> value {
+		    value self = c2.current_this;
+		    if (!self.is_object()) {
+			    self = value::object();
+			    self.as_object()->proto = protoval.as_object();
+		    }
+		    for (const auto & [nm, fn] : *ifields) {
+			    value v = fn(c2, self);
+			    set_member(c2, self, nm, std::move(v));
+		    }
+		    if (has_ctor) {
+			    c2.pending_this = self;
+			    (void)call_value(c2, ctor_closure, args); // super() inits base
+		    } else if (base.is_function()) {
+			    c2.pending_this = self; // implicit constructor: super(...args)
+			    (void)call_value(c2, base, args);
+		    }
+		    return self;
+	    },
+	    std::move(name));
+	cls.as_function()->props = statics;
+	statics->set("prototype", protoval);
+	proto->set("constructor", cls);
+	for (auto & [nm, fn] : cb.sfields) {
+		value v = fn(cx, cls);
+		statics->set(nm, std::move(v));
+	}
+	return cls;
+}
 
-template <typename Name, typename... Methods> struct exec_<class_decl<Name, Methods...>> {
+template <typename Name, typename... Members> struct exec_<class_decl<Name, Members...>> {
 	static flow go(const env_ptr & env, context & cx, value &) {
-		(void)cx;
-		env_ptr defn = env;
-		value cls = value::function(
-		    [defn](context & cx2, const std::vector<value> & args) -> value {
-			    // `this` (the fresh instance) was parked by new_op
-			    value self = cx2.current_this;
-			    if (!self.is_object()) { self = value::object(); }
-			    (attach_one<Methods>(defn, self), ...);
-			    value ctor_fn;
-			    if (const value * c = self.as_object()->find("constructor")) {
-				    ctor_fn = *c;
-			    }
-			    if (ctor_fn.is_function()) {
-				    cx2.pending_this = self;
-				    (void)call_value(cx2, ctor_fn, args);
-			    }
-			    return self;
-		    },
-		    std::string{Name::view()});
+		auto proto = std::make_shared<object_t>();
+		auto statics = std::make_shared<object_t>();
+		auto cenv = std::make_shared<environment>();
+		cenv->parent = env;
+		cenv->declare("__super_ctor__", value{});  // no super in a base class
+		cenv->declare("__super_proto__", value{});
+		class_build cb{proto.get(), statics, cenv, env, &cx, value{}, {}, {}};
+		(member_installer<Members>::go(cb), ...);
+		value cls = finish_class(std::string{Name::view()}, proto, statics, cb, cx, value{});
 		env->declare(Name::view(), std::move(cls));
 		return flow::normal;
 	}
-	template <typename M> static void attach_one(const env_ptr & defn, const value & self) {
-		attach_method<M>::attach(defn, self);
-	}
 };
 
-// class B extends A: base methods + base ctor first (an implicit
-// ARGLESS super() when B declares its own constructor, else the args
-// pass straight through - the JS default-ctor behavior), then B's
-// methods override and B's ctor runs. No super.method() calls, no
-// prototype chain - instanceof walks the class_supers side table.
-template <typename Name, typename SuperName, typename... Methods>
-struct exec_<class_ext<Name, SuperName, Methods...>> {
-	static constexpr bool has_own_ctor = (method_is_ctor<Methods>::value || ...);
+template <typename Name, typename SuperName, typename... Members>
+struct exec_<class_ext<Name, SuperName, Members...>> {
 	static flow go(const env_ptr & env, context & cx, value &) {
 		const value base = ev<ident<SuperName>>(env, cx);
 		if (!base.is_function()) {
 			throw_error("TypeError", "Class extends value is not a constructor");
 		}
-		env_ptr defn = env;
-		value cls = value::function(
-		    [defn, base](context & cx2, const std::vector<value> & args) -> value {
-			    value self = cx2.current_this;
-			    if (!self.is_object()) { self = value::object(); }
-			    cx2.pending_this = self;
-			    (void)call_value(cx2, base,
-			                     has_own_ctor ? std::vector<value>{} : args);
-			    (attach_one<Methods>(defn, self), ...);
-			    if constexpr (has_own_ctor) {
-				    if (const value * c = self.as_object()->find("constructor");
-				        c != nullptr && c->is_function()) {
-					    value ctor_fn = *c;
-					    cx2.pending_this = self;
-					    (void)call_value(cx2, ctor_fn, args);
-				    }
-			    }
-			    return self;
-		    },
-		    std::string{Name::view()});
-		class_supers()[cls.as_function().get()] = base;
+		auto proto = std::make_shared<object_t>();
+		value base_proto{};
+		auto statics = std::make_shared<object_t>();
+		if (base.as_function()->props) {
+			if (const value * bp = base.as_function()->props->find("prototype");
+			    bp != nullptr && bp->is_object()) {
+				proto->proto = bp->as_object();     // method inheritance
+				base_proto = *bp;
+			}
+			statics->proto = base.as_function()->props; // static inheritance
+		}
+		auto cenv = std::make_shared<environment>();
+		cenv->parent = env;
+		cenv->declare("__super_ctor__", base);
+		cenv->declare("__super_proto__", base_proto);
+		class_build cb{proto.get(), statics, cenv, env, &cx, value{}, {}, {}};
+		(member_installer<Members>::go(cb), ...);
+		value cls = finish_class(std::string{Name::view()}, proto, statics, cb, cx, base);
 		env->declare(Name::view(), std::move(cls));
 		return flow::normal;
-	}
-	template <typename M> static void attach_one(const env_ptr & defn, const value & self) {
-		attach_method<M>::attach(defn, self);
 	}
 };
 

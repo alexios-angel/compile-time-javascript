@@ -300,8 +300,9 @@ template <typename N, typename... Ks> struct is_block_tree<ctlark::tree<N, Ks...
 template <typename TN, typename TV> struct lower_expr<ctlark::token<TN, TV>> {
 	static constexpr auto pick() {
 		constexpr std::string_view n = TN::view();
-		if constexpr (n == std::string_view{"NAME"}) { return ast::ident<TV>{}; }
-		else if constexpr (n == std::string_view{"NUMBER"}) { return ast::num_lit<TV>{}; }
+		if constexpr (n == std::string_view{"NAME"} || n == std::string_view{"IDENT"}) {
+			return ast::ident<TV>{};
+		} else if constexpr (n == std::string_view{"NUMBER"}) { return ast::num_lit<TV>{}; }
 		else { return ast::str_lit<TV>{}; }
 	}
 	using type = decltype(pick());
@@ -386,6 +387,10 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			return ast::instanceof_op<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>>{};
 		} else if constexpr (n == std::string_view{"regex_lit"}) {
 			return ast::regex_lit<typename kid<0>::value_type>{};
+		} else if constexpr (n == std::string_view{"this_lit"}) {
+			return ast::this_lit{};
+		} else if constexpr (n == std::string_view{"super_lit"}) {
+			return ast::super_lit{};
 		} else if constexpr (n == std::string_view{"opt_member"}) {
 			return ast::opt_member<lower_expr_t<kid<0>>, typename kid<1>::value_type>{};
 		} else if constexpr (n == std::string_view{"opt_index"}) {
@@ -466,39 +471,72 @@ template <typename Callee> struct lower_new<Callee> {
 	using type = ast::new_op<lower_expr_t<Callee>>;
 };
 
-template <typename MN, typename Name, typename Params, typename Body>
-struct lower_method<ctlark::tree<MN, Name, Params, Body>> {
-	using type = ast::class_method<typename Name::value_type,
-	                               typename lower_params<Params>::type,
-	                               lower_stmt_t<Body>>;
-};
 // accessor: NAME NAME(params) block, first NAME must be get or set -
 // validated HERE so get/set stay ordinary identifiers everywhere else
-template <char K> struct accessor_kind {
-	static constexpr char value = K;
-};
 template <typename KindText> constexpr char accessor_kind_of() {
 	constexpr std::string_view k = KindText::view();
 	static_assert(k == std::string_view{"get"} || k == std::string_view{"set"},
 	              "ctjs: only `get name()` / `set name(v)` accessors exist");
 	return k == std::string_view{"get"} ? 'g' : 's';
 }
-template <typename MN, typename Kind, typename Name, typename Params, typename Body>
-struct lower_method<ctlark::tree<MN, Kind, Name, Params, Body>> {
-	using type = ast::class_accessor<accessor_kind_of<typename Kind::value_type>(),
-	                                 typename Name::value_type,
-	                                 typename lower_params<Params>::type,
-	                                 lower_stmt_t<Body>>;
+
+// one class member -> an ast member node, dispatched by the alias name.
+// A `static ` prefix produces a distinct alias with IDENTICAL children
+// (the keyword is filtered), so method/static_method share a builder;
+// static-ness is carried by wrapping the inner node in static_member.
+template <typename Tree> struct lower_member;
+template <typename MN, typename... Ks> struct lower_member<ctlark::tree<MN, Ks...>> {
+	template <size_t I> using kid = nth_t<I, Ks...>;
+	static constexpr std::string_view n = MN::view();
+	static constexpr bool is_static = n.size() >= 7 && n.substr(0, 7) == std::string_view{"static_"};
+
+	static constexpr auto inner() {
+		if constexpr (n == std::string_view{"class_method"} ||
+		              n == std::string_view{"static_method"}) {
+			return ast::class_method<typename kid<0>::value_type,
+			                         typename lower_params<kid<1>>::type,
+			                         lower_stmt_t<kid<2>>>{};
+		} else if constexpr (n == std::string_view{"class_accessor"} ||
+		                     n == std::string_view{"static_accessor"}) {
+			return ast::class_accessor<accessor_kind_of<typename kid<0>::value_type>(),
+			                           typename kid<1>::value_type,
+			                           typename lower_params<kid<2>>::type,
+			                           lower_stmt_t<kid<3>>>{};
+		} else if constexpr (n == std::string_view{"class_computed_method"} ||
+		                     n == std::string_view{"static_computed_method"}) {
+			return ast::class_computed_method<lower_expr_t<kid<0>>,
+			                                  typename lower_params<kid<1>>::type,
+			                                  lower_stmt_t<kid<2>>>{};
+		} else if constexpr (n == std::string_view{"class_computed_field"} ||
+		                     n == std::string_view{"static_computed_field"}) {
+			return ast::class_computed_field<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>>{};
+		} else { // class_field / static_field: [Name] or [Name, Init]
+			if constexpr (sizeof...(Ks) >= 2) {
+				return ast::class_field<typename kid<0>::value_type, lower_expr_t<kid<1>>>{};
+			} else {
+				return ast::class_field<typename kid<0>::value_type, void>{};
+			}
+		}
+	}
+	static constexpr auto pick() {
+		if constexpr (is_static) {
+			return ast::static_member<decltype(inner())>{};
+		} else {
+			return inner();
+		}
+	}
+	using type = decltype(pick());
 };
+
 template <typename Name, typename... Ms> struct lower_class<Name, Ms...> {
 	using type = ast::class_decl<typename Name::value_type,
-	                             typename lower_method<Ms>::type...>;
+	                             typename lower_member<Ms>::type...>;
 };
 template <typename... Ks3> struct lower_class_ext;
 template <typename Name, typename Super, typename... Ms>
 struct lower_class_ext<Name, Super, Ms...> {
 	using type = ast::class_ext<typename Name::value_type, typename Super::value_type,
-	                            typename lower_method<Ms>::type...>;
+	                            typename lower_member<Ms>::type...>;
 };
 
 template <typename Tree> struct lower_clause;

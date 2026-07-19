@@ -53,6 +53,24 @@ static_assert(ctjs::is_valid<"function* g() { yield 1; }">);
 static_assert(ctjs::is_valid<"let r = /ab+c/gi;">);
 static_assert(ctjs::is_valid<"let t = new Date(0).getTime();">);
 
+// --- reserved words: keywords are no longer usable as identifiers
+static_assert(!ctjs::is_valid<"let let = 1;">);           // binding name
+static_assert(!ctjs::is_valid<"let class = 1;">);
+static_assert(!ctjs::is_valid<"var new = 5;">);
+static_assert(!ctjs::is_valid<"let x = new;">);           // reference
+static_assert(!ctjs::is_valid<"function catch() {}">);    // function name
+static_assert(!ctjs::is_valid<"for (let this of xs) {}">); // loop var
+// ...but keyword PROPERTY names and contextual words are fine
+static_assert(ctjs::is_valid<"p.catch(f); q.finally(g); let z = o.class;">);
+static_assert(ctjs::is_valid<R"(let o = { class: 1, "new": 2, if: 3 };)">);
+static_assert(ctjs::is_valid<"let of = 1; let async = 2; let get = 3;">);
+static_assert(ctjs::is_valid<"let letter = of + async;">);
+
+// --- classes: statics, fields, computed names, super, this
+static_assert(ctjs::is_valid<"class C { static x = 1; static m() {} field = 2; [k]() {} }">);
+static_assert(ctjs::is_valid<"class D extends C { constructor() { super(); super.m(); } }">);
+static_assert(ctjs::is_valid<"let a = this; let b = this.x; f(this);">);
+
 // --- the script surface
 static_assert(ctjs::script<"let x = 1;">.valid);
 static_assert(!ctjs::script_t<ctll::fixed_string{"let x = 1"}>::valid);

@@ -35,13 +35,16 @@ struct context;
 
 using array_t = std::vector<value>;
 
-// insertion-ordered property map, like a JS object
+// insertion-ordered property map, like a JS object. `proto` is the
+// [[Prototype]] link: get_member/set_member walk it, so class methods
+// live once on a shared prototype instead of on every instance.
 struct object_t {
 	std::vector<std::pair<std::string, value>> props;
+	std::shared_ptr<object_t> proto; // null for a plain {} / the chain root
 
-	value * find(std::string_view key);
+	value * find(std::string_view key);        // OWN property only
 	const value * find(std::string_view key) const;
-	void set(std::string_view key, value v);
+	void set(std::string_view key, value v);   // OWN property only
 };
 
 // one representation for JS functions and native (C++) functions: the

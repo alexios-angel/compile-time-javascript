@@ -513,6 +513,98 @@ static void labels_date_accessors_extends() {
 	CHECK(out["pairs"].to<std::string>() == "0,1,10,11");
 }
 
+static void classes_prototypes_super_statics() {
+	auto out = ctjs::run<R"(
+		class Shape {
+			constructor(name) { this.name = name; }
+			describe() { return "a " + this.name; }
+			get label() { return "[" + this.name + "]"; }
+			static kinds() { return "shapes"; }
+			static origin = "geometry";
+		}
+		class Circle extends Shape {
+			constructor(r) { super("circle"); this.r = r; }
+			describe() { return super.describe() + " of radius " + this.r; }
+			area() { return 3 * this.r * this.r; }
+		}
+		let c = new Circle(2);
+		let d = c.describe();               // override + super.describe()
+		let inherited_label = c.label;      // getter inherited from Shape
+		let a = c.area();
+		let is_circle = c instanceof Circle;
+		let is_shape = c instanceof Shape;
+		let base_kind = Shape.kinds();
+		let sub_kind = Circle.kinds();      // static inherited through extends
+		let origin = Shape.origin;          // static field
+		let c2 = new Circle(3);
+		let shared = c.describe === c2.describe;                 // one method obj
+		let proto_ok = Object.getPrototypeOf(c) === Circle.prototype;
+
+		// instance fields + computed member names (static and instance)
+		const key = "dynamic";
+		class Widget {
+			count = 0;
+			[key]() { return "computed!"; }
+			static [key + "Static"]() { return "cs"; }
+			bump() { this.count += 1; return this.count; }
+		}
+		let w = new Widget();
+		let field0 = w.count;
+		let bumped = w.bump();
+		let comp = w.dynamic();
+		let comp_static = Widget.dynamicStatic();
+
+		// plain-function prototype methods
+		function Point(x) { this.x = x; }
+		Point.prototype.getX = function() { return this.x; };
+		let pt = new Point(7);
+		let px = pt.getX();
+		let pt_is = pt instanceof Point;
+
+		// Object helpers
+		let obj = { a: 1, b: 2 };
+		let keys = Object.keys(obj).join(",");
+		let merged = Object.assign({}, obj, { b: 3, c: 4 });
+		let created = Object.create(obj);
+		let inherited_a = created.a;        // resolves up the prototype
+
+		// Date string parsing
+		let parsed = new Date("2021-06-15T12:30:00Z");
+		let py = parsed.getUTCFullYear();
+		let pmo = parsed.getMonth();
+		let pday = parsed.getDate();
+		let ph = parsed.getHours();
+		let epoch1 = Date.parse("1970-01-02");
+	)">();
+	CHECK(out.ok());
+	CHECK(out["d"].to<std::string>() == "a circle of radius 2");
+	CHECK(out["inherited_label"].to<std::string>() == "[circle]");
+	CHECK(out["a"].to<double>() == 12.0);
+	CHECK(out["is_circle"].to<bool>());
+	CHECK(out["is_shape"].to<bool>());
+	CHECK(out["base_kind"].to<std::string>() == "shapes");
+	CHECK(out["sub_kind"].to<std::string>() == "shapes");
+	CHECK(out["origin"].to<std::string>() == "geometry");
+	CHECK(out["shared"].to<bool>());
+	CHECK(out["proto_ok"].to<bool>());
+	CHECK(out["field0"].to<int>() == 0);
+	CHECK(out["bumped"].to<int>() == 1);
+	CHECK(out["comp"].to<std::string>() == "computed!");
+	CHECK(out["comp_static"].to<std::string>() == "cs");
+	CHECK(out["px"].to<int>() == 7);
+	CHECK(out["pt_is"].to<bool>());
+	CHECK(out["keys"].to<std::string>() == "a,b");
+	CHECK(out["merged"]["a"].to<int>() == 1);
+	CHECK(out["merged"]["b"].to<int>() == 3);
+	CHECK(out["merged"]["c"].to<int>() == 4);
+	CHECK(out["inherited_a"].to<int>() == 1);
+	CHECK(out["py"].to<int>() == 2021);
+	CHECK(out["pmo"].to<int>() == 5); // June is month 5 (0-based)
+	CHECK(out["pday"].to<int>() == 15);
+	CHECK(out["ph"].to<int>() == 12);
+	CHECK(out["epoch1"].to<double>() == 86400000.0);
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -529,6 +621,7 @@ int main() {
 	optional_chaining_and_object_sugar();
 	generators_instanceof_regex();
 	labels_date_accessors_extends();
+	classes_prototypes_super_statics();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

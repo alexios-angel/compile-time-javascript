@@ -161,13 +161,6 @@ inline void attach_accessor(object_t & o, std::string_view name, char kind, valu
 	slot->as_object()->set(kind == 'g' ? "get" : "set", std::move(fn));
 }
 
-// class B extends A: instanceof walks this side table (function values
-// cannot be map keys; identity of the function_t cell is the key)
-inline std::unordered_map<const function_t *, value> & class_supers() {
-	static std::unordered_map<const function_t *, value> m;
-	return m;
-}
-
 // --- regular expressions: a small backtracking engine behind regex
 // literals (/ab+c/i), RegExp-object methods (test/exec) and the
 // regex-aware string methods (match/replace/split). Features: literals,
@@ -1192,16 +1185,23 @@ inline value get_member(context & cx, const value & recv, std::string_view name)
 		                             " (reading '" + std::string{name} + "')");
 	}
 	if (recv.is_object()) {
-		if (const value * v = recv.as_object()->find(name)) {
-			if (is_accessor(*v)) {
-				const value * g = v->as_object()->find("get");
-				if (g != nullptr && g->is_function()) {
-					cx.pending_this = recv;
-					return call_value(cx, *g, {});
+		if (name == "__proto__") {
+			const auto & pr = recv.as_object()->proto;
+			return pr ? value{pr} : value::null();
+		}
+		// walk the [[Prototype]] chain: own props, then inherited methods
+		for (object_t * o = recv.as_object().get(); o != nullptr; o = o->proto.get()) {
+			if (const value * v = o->find(name)) {
+				if (is_accessor(*v)) {
+					const value * g = v->as_object()->find("get");
+					if (g != nullptr && g->is_function()) {
+						cx.pending_this = recv; // getter sees the ORIGINAL receiver
+						return call_value(cx, *g, {});
+					}
+					return value{}; // setter-only property reads undefined
 				}
-				return value{}; // setter-only property reads undefined
+				return *v;
 			}
-			return *v;
 		}
 		return value{};
 	}
@@ -1209,11 +1209,22 @@ inline value get_member(context & cx, const value & recv, std::string_view name)
 	if (recv.is_string()) { return detail::string_member(recv, name); }
 	if (recv.is_number()) { return detail::number_member(recv, name); }
 	if (recv.is_function()) {
-		// statics riding on the function value (Date.now, class statics)
-		if (const auto & props = recv.as_function()->props; props != nullptr) {
-			if (const value * v = props->find(name)) { return *v; }
+		const std::shared_ptr<function_t> f = recv.as_function();
+		if (name == "prototype") {
+			// every function has a .prototype; make one on demand so plain
+			// `function F(){}; F.prototype.m = ...; new F()` works
+			if (!f->props) { f->props = std::make_shared<object_t>(); }
+			if (const value * pt = f->props->find("prototype")) { return *pt; }
+			value proto = value::object();
+			f->props->set("prototype", proto);
+			return proto;
 		}
-		if (name == "name") { return value{recv.as_function()->name}; }
+		// statics ride on props; walk its chain for `class extends` statics
+		for (object_t * o = f->props ? f->props.get() : nullptr; o != nullptr;
+		     o = o->proto.get()) {
+			if (const value * v = o->find(name)) { return *v; }
+		}
+		if (name == "name") { return value{f->name}; }
 	}
 	return value{};
 }
@@ -1249,19 +1260,37 @@ inline void set_member(context & cx, const value & recv, std::string_view name, 
 		                             " (setting '" + std::string{name} + "')");
 	}
 	if (recv.is_object()) {
-		if (value * cur = recv.as_object()->find(name); cur != nullptr && is_accessor(*cur)) {
-			const value * st = cur->as_object()->find("set");
-			if (st != nullptr && st->is_function()) {
-				cx.pending_this = recv;
-				(void)call_value(cx, *st, {std::move(v)});
-			}
-			return; // getter-only property writes are silent no-ops
+		if (name == "__proto__") {
+			if (v.is_object()) { recv.as_object()->proto = v.as_object(); }
+			else if (v.is_null()) { recv.as_object()->proto = nullptr; }
+			return;
 		}
-		recv.as_object()->set(name, std::move(v));
+		// an accessor anywhere on the chain routes the write to its setter;
+		// a data property (own or inherited) is shadowed by an own prop
+		for (object_t * o = recv.as_object().get(); o != nullptr; o = o->proto.get()) {
+			if (value * cur = o->find(name)) {
+				if (is_accessor(*cur)) {
+					const value * st = cur->as_object()->find("set");
+					if (st != nullptr && st->is_function()) {
+						cx.pending_this = recv;
+						(void)call_value(cx, *st, {std::move(v)});
+					}
+					return; // getter-only property writes are silent no-ops
+				}
+				break;
+			}
+		}
+		recv.as_object()->set(name, std::move(v)); // own data property
 		return;
 	}
 	if (recv.is_array() && name == "length") {
 		recv.as_array()->resize(static_cast<size_t>(v.to_number()));
+		return;
+	}
+	if (recv.is_function()) { // statics: C.x = ... / F.prototype = ...
+		const std::shared_ptr<function_t> f = recv.as_function();
+		if (!f->props) { f->props = std::make_shared<object_t>(); }
+		f->props->set(name, std::move(v));
 		return;
 	}
 	// numbers/strings: silent no-op, like non-strict JS
@@ -1584,6 +1613,69 @@ inline void civil_from_days(long long z, long long & y, unsigned & m, unsigned &
 	if (m <= 2) { ++y; }
 }
 
+// y/m/d -> days since the epoch (inverse of the above); Hinnant
+inline long long days_from_civil(long long y, unsigned m, unsigned d) {
+	y -= m <= 2;
+	const long long era = (y >= 0 ? y : y - 399) / 400;
+	const unsigned yoe = static_cast<unsigned>(y - era * 400);
+	const unsigned doy =
+	    (153u * (m + (m > 2 ? -3u : 9u)) + 2u) / 5u + d - 1u;
+	const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+	return era * 146097 + static_cast<long long>(doe) - 719468;
+}
+
+// parse the ISO-8601 subset toISOString produces (plus date-only and
+// no-Z forms), always as UTC; NaN on anything malformed
+inline double parse_date_ms(std::string_view s) {
+	while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) { s.remove_prefix(1); }
+	while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) { s.remove_suffix(1); }
+	const auto num = [&](size_t pos, size_t len) -> long {
+		if (pos + len > s.size()) { return -1; }
+		long v = 0;
+		for (size_t i = 0; i < len; ++i) {
+			const char c = s[pos + i];
+			if (c < '0' || c > '9') { return -1; }
+			v = v * 10 + (c - '0');
+		}
+		return v;
+	};
+	if (s.size() < 10 || s[4] != '-' || s[7] != '-') { return std::nan(""); }
+	const long Y = num(0, 4), Mo = num(5, 2), D = num(8, 2);
+	if (Y < 0 || Mo < 1 || Mo > 12 || D < 1 || D > 31) { return std::nan(""); }
+	long hh = 0, mm = 0, ss = 0, ms = 0;
+	size_t i = 10;
+	if (s.size() > 10 && (s[10] == 'T' || s[10] == ' ')) {
+		if (s.size() < 16 || s[13] != ':') { return std::nan(""); }
+		hh = num(11, 2);
+		mm = num(14, 2);
+		if (hh < 0 || mm < 0) { return std::nan(""); }
+		i = 16;
+		if (s.size() > i && s[i] == ':') {
+			ss = num(i + 1, 2);
+			if (ss < 0) { return std::nan(""); }
+			i += 3;
+		}
+		if (s.size() > i && s[i] == '.') {
+			size_t j = i + 1, k = 0;
+			long f = 0;
+			while (j < s.size() && k < 3 && s[j] >= '0' && s[j] <= '9') {
+				f = f * 10 + (s[j] - '0');
+				++j;
+				++k;
+			}
+			while (k < 3) { f *= 10; ++k; }
+			ms = f;
+			while (j < s.size() && s[j] >= '0' && s[j] <= '9') { ++j; }
+			i = j;
+		}
+	}
+	if (i < s.size() && s[i] != 'Z') { return std::nan(""); } // only UTC ('Z' or bare)
+	const long long days = days_from_civil(Y, static_cast<unsigned>(Mo), static_cast<unsigned>(D));
+	return static_cast<double>(days) * 86400000.0 + static_cast<double>(hh) * 3600000.0 +
+	       static_cast<double>(mm) * 60000.0 + static_cast<double>(ss) * 1000.0 +
+	       static_cast<double>(ms);
+}
+
 inline value make_date_object(double ms) {
 	auto o = std::make_shared<object_t>();
 	o->set("__date_ms", value{ms});
@@ -1651,19 +1743,23 @@ inline env_ptr make_globals() {
 	g->declare("Math", detail::make_math());
 	g->declare("JSON", detail::make_json());
 	{
-		// Date, the UTC subset: new Date() / new Date(ms) with the usual
-		// getters + toISOString; Date.now() is the host wall clock (the
-		// one impure global besides console - hosts can rebind it).
-		// Local-time getters alias the UTC ones; no parsing, no setters.
+		// Date, the UTC subset: new Date() / new Date(ms) / new Date(str)
+		// with the usual getters + toISOString; Date.now() is the host
+		// wall clock (the one impure global besides console - hosts can
+		// rebind it). Local-time getters alias the UTC ones; no setters.
 		value date_fn = value::function(
 		    [](context & cx, const std::vector<value> & a) -> value {
-			    const double ms =
-			        !a.empty() && a[0].is_number()
-			            ? a[0].as_number()
-			            : static_cast<double>(
-			                  std::chrono::duration_cast<std::chrono::milliseconds>(
-			                      std::chrono::system_clock::now().time_since_epoch())
-			                      .count());
+			    double ms;
+			    if (a.empty()) {
+				    ms = static_cast<double>(
+				        std::chrono::duration_cast<std::chrono::milliseconds>(
+				            std::chrono::system_clock::now().time_since_epoch())
+				            .count());
+			    } else if (a[0].is_number()) {
+				    ms = a[0].as_number();
+			    } else {
+				    ms = parse_date_ms(a[0].to_string());
+			    }
 			    value d = make_date_object(ms);
 			    // fold into the fresh `this` new_op parked, keeping the
 			    // __ctor stamp so `x instanceof Date` holds
@@ -1686,7 +1782,107 @@ inline env_ptr make_globals() {
 			                       .count())};
 		               },
 		               "now"));
+		date_fn.as_function()->props->set(
+		    "parse", value::function(
+		                 [](context &, const std::vector<value> & a) {
+			                 return value{a.empty() ? std::nan("")
+			                                        : parse_date_ms(a[0].to_string())};
+		                 },
+		                 "parse"));
 		g->declare("Date", std::move(date_fn));
+	}
+	{
+		// Object: prototype plumbing + the common own-key helpers.
+		// __ctor (our instanceof stamp) and accessor markers stay hidden.
+		const auto own_ok = [](const std::string & k, const value & v) {
+			return k != "__ctor" && !is_accessor(v);
+		};
+		object_t o;
+		o.set("keys", value::function(
+		                  [own_ok](context &, const std::vector<value> & a) {
+			                  array_t out;
+			                  if (!a.empty() && a[0].is_object()) {
+				                  for (const auto & [k, v] : a[0].as_object()->props) {
+					                  if (own_ok(k, v)) { out.push_back(value{k}); }
+				                  }
+			                  }
+			                  return value::array(std::move(out));
+		                  },
+		                  "keys"));
+		o.set("values", value::function(
+		                    [own_ok](context &, const std::vector<value> & a) {
+			                    array_t out;
+			                    if (!a.empty() && a[0].is_object()) {
+				                    for (const auto & [k, v] : a[0].as_object()->props) {
+					                    if (own_ok(k, v)) { out.push_back(v); }
+				                    }
+			                    }
+			                    return value::array(std::move(out));
+		                    },
+		                    "values"));
+		o.set("entries", value::function(
+		                     [own_ok](context &, const std::vector<value> & a) {
+			                     array_t out;
+			                     if (!a.empty() && a[0].is_object()) {
+				                     for (const auto & [k, v] : a[0].as_object()->props) {
+					                     if (own_ok(k, v)) {
+						                     out.push_back(value::array({value{k}, v}));
+					                     }
+				                     }
+			                     }
+			                     return value::array(std::move(out));
+		                     },
+		                     "entries"));
+		o.set("assign", value::function(
+		                    [own_ok](context & cx, const std::vector<value> & a) -> value {
+			                    if (a.empty()) { return value{}; }
+			                    const value target = a[0];
+			                    if (!target.is_object()) { return target; }
+			                    for (size_t i = 1; i < a.size(); ++i) {
+				                    if (!a[i].is_object()) { continue; }
+				                    for (const auto & [k, v] : a[i].as_object()->props) {
+					                    if (own_ok(k, v)) { set_member(cx, target, k, v); }
+				                    }
+			                    }
+			                    return target;
+		                    },
+		                    "assign"));
+		o.set("create", value::function(
+		                    [](context &, const std::vector<value> & a) {
+			                    value obj = value::object();
+			                    if (!a.empty() && a[0].is_object()) {
+				                    obj.as_object()->proto = a[0].as_object();
+			                    }
+			                    return obj;
+		                    },
+		                    "create"));
+		o.set("getPrototypeOf", value::function(
+		                            [](context &, const std::vector<value> & a) -> value {
+			                            if (!a.empty() && a[0].is_object()) {
+				                            const auto & p = a[0].as_object()->proto;
+				                            return p ? value{p} : value::null();
+			                            }
+			                            return value::null();
+		                            },
+		                            "getPrototypeOf"));
+		o.set("setPrototypeOf", value::function(
+		                            [](context &, const std::vector<value> & a) -> value {
+			                            if (a.size() >= 2 && a[0].is_object()) {
+				                            if (a[1].is_object()) {
+					                            a[0].as_object()->proto = a[1].as_object();
+				                            } else if (a[1].is_null()) {
+					                            a[0].as_object()->proto = nullptr;
+				                            }
+			                            }
+			                            return a.empty() ? value{} : a[0];
+		                            },
+		                            "setPrototypeOf"));
+		o.set("freeze", value::function( // no frozen bit yet: identity
+		                    [](context &, const std::vector<value> & a) {
+			                    return a.empty() ? value{} : a[0];
+		                    },
+		                    "freeze"));
+		g->declare("Object", value::object(std::move(o)));
 	}
 	{
 		// Promise, the settled subset (see make_promise above):

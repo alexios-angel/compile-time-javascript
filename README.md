@@ -112,19 +112,21 @@ output for every corpus snippet and byte-compares.
 
 - no ASI — semicolons are required (a missing one is a *compile* error, which is rather the point)
 - plain calls see `this === undefined` (module semantics; sloppy-mode `globalThis` is not modeled)
-- keywords may be used as variable names where the grammar is unambiguous (`let let = 1;` parses)
+- reserved words cannot be used as identifiers (`let let = 1;` is a syntax error), but they remain legal as property names (`p.catch(f)`, `{ class: 1 }`) — the contextual words `of`/`async`/`get`/`set`/`static` stay usable as identifiers
 - strings are bytes (UTF-8 passes through, `.length` counts bytes)
 - `Math.random` is seeded deterministically
 - **promises are the SETTLED subset** — the engine is synchronous, so `async function` / top-level `await` / then/catch/finally / `Promise.resolve|reject|all` all exist, but a promise is fulfilled or rejected the moment it is created and handlers run immediately instead of on a microtask queue (host natives hand scripts pre-resolved promises — compile-time-browser's `await fetch(url)`; `new Promise(executor)` is deliberately absent since an executor implies pending state)
 - optional chaining short-circuits PER LINK — `a?.b.c` still throws when `a?.b` is undefined (write `a?.b?.c`), unlike V8's whole-chain skip
 - **generators are EAGER** — the body runs to completion on the call, yields buffer up, and the returned iterator (a plain `{next()}` object, which `for...of` also speaks for hand-rolled iterators) drains the buffer, so infinite generators hang and `next(v)` cannot feed values back in
-- `instanceof` is constructor identity (`new` stamps the instance, and walks the `extends` chain) — but there is no prototype chain
+- objects have a real `[[Prototype]]` chain (`Object.create`/`getPrototypeOf`/`setPrototypeOf`, `__proto__`, `Fn.prototype`); `instanceof` walks it
 - **regex literals lex greedily** (the lexer has no parser context), so a regex body may not contain a BARE space, `;` or `,` — write `[ ]`, `[;]`, `[,]` or `\x20` — which also keeps `a / b / c` division safe; the regex engine has no lookaround, backreferences or named groups, `exec` results carry no `.index/.input`, and `replace` takes string templates (`$&`, `$1`…), not callbacks
-- **`class B extends A`** inherits and overrides methods and chains `instanceof`, but there is no prototype chain and no `super` — a derived constructor runs the base constructor with NO arguments (an implicit argless `super()`), and a class with no own constructor forwards its arguments to the base
-- **`Date` is UTC-only** — `new Date(ms)`/`new Date()`, the `getUTC*`/`get*` getters (local aliases UTC), `getTime`, `getDay`, `toISOString`, and `Date.now()`; no date parsing and no setters; `Date.now()` is the one impure global besides `console`, so hosts wanting determinism rebind it
+- classes desugar to prototypes: methods live once on a shared prototype, `class B extends A` links the chain, and `super()` / `super.method()` work; `static` members and fields (`static x = 1`), instance fields (`count = 0`) and computed member names (`[expr]() {}`) are supported. A derived class with no own constructor forwards its arguments to the base
+- **`Date` is UTC-only** — `new Date(ms)`/`new Date()`/`new Date(str)`, `Date.parse` (the ISO-8601 subset `toISOString` emits, plus date-only forms), the `getUTC*`/`get*` getters (local aliases UTC), `getTime`, `getDay`, `toISOString`; no setters; `Date.now()` is the one impure global besides `console`, so hosts wanting determinism rebind it
 
-**Not yet:** `super`, prototype methods, date string parsing, computed
-*class* member names, static class fields.
+**Not yet:** non-UTC time zones, `Symbol`/iterators-by-`Symbol.iterator`,
+`Proxy`/`Reflect`, tagged template literals, labelled-block `break` to a
+non-loop, property descriptors (`Object.defineProperty`, real
+`freeze`).
 
 ## API
 

@@ -61,7 +61,7 @@ template <typename F> value native(F && f, std::string name = {}) {
 
 class run_result {
 public:
-	run_result(std::shared_ptr<context> cx, env_ptr globals)
+	run_result(rc<context> cx, env_ptr globals)
 	    : cx_(std::move(cx)), globals_(std::move(globals)) { }
 
 	bool ok() const { return !failed_; }
@@ -102,7 +102,7 @@ public:
 	}
 
 private:
-	std::shared_ptr<context> cx_;
+	rc<context> cx_;
 	env_ptr globals_;
 	bool failed_ = false;
 	value error_;

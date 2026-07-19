@@ -220,11 +220,25 @@ template <> struct eval_<null_lit> {
 	static value go(const env_ptr &, context &) { return value::null(); }
 };
 
+template <typename E> struct spread_into {
+	static void go(array_t & out, const env_ptr & env, context & cx) {
+		out.push_back(ev<E>(env, cx));
+	}
+};
+template <typename E> struct spread_into<spread_arg<E>> {
+	static void go(array_t & out, const env_ptr & env, context & cx) {
+		const value v = ev<E>(env, cx);
+		if (v.is_array()) {
+			for (const value & el : *v.as_array()) { out.push_back(el); }
+		} else if (v.is_string()) {
+			for (const char c : v.as_string()) { out.push_back(value{std::string(1, c)}); }
+		}
+	}
+};
 template <typename... Es> struct eval_<array_lit<Es...>> {
 	static value go(const env_ptr & env, context & cx) {
 		array_t out;
-		out.reserve(sizeof...(Es));
-		(out.push_back(ev<Es>(env, cx)), ...);
+		(spread_into<Es>::go(out, env, cx), ...);
 		return value::array(std::move(out));
 	}
 };
@@ -320,13 +334,16 @@ template <typename Obj, typename Index> struct eval_<index<Obj, Index>> {
 // calls: a member/index callee evaluates its receiver ONCE and parks it
 // in cx.pending_this so the callee (if a script function) sees it as
 // `this` - V8 method-call semantics; plain calls leave it undefined
+template <typename... Args>
+inline std::vector<value> gather_args(const env_ptr & env, context & cx) {
+	std::vector<value> args;
+	(spread_into<Args>::go(args, env, cx), ...);
+	return args;
+}
 template <typename Fn, typename... Args> struct eval_<call<Fn, Args...>> {
 	static value go(const env_ptr & env, context & cx) {
-		std::vector<value> args;
-		args.reserve(sizeof...(Args));
 		const value fn = ev<Fn>(env, cx);
-		(args.push_back(ev<Args>(env, cx)), ...);
-		return call_value(cx, fn, std::move(args));
+		return call_value(cx, fn, gather_args<Args...>(env, cx));
 	}
 };
 template <typename Obj, typename NameText, typename... Args>
@@ -334,9 +351,7 @@ struct eval_<call<member<Obj, NameText>, Args...>> {
 	static value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_member(cx, recv, NameText::view());
-		std::vector<value> args;
-		args.reserve(sizeof...(Args));
-		(args.push_back(ev<Args>(env, cx)), ...);
+		std::vector<value> args = gather_args<Args...>(env, cx);
 		cx.pending_this = std::move(recv);
 		return call_value(cx, fn, std::move(args));
 	}
@@ -346,9 +361,7 @@ struct eval_<call<index<Obj, Index>, Args...>> {
 	static value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_index(cx, recv, ev<Index>(env, cx));
-		std::vector<value> args;
-		args.reserve(sizeof...(Args));
-		(args.push_back(ev<Args>(env, cx)), ...);
+		std::vector<value> args = gather_args<Args...>(env, cx);
 		cx.pending_this = std::move(recv);
 		return call_value(cx, fn, std::move(args));
 	}
@@ -449,9 +462,7 @@ template <typename... Parts> struct eval_<template_lit<Parts...>> {
 template <typename Callee, typename... Args> struct eval_<new_op<Callee, Args...>> {
 	static value go(const env_ptr & env, context & cx) {
 		const value fn = ev<Callee>(env, cx);
-		std::vector<value> args;
-		args.reserve(sizeof...(Args));
-		(args.push_back(ev<Args>(env, cx)), ...);
+		std::vector<value> args = gather_args<Args...>(env, cx);
 		value obj = value::object();
 		cx.pending_this = obj;
 		const value ret = call_value(cx, fn, std::move(args));
@@ -557,11 +568,39 @@ template <typename Target, bool Pre, bool Inc> struct eval_<incdec<Target, Pre, 
 template <typename... Ss> flow exec_all(const env_ptr & env, context & cx, value & ret);
 template <typename... Ss> void hoist_functions(const env_ptr & env, context & cx);
 
+// one parameter binds and advances the positional cursor; a plain
+// param is a bare name text, param_default supplies a value when the
+// arg is missing (or undefined), param_rest sweeps the tail into array
+template <typename P> struct bind_param {
+	static void go(const env_ptr & local, const std::vector<value> & args, context &,
+	               size_t & i) {
+		local->declare(P::view(), i < args.size() ? args[i] : value{});
+		++i;
+	}
+};
+template <typename N, typename Def> struct bind_param<param_default<N, Def>> {
+	static void go(const env_ptr & local, const std::vector<value> & args, context & cx,
+	               size_t & i) {
+		value v = i < args.size() ? args[i] : value{};
+		if (v.is_undefined()) { v = ev<Def>(local, cx); } // default sees prior params
+		local->declare(N::view(), std::move(v));
+		++i;
+	}
+};
+template <typename N> struct bind_param<param_rest<N>> {
+	static void go(const env_ptr & local, const std::vector<value> & args, context &,
+	               size_t & i) {
+		array_t rest;
+		for (; i < args.size(); ++i) { rest.push_back(args[i]); }
+		local->declare(N::view(), value::array(std::move(rest)));
+	}
+};
+
 template <typename Params> struct param_binder;
-template <typename... Names> struct param_binder<plist<Names...>> {
-	static void bind(const env_ptr & local, const std::vector<value> & args) {
+template <typename... Ps> struct param_binder<plist<Ps...>> {
+	static void bind(const env_ptr & local, const std::vector<value> & args, context & cx) {
 		size_t i = 0;
-		((local->declare(Names::view(), i < args.size() ? args[i] : value{}), ++i), ...);
+		(bind_param<Ps>::go(local, args, cx, i), ...);
 	}
 };
 
@@ -575,7 +614,7 @@ template <typename Params, typename Body, bool ExprBody> struct fn_maker {
 			    // `this` = the method-call receiver (call_value routed it
 			    // into current_this), undefined for plain calls
 			    local->declare("this", cx.current_this);
-			    param_binder<Params>::bind(local, args);
+			    param_binder<Params>::bind(local, args, cx);
 			    if constexpr (ExprBody) {
 				    return ev<Body>(local, cx);
 			    } else {
@@ -622,10 +661,64 @@ template <typename N, typename I> struct decl_name<declarator<N, I>> {
 // global scope - its initializer still evaluates in the current env
 enum class decl_kind { lexical, constant, hoisted_var };
 
+template <typename P> struct dprop_key;
+template <typename Key, typename Bind> struct dprop_key<dprop<Key, Bind>> {
+	static constexpr std::string_view key() { return Key::view(); }
+	static constexpr std::string_view bind() { return Bind::view(); }
+};
+
 template <decl_kind K, typename... Ds> struct declare_all;
 template <decl_kind K> struct declare_all<K> {
 	static void go(const env_ptr &, context &) { }
 };
+// a declared binding lands in the right scope for its kind
+template <decl_kind K>
+inline void destr_declare(const env_ptr & env, std::string_view name, value v) {
+	if constexpr (K == decl_kind::hoisted_var) {
+		env->hoist_target().declare(name, std::move(v));
+	} else {
+		env->declare(name, std::move(v));
+		if constexpr (K == decl_kind::constant) { env->consts.insert(std::string{name}); }
+	}
+}
+
+// [a, b, c] = init : positional, missing -> undefined
+template <decl_kind K, typename Init, typename... Names, typename... Rest>
+struct declare_all<K, destr_array<Init, Names...>, Rest...> {
+	static void go(const env_ptr & env, context & cx) {
+		const value src = ev<Init>(env, cx);
+		size_t i = 0;
+		const auto one = [&](std::string_view nm) {
+			value v;
+			if (src.is_array() && i < src.as_array()->size()) { v = (*src.as_array())[i]; }
+			else if (src.is_string() && i < src.as_string().size()) {
+				v = value{std::string(1, src.as_string()[i])};
+			}
+			++i;
+			destr_declare<K>(env, nm, std::move(v));
+		};
+		(one(Names::view()), ...);
+		declare_all<K, Rest...>::go(env, cx);
+	}
+};
+
+// {x: dx, y} = init : by key (shorthand key==bind)
+template <decl_kind K, typename Init, typename... Props, typename... Rest>
+struct declare_all<K, destr_object<Init, Props...>, Rest...> {
+	static void go(const env_ptr & env, context & cx) {
+		const value src = ev<Init>(env, cx);
+		const auto one = [&](std::string_view key, std::string_view bind) {
+			value v;
+			if (src.is_object()) {
+				if (const value * slot = src.as_object()->find(key)) { v = *slot; }
+			}
+			destr_declare<K>(env, bind, std::move(v));
+		};
+		(one(dprop_key<Props>::key(), dprop_key<Props>::bind()), ...);
+		declare_all<K, Rest...>::go(env, cx);
+	}
+};
+
 template <decl_kind K, typename N, typename Init, typename... Rest>
 struct declare_all<K, declarator<N, Init>, Rest...> {
 	static void go(const env_ptr & env, context & cx) {
@@ -980,12 +1073,36 @@ struct exec_<try_stmt<Body, CatchName, Handler, Finally>> {
 template <typename S> struct hoist_vars {
 	static void go(environment &) { }
 };
-template <typename... Ds> struct hoist_vars<var_stmt<Ds...>> {
+// hoist every name a declarator BINDS (destructuring binds several)
+template <typename D> struct hoist_decl_names {
 	static void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
 			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
 		};
-		(one(decl_name<Ds>::view()), ...);
+		one(decl_name<D>::view());
+	}
+};
+template <typename Init, typename... Names>
+struct hoist_decl_names<destr_array<Init, Names...>> {
+	static void go(environment & fnscope) {
+		const auto one = [&](std::string_view n) {
+			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
+		};
+		(one(Names::view()), ...);
+	}
+};
+template <typename Init, typename... Props>
+struct hoist_decl_names<destr_object<Init, Props...>> {
+	static void go(environment & fnscope) {
+		const auto one = [&](std::string_view n) {
+			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
+		};
+		(one(dprop_key<Props>::bind()), ...);
+	}
+};
+template <typename... Ds> struct hoist_vars<var_stmt<Ds...>> {
+	static void go(environment & fnscope) {
+		(hoist_decl_names<Ds>::go(fnscope), ...);
 	}
 };
 template <typename... Ss> struct hoist_vars<block<Ss...>> {

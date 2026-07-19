@@ -200,7 +200,29 @@ b tick: ` done xyz
 console.log(`len ${xs.length} last ${xs[xs.length - 1]}`);
 )v8">(R"v8(template-literal-nested-expr)v8", R"v8(len 3 last 3
 )v8");
+	run_case<R"v8(function pad(s, w = 4, c = "0") { return c.repeat(w - s.length) + s; }
+console.log(pad("7"), pad("42", 6), pad("9", 3, " "));
+)v8">(R"v8(default-params)v8", R"v8(0007 000042   9
+)v8");
+	run_case<R"v8(var [a1, b1, c1] = [10, 20];
+console.log(a1, b1, c1);
+)v8">(R"v8(array-destructuring)v8", R"v8(10 20 undefined
+)v8");
+	run_case<R"v8(var {x: dx, y: dy} = {x: 1, y: 2, z: 3};
+var {w} = {w: 9};
+console.log(dx, dy, w);
+)v8">(R"v8(object-destructuring)v8", R"v8(1 2 9
+)v8");
+	run_case<R"v8(function add3(a, b, c) { return a + b + c; }
+var nums = [1, 2, 3];
+console.log(add3(...nums), [0, ...nums, 4]);
+)v8">(R"v8(spread-in-call-and-array)v8", R"v8(6 [ 0, 1, 2, 3, 4 ]
+)v8");
+	run_case<R"v8(function tally(first, ...rest) { return first + rest.length; }
+console.log(tally(100, 1, 2, 3), tally(5));
+)v8">(R"v8(rest-params)v8", R"v8(103 5
+)v8");
 	std::printf("v8diff: %d failures, %d parse gaps, %d cases\n",
-	            failures, parse_gaps, 38);
+	            failures, parse_gaps, 43);
 	return failures == 0 ? 0 : 1;
 }

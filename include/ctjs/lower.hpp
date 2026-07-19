@@ -103,15 +103,40 @@ template <typename PN, typename K, typename V> struct lower_prop<ctlark::tree<PN
 	using type = decltype(pick());
 };
 
+template <typename K> struct lower_arg; // spread-aware (defined below)
 template <typename Callee, typename ArgsTree> struct lower_call;
 template <typename Callee, typename AN, typename... As>
 struct lower_call<Callee, ctlark::tree<AN, As...>> {
-	using type = ast::call<Callee, lower_expr_t<As>...>;
+	using type = ast::call<Callee, typename lower_arg<As>::type...>;
+};
+
+template <typename P> struct lower_param;
+template <typename PN2, typename Name> struct lower_param<ctlark::tree<PN2, Name>> {
+	static constexpr auto pick() {
+		if constexpr (PN2::view() == std::string_view{"param_rest"}) {
+			return ast::param_rest<typename Name::value_type>{};
+		} else {
+			return typename Name::value_type{}; // plain: bare name text
+		}
+	}
+	using type = decltype(pick());
+};
+template <typename PN2, typename Name, typename Def>
+struct lower_param<ctlark::tree<PN2, Name, Def>> {
+	using type = ast::param_default<typename Name::value_type, lower_expr_t<Def>>;
 };
 
 template <typename ParamsTree> struct lower_params;
-template <typename PN, typename... Ns> struct lower_params<ctlark::tree<PN, Ns...>> {
-	using type = ast::plist<typename Ns::value_type...>;
+template <typename PN, typename... Ps> struct lower_params<ctlark::tree<PN, Ps...>> {
+	using type = ast::plist<typename lower_param<Ps>::type...>;
+};
+
+template <typename DP> struct lower_dprop;
+template <typename DPN, typename K> struct lower_dprop<ctlark::tree<DPN, K>> {
+	using type = ast::dprop<typename K::value_type, typename K::value_type>;
+};
+template <typename DPN, typename K, typename B> struct lower_dprop<ctlark::tree<DPN, K, B>> {
+	using type = ast::dprop<typename K::value_type, typename B::value_type>;
 };
 
 template <typename DeclTree> struct lower_decl;
@@ -120,7 +145,50 @@ template <typename DN, typename Name> struct lower_decl<ctlark::tree<DN, Name>> 
 };
 template <typename DN, typename Name, typename Init>
 struct lower_decl<ctlark::tree<DN, Name, Init>> {
-	using type = ast::declarator<typename Name::value_type, lower_expr_t<Init>>;
+	static constexpr auto pick() {
+		if constexpr (DN::view() == std::string_view{"destr_array"}) {
+			return ast::destr_array<lower_expr_t<Init>, typename Name::value_type>{};
+		} else if constexpr (DN::view() == std::string_view{"destr_object"}) {
+			return ast::destr_object<lower_expr_t<Init>, typename lower_dprop<Name>::type>{};
+		} else {
+			return ast::declarator<typename Name::value_type, lower_expr_t<Init>>{};
+		}
+	}
+	using type = decltype(pick());
+};
+// destructuring with 2+ names: [a, b, c] = init / {x, y: z} = init -
+// the LAST kid is the initializer, the rest are names/dprops
+template <typename... Ts> struct kpack { };
+template <typename Acc, typename... Ks2> struct split_last;
+template <typename... As, typename K> struct split_last<kpack<As...>, K> {
+	using front = kpack<As...>;
+	using last = K;
+};
+template <typename... As, typename K, typename... Rest>
+struct split_last<kpack<As...>, K, Rest...> : split_last<kpack<As..., K>, Rest...> { };
+
+template <typename Front, typename Init> struct build_destr_array;
+template <typename... Names, typename Init> struct build_destr_array<kpack<Names...>, Init> {
+	using type = ast::destr_array<lower_expr_t<Init>, typename Names::value_type...>;
+};
+template <typename Front, typename Init> struct build_destr_object;
+template <typename... Ps, typename Init> struct build_destr_object<kpack<Ps...>, Init> {
+	using type = ast::destr_object<lower_expr_t<Init>, typename lower_dprop<Ps>::type...>;
+};
+
+template <typename DN, typename K1, typename K2, typename K3, typename... Rest>
+struct lower_decl<ctlark::tree<DN, K1, K2, K3, Rest...>> {
+	using parts = split_last<kpack<>, K1, K2, K3, Rest...>;
+	static constexpr auto pick() {
+		if constexpr (DN::view() == std::string_view{"destr_array"}) {
+			return typename build_destr_array<typename parts::front,
+			                                  typename parts::last>::type{};
+		} else {
+			return typename build_destr_object<typename parts::front,
+			                                   typename parts::last>::type{};
+		}
+	}
+	using type = decltype(pick());
 };
 
 template <typename BlockTree> struct lower_block;
@@ -202,7 +270,7 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 		} else if constexpr (n == std::string_view{"null_lit"}) {
 			return ast::null_lit{};
 		} else if constexpr (n == std::string_view{"array_lit"}) {
-			return ast::array_lit<lower_expr_t<Ks>...>{};
+			return ast::array_lit<typename lower_arg<Ks>::type...>{};
 		} else if constexpr (n == std::string_view{"object_lit"}) {
 			return ast::object_lit<typename lower_prop<Ks>::type...>{};
 		} else if constexpr (n == std::string_view{"template_lit"}) {
@@ -282,6 +350,24 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 
 // --- statements
 
+// call/array arguments: a spread_arg tree wraps its expr in
+// ast::spread_arg; anything else lowers as a plain expression
+// a token arg (collapsed single-token expr) or a non-spread tree is a
+// plain expression; only a tree literally named spread_arg wraps
+template <typename K> struct lower_arg {
+	using type = lower_expr_t<K>;
+};
+template <typename AN, typename E> struct lower_arg<ctlark::tree<AN, E>> {
+	static constexpr auto pick() {
+		if constexpr (AN::view() == std::string_view{"spread_arg"}) {
+			return ast::spread_arg<lower_expr_t<E>>{};
+		} else {
+			return lower_expr_t<ctlark::tree<AN, E>>{};
+		}
+	}
+	using type = decltype(pick());
+};
+
 // template literal parts: TEMPLATE_* tokens are text; any other kid
 // (tree OR collapsed single-token expression like a bare NAME) lowers
 // as an expression
@@ -302,7 +388,7 @@ template <typename TN, typename... Ks3> struct tpl_part<ctlark::tree<TN, Ks3...>
 // new C(a, b): kids are [callee, args-tree]; args-tree kids are exprs
 template <typename Callee, typename AN, typename... ArgKs>
 struct lower_new<Callee, ctlark::tree<AN, ArgKs...>> {
-	using type = ast::new_op<lower_expr_t<Callee>, lower_expr_t<ArgKs>...>;
+	using type = ast::new_op<lower_expr_t<Callee>, typename lower_arg<ArgKs>::type...>;
 };
 template <typename Callee> struct lower_new<Callee> {
 	using type = ast::new_op<lower_expr_t<Callee>>;

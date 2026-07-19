@@ -48,7 +48,14 @@ template <typename Obj, typename Index> struct index { };
 // compound operator (+= etc.)
 template <typename Op, typename Target, typename V> struct assign { };
 template <typename Target, bool Pre, bool Inc> struct incdec { };
-template <typename... NameTexts> struct plist { };
+// params: plain name texts, param_default<N, E>, param_rest<N> mixed
+template <typename N, typename Default> struct param_default { };
+template <typename N> struct param_rest { };
+template <typename... Params> struct plist { };
+template <typename E> struct spread_arg { };
+template <typename Init, typename... Names> struct destr_array { };
+template <typename Key, typename Bind> struct dprop { };
+template <typename Init, typename... Props> struct destr_object { };
 // Body: block for function/arrow-with-block, else the expression of
 // an expression-bodied arrow
 template <typename Params, typename Body, bool ExprBody> struct fn_expr { };

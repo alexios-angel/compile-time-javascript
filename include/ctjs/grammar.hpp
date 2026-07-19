@@ -62,8 +62,15 @@ var_stmt: "let" declarator ("," declarator)* ";"   -> let_stmt
         | "const" declarator ("," declarator)* ";" -> const_stmt
         | "var" declarator ("," declarator)* ";"   -> varkw_stmt
 declarator: NAME ["=" assign]
+          | "[" [NAME ("," NAME)*] "]" "=" assign     -> destr_array
+          | "{" [dprop ("," dprop)*] "}" "=" assign   -> destr_object
+dprop: NAME            -> dprop_shorthand
+     | NAME ":" NAME   -> dprop_renamed
 fn_decl: "function" NAME "(" params ")" block
-params: [NAME ("," NAME)*]
+params: [param ("," param)*]
+param: NAME               -> param_plain
+     | NAME "=" assign    -> param_default
+     | "..." NAME         -> param_rest
 if_stmt: "if" "(" expr ")" stmt ["else" stmt]
 while_stmt: "while" "(" expr ")" stmt
 do_stmt: "do" stmt "while" "(" expr ")" ";"
@@ -137,7 +144,9 @@ lhs: NAME                    -> lhs_name
 ?newable: primary
         | newable "." NAME       -> member
         | newable "[" expr "]"   -> index
-args: [assign ("," assign)*]
+args: [arg ("," arg)*]
+?arg: assign
+    | "..." assign -> spread_arg
 ?primary: NAME
         | NUMBER
         | DQSTRING
@@ -153,7 +162,7 @@ args: [assign ("," assign)*]
         | "(" expr ")" -> paren
 template_lit: TEMPLATE_FULL
             | TEMPLATE_HEAD assign (TEMPLATE_MID assign)* TEMPLATE_TAIL
-array_lit: "[" [assign ("," assign)*] "]"
+array_lit: "[" [arg ("," arg)*] "]"
 object_lit: "{" [prop ("," prop)*] "}"
 prop: NAME ":" assign     -> prop_name
     | DQSTRING ":" assign -> prop_str
@@ -166,10 +175,10 @@ arrow_fn: "(" params ")" "=>" arrow_body
 NAME: /[A-Za-z_$][A-Za-z0-9_$]*/
 NUMBER: /0[xX][0-9a-fA-F]+|(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+\-]?[0-9]+)?|\.[0-9]+/
 DQSTRING: /"([^"\\\x0a]|\\[\s\S])*"/
-TEMPLATE_FULL: /`([^`\\$]|\\[\s\S]|\$[^{`\\])*\$?`/
-TEMPLATE_HEAD: /`([^`\\$]|\\[\s\S]|\$[^{`\\])*\$\{/
-TEMPLATE_MID: /\}([^`\\$]|\\[\s\S]|\$[^{`\\])*\$\{/
-TEMPLATE_TAIL: /\}([^`\\$]|\\[\s\S]|\$[^{`\\])*\$?`/
+TEMPLATE_FULL: /`([^`\\$]|\\[\s\S]|\$(?!\{))*`/
+TEMPLATE_HEAD: /`([^`\\$]|\\[\s\S]|\$(?!\{))*\$\{/
+TEMPLATE_MID: /\}([^`\\$]|\\[\s\S]|\$(?!\{))*\$\{/
+TEMPLATE_TAIL: /\}([^`\\$]|\\[\s\S]|\$(?!\{))*`/
 SQSTRING: /'([^'\\\x0a]|\\[\s\S])*'/
 ASSIGN_OP: /(\*\*|[+\-*\/%])?=/
 EQ_OP: /[=!]==?/

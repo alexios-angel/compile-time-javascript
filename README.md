@@ -72,10 +72,16 @@ static_assert(!ctjs::is_constant<"x + 1;">);               // x is dynamic
 
 Inside a larger script it folds in place: `1 + 2 + 3 + x` becomes
 `6 + x`, `true ? a : sideEffect()` becomes `a`, `false && boom()`
-becomes `false` — the runtime only does the genuinely dynamic work. The
-fold is deliberately **sound over speed**: it reproduces the
-interpreter bit-for-bit, so it folds integer literals, booleans and
-`null` (not fractional/exponent literals or strings — yet) with the
+becomes `false` — the runtime only does the genuinely dynamic work. It
+also folds pure **string** expressions byte-for-byte: `"a" + "b" + "c"`
+becomes `"abc"`, and JS string coercion of the constants it can
+reproduce exactly — `"id-" + 42` becomes `"id-42"`, `7 + "up"` becomes
+`"7up"`, `"x" + true + null` becomes `"xtruenull"`.
+
+The fold is deliberately **sound over speed**: it reproduces the
+interpreter bit-for-bit, so it folds integer literals, booleans, `null`
+and strings (not fractional/exponent literals, whose runtime
+`Number::toString` it will not second-guess) with the
 IEEE-deterministic operators.
 
 ## What is supported (v0.1)

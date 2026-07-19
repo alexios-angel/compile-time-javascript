@@ -264,6 +264,13 @@ template <typename Text> struct eval_<num_lit<Text>> {
 template <double V> struct eval_<const_num<V>> {
 	static value go(const env_ptr &, context &) { return value{V}; }
 };
+// a string the folder computed at compile time - bytes ride in the type
+template <char... Cs> struct eval_<const_str<Cs...>> {
+	static value go(const env_ptr &, context &) {
+		static const std::string s{Cs...};
+		return value{s};
+	}
+};
 template <typename Text> struct eval_<str_lit<Text>> {
 	static value go(const env_ptr &, context &) { return value{str_of<Text>()}; }
 };

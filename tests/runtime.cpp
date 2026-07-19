@@ -638,6 +638,36 @@ static void constant_folding() {
 	CHECK(out2["j"].to<bool>());
 }
 
+static void string_folding() {
+	auto out = ctjs::run<R"(
+		let s = "a" + "b" + "c";        // -> "abc" at compile time
+		let u = "id-" + 42;             // -> "id-42" (int coercion)
+		let v = 7 + "up";               // -> "7up"
+		let w = "x" + true + null;      // -> "xtruenull"
+		let esc = "a\tb" + "!";         // cook preserved: -> "a\tb!"
+		let neg = "n" + -5;             // -> "n-5"
+		let dyn = "hi " + name;         // partial: name is dynamic
+		let mixed = "sum=" + (2 + 3);   // inner folds to 5 -> "sum=5"
+	)">({{"name", ctjs::value{std::string{"there"}}}});
+	CHECK(out.ok());
+	CHECK(out["s"].to<std::string>() == "abc");
+	CHECK(out["u"].to<std::string>() == "id-42");
+	CHECK(out["v"].to<std::string>() == "7up");
+	CHECK(out["w"].to<std::string>() == "xtruenull");
+	CHECK(out["esc"].to<std::string>() == "a\tb!");
+	CHECK(out["neg"].to<std::string>() == "n-5");
+	CHECK(out["dyn"].to<std::string>() == "hi there");
+	CHECK(out["mixed"].to<std::string>() == "sum=5");
+
+	// folded strings behave like any other string downstream
+	auto out2 = ctjs::run<R"(
+		let g = ("Hello, " + "World").toUpperCase();
+		let n = ("abc" + "de").length;
+	)">();
+	CHECK(out2["g"].to<std::string>() == "HELLO, WORLD");
+	CHECK(out2["n"].to<int>() == 5);
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -656,6 +686,7 @@ int main() {
 	labels_date_accessors_extends();
 	classes_prototypes_super_statics();
 	constant_folding();
+	string_folding();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

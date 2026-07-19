@@ -36,6 +36,9 @@ template <typename Text> struct str_lit { };            // raw, quotes included
 // carried in the type itself; the runtime just loads it. true/false/
 // null folds reuse the literal nodes above.
 template <double V> struct const_num { };
+// a string the folder computed at compile time (fold.hpp), carried as a
+// byte pack in the type - ctjs strings are bytes, so this is exact
+template <char... Cs> struct const_str { };
 struct true_lit { }; struct false_lit { }; struct null_lit { };
 template <typename... Elems> struct array_lit { };
 template <typename KeyText, typename V> struct prop { }; // key already unquoted

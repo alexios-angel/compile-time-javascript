@@ -3,9 +3,11 @@
 
 #include "ast.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <array>
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #endif
 
 // Compile-time constant folding / partial evaluation. Lowering runs
@@ -222,6 +224,180 @@ template <typename L, typename R> struct simplify<binary<op_nullish, L, R>> {
 	using type = decltype(go());
 };
 
+// --- string folding: pure string expressions computed at compile time.
+// A string is carried byte-exact as ast::const_str<Cs...>. Only the
+// pieces we reproduce EXACTLY are folded: string literals, folded
+// strings, and - via JS string coercion - integer, boolean and null
+// constants (never fractional numbers, whose Number::toString we will
+// not second-guess). `+` is a string concat as soon as one side is a
+// string, matching the interpreter.
+
+// mirror interp's push_utf8, writing into a buffer
+constexpr size_t fold_push_utf8(char * out, unsigned long cp) {
+	if (cp < 0x80) { out[0] = static_cast<char>(cp); return 1; }
+	if (cp < 0x800) {
+		out[0] = static_cast<char>(0xC0 | (cp >> 6));
+		out[1] = static_cast<char>(0x80 | (cp & 0x3F));
+		return 2;
+	}
+	if (cp < 0x10000) {
+		out[0] = static_cast<char>(0xE0 | (cp >> 12));
+		out[1] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+		out[2] = static_cast<char>(0x80 | (cp & 0x3F));
+		return 3;
+	}
+	out[0] = static_cast<char>(0xF0 | (cp >> 18));
+	out[1] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+	out[2] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+	out[3] = static_cast<char>(0x80 | (cp & 0x3F));
+	return 4;
+}
+// cook a quoted string literal into `out`, byte-for-byte as interp's
+// cook_string; returns the cooked length
+constexpr size_t fold_cook(std::string_view raw, char * out) {
+	size_t n = 0, i = 1;
+	const size_t end = raw.size() - 1;
+	while (i < end) {
+		const char c = raw[i];
+		if (c != '\\') { out[n++] = c; ++i; continue; }
+		const char e = raw[i + 1];
+		i += 2;
+		switch (e) {
+		case 'n': out[n++] = '\n'; break;
+		case 't': out[n++] = '\t'; break;
+		case 'r': out[n++] = '\r'; break;
+		case 'b': out[n++] = '\b'; break;
+		case 'f': out[n++] = '\f'; break;
+		case 'v': out[n++] = '\v'; break;
+		case '0': out[n++] = '\0'; break;
+		case 'x': {
+			unsigned long cp = 0;
+			for (int k = 0; k < 2 && i < end; ++k, ++i) {
+				cp = cp * 16 + static_cast<unsigned long>(
+				                   raw[i] <= '9' ? raw[i] - '0' : (raw[i] | 0x20) - 'a' + 10);
+			}
+			n += fold_push_utf8(out + n, cp);
+			break;
+		}
+		case 'u': {
+			unsigned long cp = 0;
+			for (int k = 0; k < 4 && i < end; ++k, ++i) {
+				cp = cp * 16 + static_cast<unsigned long>(
+				                   raw[i] <= '9' ? raw[i] - '0' : (raw[i] | 0x20) - 'a' + 10);
+			}
+			n += fold_push_utf8(out + n, cp);
+			break;
+		}
+		case '\n': break;
+		default: out[n++] = e;
+		}
+	}
+	return n;
+}
+constexpr size_t fold_itoa(long long v, char * out) {
+	size_t n = 0;
+	unsigned long long u = v < 0 ? (out[n++] = '-', static_cast<unsigned long long>(-(v + 1)) + 1)
+	                             : static_cast<unsigned long long>(v);
+	char tmp[24] = {};
+	size_t t = 0;
+	if (u == 0) { tmp[t++] = '0'; }
+	while (u) { tmp[t++] = static_cast<char>('0' + u % 10); u /= 10; }
+	for (size_t k = 0; k < t; ++k) { out[n++] = tmp[t - 1 - k]; }
+	return n;
+}
+
+// string-form of a coercible constant node: len() + write(out).
+// `str` = it is itself a string; `coercible` = usable in string concat.
+template <typename N> struct sform {
+	static constexpr bool str = false;
+	static constexpr bool coercible = false;
+	static constexpr size_t len() { return 0; }
+	static constexpr size_t write(char *) { return 0; }
+};
+template <typename T> struct sform<str_lit<T>> {
+	static constexpr bool str = true, coercible = true;
+	static constexpr size_t raw = T::view().size();
+	static constexpr size_t len() {
+		std::array<char, raw ? raw : 1> b{};
+		return fold_cook(T::view(), b.data());
+	}
+	static constexpr size_t write(char * out) { return fold_cook(T::view(), out); }
+};
+template <char... Cs> struct sform<const_str<Cs...>> {
+	static constexpr bool str = true, coercible = true;
+	static constexpr size_t len() { return sizeof...(Cs); }
+	static constexpr size_t write(char * out) {
+		size_t n = 0;
+		((out[n++] = Cs), ...);
+		return n;
+	}
+};
+template <double V> struct sform<const_num<V>> {
+	static constexpr bool str = false;
+	static constexpr bool coercible = is_int(V);
+	static constexpr size_t len() {
+		char b[24] = {};
+		return fold_itoa(static_cast<long long>(V), b);
+	}
+	static constexpr size_t write(char * out) {
+		return fold_itoa(static_cast<long long>(V), out);
+	}
+};
+template <typename T> struct sform<num_lit<T>> {
+	static constexpr folded fv = parse_int_literal(T::view());
+	static constexpr bool str = false;
+	static constexpr bool coercible = fv.ok();
+	static constexpr size_t len() {
+		char b[24] = {};
+		return fold_itoa(static_cast<long long>(fv.num), b);
+	}
+	static constexpr size_t write(char * out) {
+		return fold_itoa(static_cast<long long>(fv.num), out);
+	}
+};
+template <> struct sform<true_lit> {
+	static constexpr bool str = false, coercible = true;
+	static constexpr size_t len() { return 4; }
+	static constexpr size_t write(char * o) { o[0]='t';o[1]='r';o[2]='u';o[3]='e'; return 4; }
+};
+template <> struct sform<false_lit> {
+	static constexpr bool str = false, coercible = true;
+	static constexpr size_t len() { return 5; }
+	static constexpr size_t write(char * o) {
+		o[0]='f';o[1]='a';o[2]='l';o[3]='s';o[4]='e'; return 5;
+	}
+};
+template <> struct sform<null_lit> {
+	static constexpr bool str = false, coercible = true;
+	static constexpr size_t len() { return 4; }
+	static constexpr size_t write(char * o) { o[0]='n';o[1]='u';o[2]='l';o[3]='l'; return 4; }
+};
+
+template <auto Arr, size_t... I>
+constexpr auto arr_to_const_str(std::index_sequence<I...>) {
+	return const_str<Arr[I]...>{};
+}
+template <typename L, typename R> constexpr auto add_str_bytes() {
+	std::array<char, sform<L>::len() + sform<R>::len()> a{};
+	sform<L>::write(a.data());
+	sform<R>::write(a.data() + sform<L>::len());
+	return a;
+}
+template <typename L, typename R>
+using fold_add_str_t = decltype(arr_to_const_str<add_str_bytes<L, R>()>(
+    std::make_index_sequence<sform<L>::len() + sform<R>::len()>{}));
+
+// `a + b` is a string concat when both sides are coercible constants and
+// at least one is actually a string
+template <typename N> struct str_fold {
+	using type = N;
+};
+template <typename L, typename R> struct str_fold<binary<op_add, L, R>> {
+	static constexpr bool concat =
+	    sform<L>::coercible && sform<R>::coercible && (sform<L>::str || sform<R>::str);
+	using type = std::conditional_t<concat, fold_add_str_t<L, R>, binary<op_add, L, R>>;
+};
+
 // the lowering hook: fold a node to a constant, else simplify it
 template <typename N> struct fold_node {
 	static constexpr auto go() {
@@ -233,6 +409,8 @@ template <typename N> struct fold_node {
 			else { return false_lit{}; }
 		} else if constexpr (f.kind == folded::kNul) {
 			return null_lit{};
+		} else if constexpr (!std::is_same_v<typename str_fold<N>::type, N>) {
+			return typename str_fold<N>::type{}; // pure string concat
 		} else {
 			return typename simplify<N>::type{};
 		}

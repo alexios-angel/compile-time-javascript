@@ -78,6 +78,15 @@ becomes `"abc"`, and JS string coercion of the constants it can
 reproduce exactly — `"id-" + 42` becomes `"id-42"`, `7 + "up"` becomes
 `"7up"`, `"x" + true + null` becomes `"xtruenull"`.
 
+It even evaluates a pure **function** applied to constants: an
+immediately-invoked arrow or function expression with a single-expression
+body folds by substituting the arguments and re-folding — `(x => x * x)(5)`
+becomes `25`, `(name => "hi " + name)("bob")` becomes `"hi bob"`. If the
+body touches anything dynamic (a free variable, a dynamic argument) it
+simply doesn't reduce and runs as usual, so this stays sound without a
+separate purity analysis. (Folding calls to *named* functions is the next
+step.)
+
 The fold is deliberately **sound over speed**: it reproduces the
 interpreter bit-for-bit, so it folds integer literals, booleans, `null`
 and strings (not fractional/exponent literals, whose runtime

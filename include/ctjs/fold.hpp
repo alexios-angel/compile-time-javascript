@@ -398,6 +398,122 @@ template <typename L, typename R> struct str_fold<binary<op_add, L, R>> {
 	using type = std::conditional_t<concat, fold_add_str_t<L, R>, binary<op_add, L, R>>;
 };
 
+// --- folding pure function application: an immediately-applied
+// function/arrow with a single-expression body and constant arguments
+// is evaluated at compile time. `(x => x * x)(5)` -> 25,
+// `(function (a, b) { return a + b; })(2, 3)` -> 5. We substitute the
+// constant args for the parameters in the body expression, re-fold, and
+// keep the result only if it collapses to a constant - so a body that
+// touches anything dynamic (or has side effects) simply doesn't fold,
+// which keeps this sound without a separate purity analysis.
+
+template <typename N> struct fold_node;                             // (below)
+template <typename N> using fold_node_t = typename fold_node<N>::type;
+
+template <typename... Ts> struct tlist { };
+
+// is this node a constant leaf (a literal or a folded constant)?
+template <typename N> struct is_const_leaf : std::false_type { };
+template <double V> struct is_const_leaf<const_num<V>> : std::true_type { };
+template <char... Cs> struct is_const_leaf<const_str<Cs...>> : std::true_type { };
+template <typename T> struct is_const_leaf<num_lit<T>> : std::true_type { };
+template <typename T> struct is_const_leaf<str_lit<T>> : std::true_type { };
+template <> struct is_const_leaf<true_lit> : std::true_type { };
+template <> struct is_const_leaf<false_lit> : std::true_type { };
+template <> struct is_const_leaf<null_lit> : std::true_type { };
+
+// only plain params (a bare name text) can be substituted; a default or
+// rest param disables the fold
+template <typename P> struct is_plain_param : std::true_type { };
+template <typename N, typename D> struct is_plain_param<param_default<N, D>> : std::false_type { };
+template <typename N> struct is_plain_param<param_rest<N>> : std::false_type { };
+
+// look a name up in parallel (names, args) lists; unmatched -> the ident
+template <typename NameText, typename Names, typename Args> struct pmap {
+	using type = ident<NameText>;
+};
+template <typename NameText, typename N0, typename... Ns, typename A0, typename... As>
+struct pmap<NameText, tlist<N0, Ns...>, tlist<A0, As...>> {
+	using type = std::conditional_t<NameText::view() == N0::view(), A0,
+	                                typename pmap<NameText, tlist<Ns...>, tlist<As...>>::type>;
+};
+
+// substitute the parameters (Names -> Args) through an expression. Only
+// the pure-computational shapes are rewritten; anything else passes
+// through unchanged (its parameters stay, so the body won't fold to a
+// constant and the application is left for the interpreter).
+template <typename E, typename Names, typename Args> struct subst {
+	using type = E;
+};
+template <typename T, typename Names, typename Args> struct subst<ident<T>, Names, Args> {
+	using type = typename pmap<T, Names, Args>::type;
+};
+template <typename Op, typename X, typename Names, typename Args>
+struct subst<unary<Op, X>, Names, Args> {
+	using type = unary<Op, typename subst<X, Names, Args>::type>;
+};
+template <typename Op, typename L, typename R, typename Names, typename Args>
+struct subst<binary<Op, L, R>, Names, Args> {
+	using type = binary<Op, typename subst<L, Names, Args>::type,
+	                    typename subst<R, Names, Args>::type>;
+};
+template <typename C, typename T, typename F, typename Names, typename Args>
+struct subst<ternary<C, T, F>, Names, Args> {
+	using type = ternary<typename subst<C, Names, Args>::type,
+	                     typename subst<T, Names, Args>::type,
+	                     typename subst<F, Names, Args>::type>;
+};
+
+// the body EXPRESSION of a single-expression function/arrow, or void
+template <typename Callee> struct iife_body {
+	using type = void;
+};
+template <typename Params, typename E> // arrow with an expression body
+struct iife_body<fn_expr<Params, E, true, false, false>> {
+	using type = E;
+};
+template <typename Params, typename E> // { return E; }
+struct iife_body<fn_expr<Params, block<return_stmt<E>>, false, false, false>> {
+	using type = E;
+};
+
+template <typename Params> struct param_names {
+	using type = tlist<>;
+	static constexpr bool all_plain = false;
+};
+template <typename... Ps> struct param_names<plist<Ps...>> {
+	using type = tlist<Ps...>; // Ps are the bare name texts for plain params
+	static constexpr bool all_plain = (... && is_plain_param<Ps>::value);
+};
+
+// fold an immediately-applied function; `type` is the folded constant or
+// the original call if it does not reduce
+template <typename N> struct iife_fold {
+	using type = N;
+};
+template <typename Params, typename Body, bool Eb, typename... Args>
+struct iife_fold<call<fn_expr<Params, Body, Eb, false, false>, Args...>> {
+	using Callee = fn_expr<Params, Body, Eb, false, false>;
+	using BodyExpr = typename iife_body<Callee>::type;
+	static constexpr bool ok = !std::is_void_v<BodyExpr> && param_names<Params>::all_plain &&
+	                           sizeof...(Args) > 0 && (... && is_const_leaf<Args>::value);
+	static constexpr auto pick() {
+		if constexpr (ok) {
+			using folded_body =
+			    fold_node_t<typename subst<BodyExpr, typename param_names<Params>::type,
+			                               tlist<Args...>>::type>;
+			if constexpr (is_const_leaf<folded_body>::value) {
+				return folded_body{};
+			} else {
+				return call<Callee, Args...>{};
+			}
+		} else {
+			return call<Callee, Args...>{};
+		}
+	}
+	using type = decltype(pick());
+};
+
 // the lowering hook: fold a node to a constant, else simplify it
 template <typename N> struct fold_node {
 	static constexpr auto go() {
@@ -409,6 +525,8 @@ template <typename N> struct fold_node {
 			else { return false_lit{}; }
 		} else if constexpr (f.kind == folded::kNul) {
 			return null_lit{};
+		} else if constexpr (!std::is_same_v<typename iife_fold<N>::type, N>) {
+			return typename iife_fold<N>::type{}; // pure function applied to constants
 		} else if constexpr (!std::is_same_v<typename str_fold<N>::type, N>) {
 			return typename str_fold<N>::type{}; // pure string concat
 		} else {
@@ -417,7 +535,6 @@ template <typename N> struct fold_node {
 	}
 	using type = decltype(go());
 };
-template <typename N> using fold_node_t = typename fold_node<N>::type;
 
 // a whole program that is a single expression statement, folded: this
 // is what `ctjs::is_constant`/`ctjs::constant` expose so a script's

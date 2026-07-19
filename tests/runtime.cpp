@@ -668,6 +668,26 @@ static void string_folding() {
 	CHECK(out2["n"].to<int>() == 5);
 }
 
+static void function_folding() {
+	auto out = ctjs::run<R"(
+		let sq = (x => x * x)(5);                            // -> 25
+		let sum = (function (a, b) { return a + b; })(2, 3); // -> 5
+		let clamp = (n => n > 10 ? 10 : n)(42);              // -> 10
+		let greet = (name => "hi " + name)("bob");           // -> "hi bob"
+		let id = (x => x)(7);                                // -> 7
+		let mixed = (k => k * 2 + offset)(5);                // partial: 10 + offset
+		let dynArg = (x => x + 1)(n);                        // not folded: n dynamic
+	)">({{"offset", ctjs::value{3.0}}, {"n", ctjs::value{40.0}}});
+	CHECK(out.ok());
+	CHECK(out["sq"].to<int>() == 25);
+	CHECK(out["sum"].to<int>() == 5);
+	CHECK(out["clamp"].to<int>() == 10);
+	CHECK(out["greet"].to<std::string>() == "hi bob");
+	CHECK(out["id"].to<int>() == 7);
+	CHECK(out["mixed"].to<int>() == 13);   // body has a free var: runs, still correct
+	CHECK(out["dynArg"].to<int>() == 41);  // dynamic arg: runs, still correct
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -687,6 +707,7 @@ int main() {
 	classes_prototypes_super_statics();
 	constant_folding();
 	string_folding();
+	function_folding();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

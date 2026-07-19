@@ -78,14 +78,27 @@ becomes `"abc"`, and JS string coercion of the constants it can
 reproduce exactly — `"id-" + 42` becomes `"id-42"`, `7 + "up"` becomes
 `"7up"`, `"x" + true + null` becomes `"xtruenull"`.
 
-It even evaluates a pure **function** applied to constants: an
-immediately-invoked arrow or function expression with a single-expression
-body folds by substituting the arguments and re-folding — `(x => x * x)(5)`
-becomes `25`, `(name => "hi " + name)("bob")` becomes `"hi bob"`. If the
-body touches anything dynamic (a free variable, a dynamic argument) it
-simply doesn't reduce and runs as usual, so this stays sound without a
-separate purity analysis. (Folding calls to *named* functions is the next
-step.)
+It even evaluates a pure **function** applied to constants. An
+immediately-invoked arrow or function expression folds by substituting
+the arguments and re-folding — `(x => x * x)(5)` becomes `25`. So do
+calls to **named** functions: a whole-program pass collects top-level
+`function name(...) { return <expr>; }` definitions and folds every call
+made with constant arguments, recursively —
+
+```js
+function sq(x)   { return x * x; }
+function cube(x) { return x * sq(x); }                    // calls sq
+function fact(n) { return n <= 1 ? 1 : n * fact(n - 1); } // recursion
+
+let a = cube(3);   // -> 27 at compile time (the inner sq folds too)
+let b = fact(6);   // -> 720
+let c = sq(k);     // NOT folded: k is dynamic — runs against the real def
+```
+
+Recursion is bounded by a depth budget (so a branching recursion like
+`fib` with a large constant argument bails to the interpreter rather than
+exploding the compile), and any call whose body touches something dynamic
+simply doesn't reduce — soundness without a separate purity analysis.
 
 The fold is deliberately **sound over speed**: it reproduces the
 interpreter bit-for-bit, so it folds integer literals, booleans, `null`

@@ -136,7 +136,9 @@ template <CTJS_STRING_INPUT Src> struct script_t {
 		run_result out{cx, globals};
 		if constexpr (valid) {
 			using tree = decltype(ctlark::parse<detail::js_grammar, Src, detail::js_start>());
-			using program = typename detail::lower_program<tree>::type;
+			using p0 = typename detail::lower_program<tree>::type;
+			// whole-program pass: constant-evaluate calls to named functions
+			using program = detail::rewrite_t<p0, typename detail::collect_fns<p0>::type>;
 			try {
 				detail::program_runner<program>::go(globals, *cx);
 			} catch (js_throw & t) {

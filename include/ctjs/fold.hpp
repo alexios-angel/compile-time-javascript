@@ -438,30 +438,20 @@ struct pmap<NameText, tlist<N0, Ns...>, tlist<A0, As...>> {
 	                                typename pmap<NameText, tlist<Ns...>, tlist<As...>>::type>;
 };
 
-// substitute the parameters (Names -> Args) through an expression. Only
-// the pure-computational shapes are rewritten; anything else passes
-// through unchanged (its parameters stay, so the body won't fold to a
-// constant and the application is left for the interpreter).
+// substitute the parameters (Names -> Args) through an expression:
+// replace each `ident<param>` with its argument, recursing through every
+// type-parameterised node generically. Nodes with non-type parameters
+// (const_num, const_str, a nested fn_expr) are left as-is - which is
+// exactly right: we do not substitute into inner functions.
 template <typename E, typename Names, typename Args> struct subst {
 	using type = E;
 };
 template <typename T, typename Names, typename Args> struct subst<ident<T>, Names, Args> {
 	using type = typename pmap<T, Names, Args>::type;
 };
-template <typename Op, typename X, typename Names, typename Args>
-struct subst<unary<Op, X>, Names, Args> {
-	using type = unary<Op, typename subst<X, Names, Args>::type>;
-};
-template <typename Op, typename L, typename R, typename Names, typename Args>
-struct subst<binary<Op, L, R>, Names, Args> {
-	using type = binary<Op, typename subst<L, Names, Args>::type,
-	                    typename subst<R, Names, Args>::type>;
-};
-template <typename C, typename T, typename F, typename Names, typename Args>
-struct subst<ternary<C, T, F>, Names, Args> {
-	using type = ternary<typename subst<C, Names, Args>::type,
-	                     typename subst<T, Names, Args>::type,
-	                     typename subst<F, Names, Args>::type>;
+template <template <typename...> class Tmpl, typename... Ks, typename Names, typename Args>
+struct subst<Tmpl<Ks...>, Names, Args> {
+	using type = Tmpl<typename subst<Ks, Names, Args>::type...>;
 };
 
 // the body EXPRESSION of a single-expression function/arrow, or void
@@ -513,6 +503,127 @@ struct iife_fold<call<fn_expr<Params, Body, Eb, false, false>, Args...>> {
 	}
 	using type = decltype(pick());
 };
+
+// --- constant evaluation of NAMED functions. A whole-program pass
+// collects top-level `function name(...) { return <expr>; }` definitions
+// (plain params, single return) and, wherever such a function is called
+// with constant arguments, substitutes and folds its body - recursively,
+// so `function fact(n){ return n<=1 ? 1 : n*fact(n-1); } fact(5)` folds
+// to 120. Recursion is bounded by a depth budget; anything that does not
+// reduce to a constant is left for the interpreter, so it stays sound.
+
+template <typename NameText, typename Params, typename BodyExpr> struct fn_def { };
+template <typename D> struct def_params;
+template <typename N, typename P, typename E> struct def_params<fn_def<N, P, E>> {
+	using type = P;
+};
+template <typename D> struct def_body;
+template <typename N, typename P, typename E> struct def_body<fn_def<N, P, E>> {
+	using type = E;
+};
+template <typename D> struct def_name;
+template <typename N, typename P, typename E> struct def_name<fn_def<N, P, E>> {
+	using type = N;
+};
+template <typename P> struct param_count {
+	static constexpr size_t value = 0;
+};
+template <typename... Ps> struct param_count<plist<Ps...>> {
+	static constexpr size_t value = sizeof...(Ps);
+};
+
+// a top-level fn_decl -> fn_def (or void if not foldable)
+template <typename S> struct fn_def_of {
+	using type = void;
+};
+template <typename N, typename P, typename E>
+struct fn_def_of<fn_decl<N, P, block<return_stmt<E>>, false, false>> {
+	using type = std::conditional_t<param_names<P>::all_plain, fn_def<N, P, E>, void>;
+};
+
+// build the function table by scanning a program's top-level statements
+template <typename List, typename X> struct tappend {
+	using type = List;
+};
+template <typename... Ls, typename X> struct tappend<tlist<Ls...>, X> {
+	using type = tlist<Ls..., X>;
+};
+template <typename... Ls> struct tappend<tlist<Ls...>, void> {
+	using type = tlist<Ls...>;
+};
+template <typename Prog> struct collect_fns {
+	using type = tlist<>;
+};
+template <typename... Ss> struct collect_fns<program<Ss...>> {
+	template <typename Acc, typename... Rest> struct go {
+		using type = Acc;
+	};
+	template <typename Acc, typename S0, typename... Rest> struct go<Acc, S0, Rest...> {
+		using type = typename go<typename tappend<Acc, typename fn_def_of<S0>::type>::type,
+		                         Rest...>::type;
+	};
+	using type = typename go<tlist<>, Ss...>::type;
+};
+
+template <typename Name, typename FT> struct fn_lookup {
+	using type = void;
+};
+template <typename Name, typename D0, typename... Ds> struct fn_lookup<Name, tlist<D0, Ds...>> {
+	using type = std::conditional_t<Name::view() == def_name<D0>::type::view(), D0,
+	                                typename fn_lookup<Name, tlist<Ds...>>::type>;
+};
+
+// the rewrite: fold constant-argument calls to table functions,
+// recursing through the whole tree generically (re-folding each node).
+template <typename N, typename FT, int Depth> struct rewrite {
+	using type = N;
+};
+template <template <typename...> class Tmpl, typename... Ks, typename FT, int Depth>
+struct rewrite<Tmpl<Ks...>, FT, Depth> {
+	using type = fold_node_t<Tmpl<typename rewrite<Ks, FT, Depth>::type...>>;
+};
+template <typename NameText, typename... Args, typename FT, int Depth>
+struct rewrite<call<ident<NameText>, Args...>, FT, Depth> {
+	using def = typename fn_lookup<NameText, FT>::type;
+	static constexpr auto pick() {
+		using rebuilt = call<ident<NameText>, typename rewrite<Args, FT, Depth>::type...>;
+		if constexpr (std::is_void_v<def> || Depth <= 0) {
+			return rebuilt{};
+		} else {
+			using P = typename def_params<def>::type;
+			constexpr bool ok = sizeof...(Args) > 0 &&
+			                    param_count<P>::value == sizeof...(Args) &&
+			                    param_names<P>::all_plain &&
+			                    (is_const_leaf<typename rewrite<Args, FT, Depth>::type>::value && ...);
+			if constexpr (ok) {
+				using B = typename subst<typename def_body<def>::type,
+				                         typename param_names<P>::type,
+				                         tlist<typename rewrite<Args, FT, Depth>::type...>>::type;
+				using Bf = fold_node_t<typename rewrite<B, FT, Depth - 1>::type>;
+				if constexpr (is_const_leaf<Bf>::value) {
+					return Bf{};
+				} else {
+					return rebuilt{};
+				}
+			} else {
+				return rebuilt{};
+			}
+		}
+	}
+	using type = decltype(pick());
+};
+// depth 16 bounds compile time: linear recursion (factorial-shaped)
+// folds to that depth, branching recursion (fibonacci-shaped) costs at
+// most ~2^16 instantiations before bailing to the interpreter.
+// A program with no foldable top-level functions skips the pass entirely
+// (empty table) - so scripts that don't use them pay nothing.
+template <typename Node, typename FT> struct apply_named {
+	using type = typename rewrite<Node, FT, 16>::type;
+};
+template <typename Node> struct apply_named<Node, tlist<>> {
+	using type = Node;
+};
+template <typename Node, typename FT> using rewrite_t = typename apply_named<Node, FT>::type;
 
 // the lowering hook: fold a node to a constant, else simplify it
 template <typename N> struct fold_node {

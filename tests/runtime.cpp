@@ -688,6 +688,39 @@ static void function_folding() {
 	CHECK(out["dynArg"].to<int>() == 41);  // dynamic arg: runs, still correct
 }
 
+static void named_function_folding() {
+	auto out = ctjs::run<R"(
+		function sq(x) { return x * x; }
+		function cube(x) { return x * sq(x); }                     // calls sq
+		function fact(n) { return n <= 1 ? 1 : n * fact(n - 1); }  // recursion
+		function label(name) { return "id-" + name; }
+
+		let a = sq(6);            // -> 36 at compile time
+		let b = cube(3);          // -> 27 (folds the nested sq call)
+		let c = fact(6);          // -> 720 (bounded recursion)
+		let d = label(42);        // -> "id-42"
+		let e = sq(4) + fact(4);  // -> 16 + 24 = 40
+		let dyn = sq(k);          // not folded: k is dynamic - still runs
+	)">({{"k", ctjs::value{5.0}}});
+	CHECK(out.ok());
+	CHECK(out["a"].to<int>() == 36);
+	CHECK(out["b"].to<int>() == 27);
+	CHECK(out["c"].to<int>() == 720);
+	CHECK(out["d"].to<std::string>() == "id-42");
+	CHECK(out["e"].to<int>() == 40);
+	CHECK(out["dyn"].to<int>() == 25); // runs at runtime, still correct
+
+	// a function called with constants AND dynamically both work: the
+	// constant call folds, the dynamic one runs against the real def
+	auto out2 = ctjs::run<R"(
+		function dbl(x) { return x * 2; }
+		let folded = dbl(21);   // -> 42
+		let live = dbl(n);      // runs: n * 2
+	)">({{"n", ctjs::value{10.0}}});
+	CHECK(out2["folded"].to<int>() == 42);
+	CHECK(out2["live"].to<int>() == 20);
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -708,6 +741,7 @@ int main() {
 	constant_folding();
 	string_folding();
 	function_folding();
+	named_function_folding();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

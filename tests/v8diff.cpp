@@ -163,7 +163,32 @@ m();
 console.log(m(), m());
 )v8">(R"v8(nested-closure-counter)v8", R"v8(2 3
 )v8");
+	run_case<R"v8(function Point(x, y) { this.x = x; this.y = y; }
+var p = new Point(3, 4);
+console.log(p.x, p.y);
+)v8">(R"v8(new-function-constructor)v8", R"v8(3 4
+)v8");
+	run_case<R"v8(class Counter {
+  constructor(start) { this.n = start; }
+  inc() { this.n = this.n + 1; return this.n; }
+}
+var c = new Counter(5);
+console.log(c.inc(), c.inc(), c.n);
+)v8">(R"v8(class-basics)v8", R"v8(6 7 7
+)v8");
+	run_case<R"v8(class Greeter {
+  constructor(name) { this.name = name; }
+  greeting() { return "hi " + this.name; }
+  shout() { return this.greeting() + "!"; }
+}
+console.log(new Greeter("ada").shout());
+)v8">(R"v8(class-method-calls-method)v8", R"v8(hi ada!
+)v8");
+	run_case<R"v8(function Weird() { this.a = 1; return {b: 2}; }
+console.log(new Weird().b, new Weird().a);
+)v8">(R"v8(new-returns-object-override)v8", R"v8(2 undefined
+)v8");
 	std::printf("v8diff: %d failures, %d parse gaps, %d cases\n",
-	            failures, parse_gaps, 31);
+	            failures, parse_gaps, 35);
 	return failures == 0 ? 0 : 1;
 }

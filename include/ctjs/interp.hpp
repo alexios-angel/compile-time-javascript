@@ -412,6 +412,21 @@ template <typename O, typename I> struct eval_<delete_op<index<O, I>>> {
 	}
 };
 
+// new F(...): fresh object becomes `this` for the call; if the
+// function returns an object, that wins (spec); else the fresh object
+template <typename Callee, typename... Args> struct eval_<new_op<Callee, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value fn = ev<Callee>(env, cx);
+		std::vector<value> args;
+		args.reserve(sizeof...(Args));
+		(args.push_back(ev<Args>(env, cx)), ...);
+		value obj = value::object();
+		cx.pending_this = obj;
+		const value ret = call_value(cx, fn, std::move(args));
+		return ret.is_object() ? ret : obj;
+	}
+};
+
 // assignment-target classification
 template <typename X> struct is_ident_node : std::false_type { };
 template <typename T> struct is_ident_node<ident<T>> : std::true_type { };
@@ -632,6 +647,52 @@ template <typename N, typename P, typename B> struct exec_<fn_decl<N, P, B>> {
 			env->declare(N::view(), fn_maker<P, B, false>::make(env, std::string{N::view()}));
 		}
 		return flow::normal;
+	}
+};
+
+// class C { constructor(){} m(){} }: C becomes a function that (with
+// new) attaches every method to the fresh instance, then runs the
+// constructor body with `this` bound. Methods are per-instance
+// closures - prototype-equivalent for observable behavior.
+template <typename M> struct attach_method;
+template <typename N, typename P, typename B> struct attach_method<class_method<N, P, B>> {
+	static constexpr bool is_ctor = false;
+	static void attach(const env_ptr & defn_env, const value & obj) {
+		obj.as_object()->set(N::view(), fn_maker<P, B, false>::make(defn_env,
+		                                                            std::string{N::view()}));
+	}
+	static value ctor(const env_ptr &) { return value{}; }
+};
+template <typename P, typename B> struct ctor_of {
+	static value make(const env_ptr & env) { return fn_maker<P, B, false>::make(env, "constructor"); }
+};
+
+template <typename Name, typename... Methods> struct exec_<class_decl<Name, Methods...>> {
+	static flow go(const env_ptr & env, context & cx, value &) {
+		(void)cx;
+		env_ptr defn = env;
+		value cls = value::function(
+		    [defn](context & cx2, const std::vector<value> & args) -> value {
+			    // `this` (the fresh instance) was parked by new_op
+			    value self = cx2.current_this;
+			    if (!self.is_object()) { self = value::object(); }
+			    (attach_one<Methods>(defn, self), ...);
+			    value ctor_fn;
+			    if (const value * c = self.as_object()->find("constructor")) {
+				    ctor_fn = *c;
+			    }
+			    if (ctor_fn.is_function()) {
+				    cx2.pending_this = self;
+				    (void)call_value(cx2, ctor_fn, args);
+			    }
+			    return self;
+		    },
+		    std::string{Name::view()});
+		env->declare(Name::view(), std::move(cls));
+		return flow::normal;
+	}
+	template <typename M> static void attach_one(const env_ptr & defn, const value & self) {
+		attach_method<M>::attach(defn, self);
 	}
 };
 

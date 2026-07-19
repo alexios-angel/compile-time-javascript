@@ -30,6 +30,9 @@ template <size_t I, typename... Ts> using nth_t = typename nth_s<I, Ts...>::type
 
 template <typename Node> struct lower_expr;
 template <typename Node> struct lower_stmt;
+template <typename... Ks2> struct lower_new;
+template <typename... Ks2> struct lower_class;
+template <typename Tree> struct lower_method;
 template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
 template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
 
@@ -201,6 +204,8 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			return ast::array_lit<lower_expr_t<Ks>...>{};
 		} else if constexpr (n == std::string_view{"object_lit"}) {
 			return ast::object_lit<typename lower_prop<Ks>::type...>{};
+		} else if constexpr (n == std::string_view{"new_op"}) {
+			return typename lower_new<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"comma_op"}) {
 			return ast::comma_op<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>>{};
 		} else if constexpr (n == std::string_view{"in_op"}) {
@@ -274,6 +279,26 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 
 // --- statements
 
+// new C(a, b): kids are [callee, args-tree]; args-tree kids are exprs
+template <typename Callee, typename AN, typename... ArgKs>
+struct lower_new<Callee, ctlark::tree<AN, ArgKs...>> {
+	using type = ast::new_op<lower_expr_t<Callee>, lower_expr_t<ArgKs>...>;
+};
+template <typename Callee> struct lower_new<Callee> {
+	using type = ast::new_op<lower_expr_t<Callee>>;
+};
+
+template <typename MN, typename Name, typename Params, typename Body>
+struct lower_method<ctlark::tree<MN, Name, Params, Body>> {
+	using type = ast::class_method<typename Name::value_type,
+	                               typename lower_params<Params>::type,
+	                               lower_stmt_t<Body>>;
+};
+template <typename Name, typename... Ms> struct lower_class<Name, Ms...> {
+	using type = ast::class_decl<typename Name::value_type,
+	                             typename lower_method<Ms>::type...>;
+};
+
 template <typename Tree> struct lower_clause;
 template <typename CN, typename K0, typename... Ks2>
 struct lower_clause<ctlark::tree<CN, K0, Ks2...>> {
@@ -341,6 +366,8 @@ template <typename TN, typename... Ks> struct lower_stmt<ctlark::tree<TN, Ks...>
 			return ast::break_stmt{};
 		} else if constexpr (n == std::string_view{"continue_stmt"}) {
 			return ast::continue_stmt{};
+		} else if constexpr (n == std::string_view{"class_decl"}) {
+			return typename lower_class<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"switch_stmt"}) {
 			return typename lower_switch<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"empty_stmt"}) {

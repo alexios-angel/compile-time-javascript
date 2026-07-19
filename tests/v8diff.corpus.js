@@ -137,3 +137,39 @@ function make() { var count = 0; return function() { count++; return count; }; }
 var m = make();
 m();
 console.log(m(), m());
+
+// === new-function-constructor
+function Point(x, y) { this.x = x; this.y = y; }
+var p = new Point(3, 4);
+console.log(p.x, p.y);
+
+// === class-basics
+class Counter {
+  constructor(start) { this.n = start; }
+  inc() { this.n = this.n + 1; return this.n; }
+}
+var c = new Counter(5);
+console.log(c.inc(), c.inc(), c.n);
+
+// === class-method-calls-method
+class Greeter {
+  constructor(name) { this.name = name; }
+  greeting() { return "hi " + this.name; }
+  shout() { return this.greeting() + "!"; }
+}
+console.log(new Greeter("ada").shout());
+
+// === new-returns-object-override
+function Weird() { this.a = 1; return {b: 2}; }
+console.log(new Weird().b, new Weird().a);
+
+// === template-literal-basics
+var name = "ada";
+console.log(`hi ${name}!`, `1+1=${1 + 1}`, `plain`);
+
+// === template-literal-multiline-escapes
+console.log(`a\nb`, `tick: \` done`, `${"x"}${"y"}z`);
+
+// === template-literal-nested-expr
+var xs = [1, 2, 3];
+console.log(`len ${xs.length} last ${xs[xs.length - 1]}`);

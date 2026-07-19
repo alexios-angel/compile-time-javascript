@@ -79,6 +79,12 @@ public:
 		return value{};
 	}
 
+	// write a global between calls - how hosts model the web's live
+	// globals (p5's mouseX/frameCount update before every draw())
+	void set_global(std::string_view name, value v) {
+		globals_->declare(name, std::move(v));
+	}
+
 	// invoke a function the script defined; console output continues to
 	// accumulate on this result
 	template <typename... Args> value call(std::string_view fn, Args &&... args) {

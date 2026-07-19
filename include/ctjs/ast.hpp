@@ -76,6 +76,9 @@ template <typename E> struct throw_stmt { };
 // CatchName/Handler = void for try/finally; Finally = void when absent
 template <typename Body, typename CatchName, typename Handler, typename Finally>
 struct try_stmt { };
+template <typename Callee, typename... Args> struct new_op { };
+template <typename Name, typename Params, typename Body> struct class_method { };
+template <typename Name, typename... Methods> struct class_decl { };
 template <typename E, typename... Ss> struct case_clause { };
 template <typename... Ss> struct default_clause { };
 template <typename D, typename... Clauses> struct switch_stmt { };

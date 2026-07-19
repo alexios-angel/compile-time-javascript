@@ -53,6 +53,7 @@ start: stmt*
      | throw_stmt
      | try_stmt
      | switch_stmt
+     | class_decl
      | empty_stmt
      | expr_stmt
 
@@ -83,6 +84,8 @@ throw_stmt: "throw" expr ";"
 try_stmt: "try" block "catch" "(" NAME ")" block                  -> try_catch
         | "try" block "catch" "(" NAME ")" block "finally" block  -> try_catch_fin
         | "try" block "finally" block                             -> try_fin
+class_decl: "class" NAME "{" class_member* "}"
+class_member: NAME "(" params ")" block -> class_method
 switch_stmt: "switch" "(" expr ")" "{" switch_clause* "}"
 switch_clause: "case" expr ":" stmt*  -> case_clause
              | "default" ":" stmt*     -> default_clause
@@ -126,10 +129,14 @@ lhs: NAME                    -> lhs_name
       | "delete" unary -> delete_op
       | INCDEC lhs     -> pre_incdec
 ?postfix: primary
+        | "new" newable "(" args ")" -> new_op
         | postfix "(" args ")"   -> call
         | postfix "." NAME       -> member
         | postfix "[" expr "]"   -> index
         | lhs INCDEC             -> post_incdec
+?newable: primary
+        | newable "." NAME       -> member
+        | newable "[" expr "]"   -> index
 args: [assign ("," assign)*]
 ?primary: NAME
         | NUMBER

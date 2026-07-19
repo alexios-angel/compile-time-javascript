@@ -43,8 +43,9 @@ static_assert(!ctjs::is_valid<"let x = ;">);
 static_assert(!ctjs::is_valid<"if a { b(); }">);    // parens required
 static_assert(!ctjs::is_valid<"function () {}">);   // declarations need a name
 static_assert(!ctjs::is_valid<"let x = 'unterminated;">);
-static_assert(!ctjs::is_valid<"class C {}">);       // not in v0.1
-static_assert(!ctjs::is_valid<"x = `template`;">);  // not in v0.1
+static_assert(ctjs::is_valid<"class C { constructor() {} m() { return 1; } }">);
+static_assert(ctjs::is_valid<"let p = new C(1, 2).m();">);
+static_assert(!ctjs::is_valid<"class C extends D {}">); // no inheritance yet
 
 // --- the script surface
 static_assert(ctjs::script<"let x = 1;">.valid);

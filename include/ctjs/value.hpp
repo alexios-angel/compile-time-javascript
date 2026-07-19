@@ -449,6 +449,10 @@ struct context {
 	// Plain calls see undefined - module/strict semantics, documented.
 	value pending_this;
 	value current_this;
+	// eager generators: while a generator body runs, its yields land
+	// here; non-generator calls null it out so a stray `yield` inside a
+	// nested plain function throws instead of leaking into the buffer
+	std::vector<value> * gen_sink = nullptr;
 	int depth = 0;
 	int max_depth = 256;
 

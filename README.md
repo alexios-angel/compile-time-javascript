@@ -116,9 +116,20 @@ scripts pre-resolved promises — compile-time-browser's `await
 fetch(url)`; `new Promise(executor)` is deliberately absent since an
 executor implies pending state); optional chaining short-circuits PER
 LINK — `a?.b.c` still throws when `a?.b` is undefined (write
-`a?.b?.c`), unlike V8's whole-chain skip. Not yet: regex literals,
-`instanceof`, labels, generators, `Date`, computed object keys
-(`{[k]: v}`), getters/setters.
+`a?.b?.c`), unlike V8's whole-chain skip; **generators are EAGER** —
+the body runs to completion on the call, yields buffer up, and the
+returned iterator (a plain `{next()}` object, which `for...of` also
+speaks for hand-rolled iterators) drains the buffer, so infinite
+generators hang and `next(v)` cannot feed values back in;
+`instanceof` is constructor identity (`new` stamps the instance) —
+there is no prototype chain, no `extends`; **regex literals lex
+greedily** (the lexer has no parser context), so a regex body may not
+contain a BARE space, `;` or `,` — write `[ ]`, `[;]`, `[,]` or `\x20`
+— which also keeps `a / b / c` division safe; the regex engine has no
+lookaround, backreferences or named groups, `exec` results carry no
+`.index/.input`, and `replace` takes string templates (`$&`, `$1`…),
+not callbacks. Not yet: labels, `Date`, computed object keys
+(`{[k]: v}`), getters/setters, `extends`.
 
 ## API
 

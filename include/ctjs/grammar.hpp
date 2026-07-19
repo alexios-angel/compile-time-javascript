@@ -68,6 +68,7 @@ dprop: NAME            -> dprop_shorthand
      | NAME ":" NAME   -> dprop_renamed
 fn_decl: "function" NAME "(" params ")" block
        | "async" "function" NAME "(" params ")" block -> async_fn_decl
+       | "function" "*" NAME "(" params ")" block     -> gen_fn_decl
 params: [param ("," param)*]
 param: NAME               -> param_plain
      | NAME "=" assign    -> param_default
@@ -106,6 +107,8 @@ expr_stmt: expr ";"
 ?assign: nullish
        | nullish "?" assign ":" assign -> ternary
        | lhs ASSIGN_OP assign          -> assign_op
+       | "yield" assign                -> yield_op
+       | "yield"                       -> yield_bare
 
 lhs: NAME                    -> lhs_name
    | postfix "." NAME        -> lhs_member
@@ -122,6 +125,7 @@ lhs: NAME                    -> lhs_name
 ?relational: additive
            | relational REL_OP additive -> cmp_rel
            | relational "in" additive   -> in_op
+           | relational "instanceof" additive -> instanceof_op
 ?additive: multiplicative
          | additive "+" multiplicative -> add_op
          | additive "-" multiplicative -> sub_op
@@ -160,6 +164,7 @@ args: [arg ("," arg)*]
         | "false"     -> false_lit
         | "null"      -> null_lit
         | template_lit
+        | REGEX -> regex_lit
         | array_lit
         | object_lit
         | fn_expr
@@ -177,6 +182,7 @@ prop: NAME ":" assign     -> prop_name
     | NAME                -> prop_shorthand
 fn_expr: "function" "(" params ")" block
        | "async" "function" "(" params ")" block -> async_fn_expr
+       | "function" "*" "(" params ")" block     -> gen_fn_expr
 arrow_fn: "(" params ")" "=>" arrow_body
         | NAME "=>" arrow_body
 ?arrow_body: block | assign
@@ -189,6 +195,7 @@ TEMPLATE_HEAD: /`([^`\\$]|\\[\s\S]|\$(?!\{))*\$\{/
 TEMPLATE_MID: /\}([^`\\$]|\\[\s\S]|\$(?!\{))*\$\{/
 TEMPLATE_TAIL: /\}([^`\\$]|\\[\s\S]|\$(?!\{))*`/
 SQSTRING: /'([^'\\\x0a]|\\[\s\S])*'/
+REGEX: /\/(?![*\/=\x20])([^\/\\\x0a\x20;,\[]|\\[^\x0a]|\[([^\]\\\x0a]|\\[^\x0a])*\])+\/[a-z]*/
 ASSIGN_OP: /(\*\*|[+\-*\/%])?=/
 EQ_OP: /[=!]==?/
 REL_OP: /[<>]=?/

@@ -351,6 +351,79 @@ static void optional_chaining_and_object_sugar() {
 	CHECK(m["after"].to<int>() == 8);
 }
 
+static void generators_instanceof_regex() {
+	auto out = ctjs::run<R"(
+		function* count(n) {
+			for (let i = 1; i <= n; i++) { yield i; }
+			return "spent";
+		}
+		let squares = [];
+		for (const v of count(4)) { squares.push(v * v); }
+		let g = count(2);
+		let first = g.next();
+		let second = g.next();
+		let third = g.next();
+
+		class Dog {
+			constructor(name) { this.name = name; }
+			speak() { return this.name + " woofs"; }
+		}
+		class Cat { }
+		let rex = new Dog("rex");
+		let is_dog = rex instanceof Dog;
+		let is_cat = rex instanceof Cat;
+		let plain_is = ({}) instanceof Dog;
+
+		let re = /(\d+)-(\d+)/;
+		let hit = re.test("range 10-25 ok");
+		let miss = re.test("no numbers here");
+		let parts = re.exec("range 10-25 ok");
+		let nums = "a1b22c333".match(/\d+/g);
+		let swapped = "10-25".replace(/(\d+)-(\d+)/, "$2-$1");
+		let stripped = "a1b22c3".replace(/\d+/g, "#");
+		let words = "one, two,three".split(/[,]\s*/);
+		let ic = /HELLO/i.test("say hello please");
+		let anch = /^ab+c$/.test("abbbc");
+		let division_still_works = 10 / 2 / 5;
+	)">();
+	CHECK(out.ok());
+	CHECK(out["squares"][0].to<int>() == 1);
+	CHECK(out["squares"][3].to<int>() == 16);
+	CHECK(out["first"]["value"].to<int>() == 1);
+	CHECK(!out["first"]["done"].to<bool>());
+	CHECK(out["second"]["value"].to<int>() == 2);
+	CHECK(out["third"]["done"].to<bool>());
+	CHECK(out["third"]["value"].to<std::string>() == "spent");
+	CHECK(out["is_dog"].to<bool>());
+	CHECK(!out["is_cat"].to<bool>());
+	CHECK(!out["plain_is"].to<bool>());
+	CHECK(out["hit"].to<bool>());
+	CHECK(!out["miss"].to<bool>());
+	CHECK(out["parts"][0].to<std::string>() == "10-25");
+	CHECK(out["parts"][1].to<std::string>() == "10");
+	CHECK(out["parts"][2].to<std::string>() == "25");
+	CHECK(out["nums"][0].to<std::string>() == "1");
+	CHECK(out["nums"][1].to<std::string>() == "22");
+	CHECK(out["nums"][2].to<std::string>() == "333");
+	CHECK(out["swapped"].to<std::string>() == "25-10");
+	CHECK(out["stripped"].to<std::string>() == "a#b#c#");
+	CHECK(out["words"][0].to<std::string>() == "one");
+	CHECK(out["words"][1].to<std::string>() == "two");
+	CHECK(out["words"][2].to<std::string>() == "three");
+	CHECK(out["ic"].to<bool>());
+	CHECK(out["anch"].to<bool>());
+	CHECK(out["division_still_works"].to<double>() == 1.0);
+
+	// yield outside a generator is an error, not a silent no-op
+	auto bad = ctjs::run<R"(
+		function plain() { yield 1; }
+		let boom = "";
+		try { plain(); } catch (e) { boom = e.name; }
+	)">();
+	CHECK(bad.ok());
+	CHECK(bad["boom"].to<std::string>() == "SyntaxError");
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -365,6 +438,7 @@ int main() {
 	async_and_promises();
 	json_parse();
 	optional_chaining_and_object_sugar();
+	generators_instanceof_regex();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

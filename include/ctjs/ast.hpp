@@ -42,7 +42,10 @@ template <typename Op, typename E> struct unary { };
 template <typename C, typename T, typename F> struct ternary { };
 template <typename L, typename R> struct comma_op { };
 template <typename L, typename R> struct in_op { };
+template <typename L, typename R> struct instanceof_op { };
 template <typename T> struct delete_op { };
+template <typename E> struct yield_op { }; // E = void for bare `yield`
+template <typename Text> struct regex_lit { }; // raw spelling, slashes included
 template <typename Fn, typename... Args> struct call { };
 template <typename Obj, typename NameText> struct member { };
 template <typename Obj, typename Index> struct index { };
@@ -66,8 +69,12 @@ template <typename Init, typename... Props> struct destr_object { };
 // Body: block for function/arrow-with-block, else the expression of
 // an expression-bodied arrow. IsAsync functions wrap their return
 // value in a resolved promise (settled-promise subset: bodies run
-// synchronously, so the promise is settled by the time callers see it)
-template <typename Params, typename Body, bool ExprBody, bool IsAsync = false>
+// synchronously, so the promise is settled by the time callers see
+// it). IsGen functions are EAGER generators: the body runs to
+// completion on the call, yields buffer up, and the caller gets an
+// iterator object draining the buffer
+template <typename Params, typename Body, bool ExprBody, bool IsAsync = false,
+          bool IsGen = false>
 struct fn_expr { };
 
 // --- statements
@@ -79,7 +86,8 @@ template <typename... Decls> struct let_stmt { };
 template <typename... Decls> struct const_stmt { };
 template <typename... Decls> struct var_stmt { };
 template <typename E> struct expr_stmt { };
-template <typename NameText, typename Params, typename Body, bool IsAsync = false>
+template <typename NameText, typename Params, typename Body, bool IsAsync = false,
+          bool IsGen = false>
 struct fn_decl { };
 template <typename C, typename Then, typename Else> struct if_stmt { }; // Else = void
 template <typename C, typename Body> struct while_stmt { };

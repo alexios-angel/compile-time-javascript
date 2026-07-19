@@ -458,6 +458,56 @@ struct eval_<opt_call<opt_index<Obj, Index>, Args...>> {
 	}
 };
 
+// yield: only meaningful while a generator body is running (eager
+// subset: the value buffers up and the expression is undefined - a
+// caller cannot feed values back in through next())
+template <typename E> struct eval_<yield_op<E>> {
+	static value go(const env_ptr & env, context & cx) {
+		if (cx.gen_sink == nullptr) {
+			throw_error("SyntaxError", "yield outside a generator");
+		}
+		cx.gen_sink->push_back(ev<E>(env, cx));
+		return value{};
+	}
+};
+template <> struct eval_<yield_op<void>> {
+	static value go(const env_ptr &, context & cx) {
+		if (cx.gen_sink == nullptr) {
+			throw_error("SyntaxError", "yield outside a generator");
+		}
+		cx.gen_sink->push_back(value{});
+		return value{};
+	}
+};
+
+// instanceof: `new C()` stamps the instance with its constructor (a
+// hidden __ctor prop); identity of the function object decides. There
+// is no prototype chain and no extends, so this IS the whole answer.
+template <typename L, typename R> struct eval_<instanceof_op<L, R>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value lhs = ev<L>(env, cx);
+		const value rhs = ev<R>(env, cx);
+		if (!rhs.is_function()) {
+			throw_error("TypeError",
+			            "Right-hand side of 'instanceof' is not callable");
+		}
+		if (!lhs.is_object()) { return value{false}; }
+		const value * ctor = lhs.as_object()->find("__ctor");
+		return value{ctor != nullptr && ctor->is_function() &&
+		             ctor->as_function() == rhs.as_function()};
+	}
+};
+
+template <typename Text> struct eval_<regex_lit<Text>> {
+	static value go(const env_ptr &, context &) {
+		// spelling is /body/flags; split and hand to the runtime engine
+		constexpr std::string_view raw = Text::view();
+		constexpr size_t close = raw.rfind('/');
+		return make_regex(std::string{raw.substr(1, close - 1)},
+		                  std::string{raw.substr(close + 1)});
+	}
+};
+
 template <typename L, typename R> struct eval_<comma_op<L, R>> {
 	static value go(const env_ptr & env, context & cx) {
 		(void)ev<L>(env, cx);
@@ -555,6 +605,7 @@ template <typename Callee, typename... Args> struct eval_<new_op<Callee, Args...
 		const value fn = ev<Callee>(env, cx);
 		std::vector<value> args = gather_args<Args...>(env, cx);
 		value obj = value::object();
+		obj.as_object()->set("__ctor", fn); // instanceof identity
 		cx.pending_this = obj;
 		const value ret = call_value(cx, fn, std::move(args));
 		return ret.is_object() ? ret : obj;
@@ -695,7 +746,8 @@ template <typename... Ps> struct param_binder<plist<Ps...>> {
 	}
 };
 
-template <typename Params, typename Body, bool ExprBody, bool IsAsync = false>
+template <typename Params, typename Body, bool ExprBody, bool IsAsync = false,
+          bool IsGen = false>
 struct fn_maker {
 	static value make(const env_ptr & env, std::string name) {
 		return value::function(
@@ -707,15 +759,55 @@ struct fn_maker {
 			    // into current_this), undefined for plain calls
 			    local->declare("this", cx.current_this);
 			    param_binder<Params>::bind(local, args, cx);
-			    if constexpr (ExprBody) {
-				    return wrap(ev<Body>(local, cx));
+			    // yield discipline: a generator installs its buffer, any
+			    // other function blinds the sink so a nested plain
+			    // function cannot leak yields into an outer generator
+			    std::vector<value> * saved_sink = cx.gen_sink;
+			    std::vector<value> buffer;
+			    cx.gen_sink = nullptr;
+			    if constexpr (IsGen) { cx.gen_sink = &buffer; }
+			    value out;
+			    try {
+				    if constexpr (ExprBody) {
+					    out = ev<Body>(local, cx);
+				    } else {
+					    value ret;
+					    const flow f = body_flow(local, cx, ret, Body{});
+					    out = f == flow::ret ? std::move(ret) : value{};
+				    }
+			    } catch (...) {
+				    cx.gen_sink = saved_sink;
+				    throw;
+			    }
+			    cx.gen_sink = saved_sink;
+			    if constexpr (IsGen) {
+				    return make_generator_object(std::move(buffer), std::move(out));
 			    } else {
-				    value ret;
-				    const flow f = body_flow(local, cx, ret, Body{});
-				    return wrap(f == flow::ret ? std::move(ret) : value{});
+				    return wrap(std::move(out));
 			    }
 		    },
 		    std::move(name));
+	}
+	// EAGER generator result: the body already ran, yields are buffered;
+	// next() drains them, honoring the iterator protocol for...of speaks
+	static value make_generator_object(std::vector<value> items, value ret) {
+		auto buffered = std::make_shared<std::vector<value>>(std::move(items));
+		auto pos = std::make_shared<size_t>(0);
+		object_t it;
+		it.set("next", value::function(
+		                   [buffered, pos, ret](context &, const std::vector<value> &) {
+			                   object_t step;
+			                   if (*pos < buffered->size()) {
+				                   step.set("value", (*buffered)[(*pos)++]);
+				                   step.set("done", value{false});
+			                   } else {
+				                   step.set("value", ret);
+				                   step.set("done", value{true});
+			                   }
+			                   return value::object(std::move(step));
+		                   },
+		                   "next"));
+		return value::object(std::move(it));
 	}
 	// async functions hand back a promise: settled, because the body
 	// just ran to completion; a returned promise is adopted as-is
@@ -733,11 +825,11 @@ struct fn_maker {
 	}
 };
 
-template <typename Params, typename Body, bool ExprBody, bool IsAsync>
-struct eval_<fn_expr<Params, Body, ExprBody, IsAsync>> {
+template <typename Params, typename Body, bool ExprBody, bool IsAsync, bool IsGen>
+struct eval_<fn_expr<Params, Body, ExprBody, IsAsync, IsGen>> {
 	static value go(const env_ptr & env, context & cx) {
 		(void)cx;
-		return fn_maker<Params, Body, ExprBody, IsAsync>::make(env, "");
+		return fn_maker<Params, Body, ExprBody, IsAsync, IsGen>::make(env, "");
 	}
 };
 
@@ -866,12 +958,13 @@ template <typename... Ds> struct exec_<var_stmt<Ds...>> {
 	}
 };
 
-template <typename N, typename P, typename B, bool A> struct exec_<fn_decl<N, P, B, A>> {
+template <typename N, typename P, typename B, bool A, bool G>
+struct exec_<fn_decl<N, P, B, A, G>> {
 	static flow go(const env_ptr & env, context &, value &) {
 		// usually already hoisted; declaring again is harmless
 		if (env->vars.find(N::view()) == env->vars.end()) {
 			env->declare(N::view(),
-			             fn_maker<P, B, false, A>::make(env, std::string{N::view()}));
+			             fn_maker<P, B, false, A, G>::make(env, std::string{N::view()}));
 		}
 		return flow::normal;
 	}
@@ -1052,6 +1145,25 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 				if (f == flow::ret) { return f; }
 			}
 			return flow::normal;
+		}
+		// the iterator protocol: anything with a callable next() -
+		// generator objects and hand-rolled iterators alike
+		if (seq.is_object()) {
+			if (const value * next = seq.as_object()->find("next");
+			    next != nullptr && next->is_function()) {
+				while (true) {
+					cx.pending_this = seq;
+					const value r = call_value(cx, *next, {});
+					if (!r.is_object()) { break; }
+					const value * done = r.as_object()->find("done");
+					if (done != nullptr && done->truthy()) { break; }
+					const value * v = r.as_object()->find("value");
+					const flow f = step(v != nullptr ? *v : value{});
+					if (f == flow::brk) { break; }
+					if (f == flow::ret) { return f; }
+				}
+				return flow::normal;
+			}
 		}
 		throw_error("TypeError", seq.to_string() + " is not iterable");
 	}
@@ -1254,10 +1366,11 @@ struct hoist_vars<try_stmt<B, CN, H, F>> {
 template <typename S> struct hoist_pick {
 	static void go(const env_ptr &, context &) { }
 };
-template <typename N, typename P, typename B, bool A> struct hoist_pick<fn_decl<N, P, B, A>> {
+template <typename N, typename P, typename B, bool A, bool G>
+struct hoist_pick<fn_decl<N, P, B, A, G>> {
 	static void go(const env_ptr & env, context &) {
 		env->declare(N::view(),
-		             fn_maker<P, B, false, A>::make(env, std::string{N::view()}));
+		             fn_maker<P, B, false, A, G>::make(env, std::string{N::view()}));
 	}
 };
 template <typename... Ds> struct hoist_pick<let_stmt<Ds...>> {

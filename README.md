@@ -56,6 +56,33 @@ auto ui = ctjs::run<R"(
 ui.call("onClick");   // the host's event loop, driving script handlers
 ```
 
+## Run it at compile time
+
+The interpreter itself is `constexpr` — so an entire script can execute
+during **constant evaluation**, with its result handed back as a
+compile-time value:
+
+```c++
+static_assert(ctjs::eval<"2 + 3 * 4;">().to<int>() == 14);
+static_assert(ctjs::eval<"let s = 0; for (let i = 1; i <= 10; i++) s += i; s;">().to<int>() == 55);
+static_assert(ctjs::eval<"function fact(n){ return n<=1 ? 1 : n*fact(n-1); } fact(5);">().to<int>() == 120);
+static_assert(ctjs::eval<"'a' + 'b' + 'c';">().to<std::string>() == "abc");
+```
+
+Variables, loops, recursion, strings, objects, arrays and closures all
+evaluate with **no runtime at all**. It is the *same* interpreter that
+runs at runtime (`std::shared_ptr`/`std::function` were replaced with a
+constexpr refcounted pointer and a constexpr callable so the value model
+is usable in constant evaluation) — `ctjs::eval<Src>()` at compile time,
+`ctjs::script<Src>.run()` at runtime.
+
+**As constexpr as possible, with a clean fallback:** a script that
+reaches something that genuinely cannot run at compile time — `Math`
+(via `<cmath>`), `Date` (via `<chrono>`), `Math.random`, a `throw`, a
+fractional-number `toString`, or a host binding — simply isn't a
+constant expression there, so you run it at runtime instead. Everything
+else is free to fold away.
+
 ## Constant folding — evaluated at compile time
 
 A script does not have to be wholly static, but **anything that can be

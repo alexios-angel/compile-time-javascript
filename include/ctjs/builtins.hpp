@@ -23,7 +23,7 @@
 
 namespace ctjs {
 
-inline value call_value(context & cx, const value & fn, std::vector<value> args) {
+inline constexpr value call_value(context & cx, const value & fn, std::vector<value> args) {
 	if (!fn.is_function()) {
 		throw_error("TypeError", fn.to_string() + " is not a function");
 	}
@@ -57,16 +57,16 @@ inline value call_value(context & cx, const value & fn, std::vector<value> args)
 // (compile-time-browser's fetch) resolve their work before the script
 // ever sees the promise, so the subset is exact for them.
 
-inline value make_promise(value settled, bool rejected);
+inline constexpr value make_promise(value settled, bool rejected);
 
-inline bool is_promise(const value & v) {
+inline constexpr bool is_promise(const value & v) {
 	return v.is_object() && v.as_object()->find("__ctjs_promise") != nullptr;
 }
 
 namespace detail {
 
 // handler result chaining: a returned promise adopts, a throw rejects
-inline value promise_handler_result(context & cx, const value & handler, const value & input) {
+inline constexpr value promise_handler_result(context & cx, const value & handler, const value & input) {
 	try {
 		value r = call_value(cx, handler, {input});
 		return is_promise(r) ? r : make_promise(std::move(r), false);
@@ -77,7 +77,7 @@ inline value promise_handler_result(context & cx, const value & handler, const v
 
 } // namespace detail
 
-inline value make_promise(value settled, bool rejected) {
+inline constexpr value make_promise(value settled, bool rejected) {
 	auto o = rc<object_t>::make();
 	o->set("__ctjs_promise", value{true});
 	o->set("__state", value{rejected ? "rejected" : "fulfilled"});
@@ -130,7 +130,7 @@ inline value make_promise(value settled, bool rejected) {
 // `await v`: unwrap settled promises (rethrowing rejections as JS
 // throws); every other value passes through, exactly like V8 awaiting
 // a non-thenable
-inline value await_value(value v) {
+inline constexpr value await_value(value v) {
 	while (is_promise(v)) {
 		const rc<object_t> o = v.as_object();
 		const value * state = o->find("__state");
@@ -148,11 +148,11 @@ inline value await_value(value v) {
 // classes) store a hidden marker object per property; get_member calls
 // the getter with the receiver as `this`, set_member the setter.
 
-inline bool is_accessor(const value & v) {
+inline constexpr bool is_accessor(const value & v) {
 	return v.is_object() && v.as_object()->find("__accessor") != nullptr;
 }
 
-inline void attach_accessor(object_t & o, std::string_view name, char kind, value fn) {
+inline constexpr void attach_accessor(object_t & o, std::string_view name, char kind, value fn) {
 	value * slot = o.find(name);
 	if (slot == nullptr || !is_accessor(*slot)) {
 		object_t acc;
@@ -202,7 +202,7 @@ struct rx_prog {
 	throw_error("SyntaxError", "Invalid regular expression: /" + std::string{src} + "/");
 }
 
-inline void rx_class_escape(rx_class & out, char e) {
+inline constexpr void rx_class_escape(rx_class & out, char e) {
 	switch (e) {
 	case 'd': out.ranges.push_back({'0', '9'}); break;
 	case 'w':
@@ -333,7 +333,7 @@ inline rx_piece rx_parse_atom(std::string_view src, size_t & i, rx_prog & p) {
 	return pc;
 }
 
-inline void rx_parse_quant(std::string_view src, size_t & i, rx_piece & pc) {
+inline constexpr void rx_parse_quant(std::string_view src, size_t & i, rx_piece & pc) {
 	if (i >= src.size()) { return; }
 	const char c = src[i];
 	if (c == '*') { pc.min = 0; pc.max = -1; ++i; }
@@ -417,11 +417,11 @@ struct rx_state {
 inline char rx_fold(char c, bool icase) {
 	return icase && c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c;
 }
-inline bool rx_is_word(char c) {
+inline constexpr bool rx_is_word(char c) {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
 	       c == '_';
 }
-inline bool rx_class_hit(const rx_class & cc, char ch, bool icase) {
+inline constexpr bool rx_class_hit(const rx_class & cc, char ch, bool icase) {
 	const auto in = [&](char probe) {
 		for (const auto & [lo, hi] : cc.ranges) {
 			if (static_cast<unsigned char>(probe) >= lo &&
@@ -443,9 +443,9 @@ inline bool rx_class_hit(const rx_class & cc, char ch, bool icase) {
 
 using rx_cont = std::function<bool(size_t)>;
 
-inline bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos, const rx_cont & k);
+inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos, const rx_cont & k);
 
-inline bool rx_match_once(const rx_piece & pc, rx_state & st, size_t pos, const rx_cont & k) {
+inline constexpr bool rx_match_once(const rx_piece & pc, rx_state & st, size_t pos, const rx_cont & k) {
 	const std::string & s = *st.s;
 	switch (pc.kind) {
 	case rx_piece::lit:
@@ -484,7 +484,7 @@ inline bool rx_match_once(const rx_piece & pc, rx_state & st, size_t pos, const 
 	return false;
 }
 
-inline bool rx_match_piece(const rx_piece & pc, rx_state & st, size_t pos, const rx_cont & k) {
+inline constexpr bool rx_match_piece(const rx_piece & pc, rx_state & st, size_t pos, const rx_cont & k) {
 	// quantified matching; a zero-width repetition stops the loop
 	std::function<bool(size_t, int)> rec = [&](size_t at, int n) -> bool {
 		const bool may_more = pc.max < 0 || n < pc.max;
@@ -500,7 +500,7 @@ inline bool rx_match_piece(const rx_piece & pc, rx_state & st, size_t pos, const
 	return rec(pos, 0);
 }
 
-inline bool rx_match_seq(const rx_seq & sq, size_t idx, rx_state & st, size_t pos,
+inline constexpr bool rx_match_seq(const rx_seq & sq, size_t idx, rx_state & st, size_t pos,
                          const rx_cont & k) {
 	if (idx == sq.size()) { return k(pos); }
 	return rx_match_piece(sq[idx], st, pos, [&](size_t np) {
@@ -508,7 +508,7 @@ inline bool rx_match_seq(const rx_seq & sq, size_t idx, rx_state & st, size_t po
 	});
 }
 
-inline bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos, const rx_cont & k) {
+inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos, const rx_cont & k) {
 	for (const rx_seq & sq : alt.alts) {
 		if (rx_match_seq(sq, 0, st, pos, k)) { return true; }
 	}
@@ -520,7 +520,7 @@ struct rx_match {
 	std::vector<std::pair<long, long>> caps;
 };
 
-inline bool rx_search(const rx_prog & p, const std::string & s, size_t from, rx_match & out) {
+inline constexpr bool rx_search(const rx_prog & p, const std::string & s, size_t from, rx_match & out) {
 	for (size_t start = from; start <= s.size(); ++start) {
 		rx_state st;
 		st.s = &s;
@@ -542,12 +542,12 @@ inline bool rx_search(const rx_prog & p, const std::string & s, size_t from, rx_
 
 } // namespace rxd
 
-inline bool is_regex(const value & v) {
+inline constexpr bool is_regex(const value & v) {
 	return v.is_object() && v.as_object()->find("__regex") != nullptr;
 }
 
 // exec-shaped result: [full, group1, ...] (no .index/.input in v0.1)
-inline value rx_exec_array(const std::string & s, const rxd::rx_match & m) {
+inline constexpr value rx_exec_array(const std::string & s, const rxd::rx_match & m) {
 	array_t out;
 	out.push_back(value{s.substr(m.begin, m.end - m.begin)});
 	for (const auto & [b, e] : m.caps) {
@@ -560,7 +560,7 @@ inline value rx_exec_array(const std::string & s, const rxd::rx_match & m) {
 	return value::array(std::move(out));
 }
 
-inline value make_regex(std::string source, std::string flags) {
+inline constexpr value make_regex(std::string source, std::string flags) {
 	const auto prog = std::make_shared<rxd::rx_prog>(rxd::rx_compile(source, flags));
 	const auto last_index = std::make_shared<size_t>(0); // g-mode exec cursor
 	auto o = rc<object_t>::make();
@@ -606,12 +606,12 @@ inline rxd::rx_prog rx_of(const value & re) {
 
 namespace detail {
 
-inline value arg_or_undefined(const std::vector<value> & a, size_t i) {
+inline constexpr value arg_or_undefined(const std::vector<value> & a, size_t i) {
 	return i < a.size() ? a[i] : value{};
 }
 
 // JS ToIntegerOrInfinity + relative index clamping for slice()
-inline size_t rel_index(double d, size_t len) {
+inline constexpr size_t rel_index(double d, size_t len) {
 	if (std::isnan(d)) { return 0; }
 	if (d < 0) {
 		d += static_cast<double>(len);
@@ -622,9 +622,9 @@ inline size_t rel_index(double d, size_t len) {
 }
 
 // console.log renders arrays/objects like node does, not via ToString
-inline std::string inspect(const value & v);
+inline constexpr std::string inspect(const value & v);
 
-inline std::string inspect_parts(const value & v) {
+inline constexpr std::string inspect_parts(const value & v) {
 	if (v.is_string()) { // quoted inside containers
 		std::string out = "'";
 		out += v.as_string();
@@ -634,7 +634,7 @@ inline std::string inspect_parts(const value & v) {
 	return inspect(v);
 }
 
-inline std::string inspect(const value & v) {
+inline constexpr std::string inspect(const value & v) {
 	if (v.is_array()) {
 		std::string out = "[ ";
 		bool first = true;
@@ -672,7 +672,7 @@ inline std::string inspect(const value & v) {
 
 // JSON.stringify (no replacer/indent in v0.1); undefined/functions are
 // omitted in objects and become null in arrays, like the spec
-inline bool json_piece(const value & v, std::string & out) {
+inline constexpr bool json_piece(const value & v, std::string & out) {
 	if (v.is_undefined() || v.is_function()) { return false; }
 	if (v.is_null()) { out += "null"; return true; }
 	if (v.is_bool()) { out += v.as_bool() ? "true" : "false"; return true; }
@@ -738,15 +738,15 @@ inline bool json_piece(const value & v, std::string & out) {
 
 // --- property access on every kind of receiver
 
-inline value get_member(context & cx, const value & recv, std::string_view name);
+inline constexpr value get_member(context & cx, const value & recv, std::string_view name);
 
 namespace detail {
 
-inline value bound(std::string name, native_fn fn) {
+inline constexpr value bound(std::string name, native_fn fn) {
 	return value::function(std::move(fn), std::move(name));
 }
 
-inline value array_member(const value & recv, std::string_view name) {
+inline constexpr value array_member(const value & recv, std::string_view name) {
 	const rc<array_t> arr = recv.as_array();
 	if (name == "length") { return value{arr->size()}; }
 	if (name == "push") {
@@ -912,7 +912,7 @@ inline value array_member(const value & recv, std::string_view name) {
 	return value{};
 }
 
-inline value string_member(const value & recv, std::string_view name) {
+inline constexpr value string_member(const value & recv, std::string_view name) {
 	const std::string s = recv.as_string();
 	if (name == "length") { return value{s.size()}; }
 	if (name == "slice") {
@@ -1157,7 +1157,7 @@ inline value string_member(const value & recv, std::string_view name) {
 	return value{};
 }
 
-inline value number_member(const value & recv, std::string_view name) {
+inline constexpr value number_member(const value & recv, std::string_view name) {
 	const double d = recv.as_number();
 	if (name == "toString") {
 		return bound("toString", [d](context &, const std::vector<value> &) {
@@ -1180,7 +1180,7 @@ inline value number_member(const value & recv, std::string_view name) {
 
 } // namespace detail
 
-inline value get_member(context & cx, const value & recv, std::string_view name) {
+inline constexpr value get_member(context & cx, const value & recv, std::string_view name) {
 	if (recv.is_undefined() || recv.is_null()) {
 		throw_error("TypeError", "Cannot read properties of " +
 		                             std::string{recv.is_null() ? "null" : "undefined"} +
@@ -1233,7 +1233,7 @@ inline value get_member(context & cx, const value & recv, std::string_view name)
 
 // obj[i] / obj["key"] - arrays take numeric indexes, strings index to
 // one-char strings, objects key by ToString
-inline value get_index(context & cx, const value & recv, const value & key) {
+inline constexpr value get_index(context & cx, const value & recv, const value & key) {
 	if (recv.is_array() && key.is_number()) {
 		const double d = key.as_number();
 		const auto & arr = *recv.as_array();
@@ -1255,7 +1255,7 @@ inline value get_index(context & cx, const value & recv, const value & key) {
 	return get_member(cx, recv, key.to_string());
 }
 
-inline void set_member(context & cx, const value & recv, std::string_view name, value v) {
+inline constexpr void set_member(context & cx, const value & recv, std::string_view name, value v) {
 	if (recv.is_undefined() || recv.is_null()) {
 		throw_error("TypeError", "Cannot set properties of " +
 		                             std::string{recv.is_null() ? "null" : "undefined"} +
@@ -1298,7 +1298,7 @@ inline void set_member(context & cx, const value & recv, std::string_view name, 
 	// numbers/strings: silent no-op, like non-strict JS
 }
 
-inline void set_index(context & cx, const value & recv, const value & key, value v) {
+inline constexpr void set_index(context & cx, const value & recv, const value & key, value v) {
 	if (recv.is_array() && key.is_number()) {
 		const double d = key.as_number();
 		if (d >= 0 && d == static_cast<double>(static_cast<size_t>(d))) {
@@ -1316,7 +1316,7 @@ inline void set_index(context & cx, const value & recv, const value & key, value
 
 namespace detail {
 
-inline value make_console() {
+inline constexpr value make_console() {
 	object_t console;
 	console.set("log", value::function(
 	                       [](context & cx, const std::vector<value> & a) {
@@ -1335,7 +1335,7 @@ inline value make_console() {
 	return value::object(std::move(console));
 }
 
-inline value math_fn(std::string name, double (*f)(double)) {
+inline constexpr value math_fn(std::string name, double (*f)(double)) {
 	return value::function(
 	    [f](context &, const std::vector<value> & a) {
 		    return value{f(arg_or_undefined(a, 0).to_number())};
@@ -1343,7 +1343,7 @@ inline value math_fn(std::string name, double (*f)(double)) {
 	    std::move(name));
 }
 
-inline value make_math() {
+inline constexpr value make_math() {
 	object_t math;
 	math.set("floor", math_fn("floor", [](double d) { return std::floor(d); }));
 	math.set("ceil", math_fn("ceil", [](double d) { return std::ceil(d); }));
@@ -1423,7 +1423,7 @@ inline value make_math() {
 
 // JSON.parse: strict recursive descent -> value tree; SyntaxError on
 // anything malformed (no reviver in v0.1)
-inline void json_ws(std::string_view s, size_t & i) {
+inline constexpr void json_ws(std::string_view s, size_t & i) {
 	while (i < s.size() &&
 	       (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) {
 		++i;
@@ -1434,7 +1434,7 @@ inline void json_ws(std::string_view s, size_t & i) {
 	throw_error("SyntaxError", "Unexpected token in JSON at position " + std::to_string(at));
 }
 
-inline void json_utf8(std::string & out, unsigned cp) {
+inline constexpr void json_utf8(std::string & out, unsigned cp) {
 	if (cp < 0x80) {
 		out += static_cast<char>(cp);
 	} else if (cp < 0x800) {
@@ -1467,7 +1467,7 @@ inline unsigned json_hex4(std::string_view s, size_t & i) {
 	return cp;
 }
 
-inline std::string json_string(std::string_view s, size_t & i) {
+inline constexpr std::string json_string(std::string_view s, size_t & i) {
 	// s[i] == '"' on entry
 	++i;
 	std::string out;
@@ -1511,7 +1511,7 @@ inline std::string json_string(std::string_view s, size_t & i) {
 	}
 }
 
-inline value json_value(std::string_view s, size_t & i, int depth) {
+inline constexpr value json_value(std::string_view s, size_t & i, int depth) {
 	if (depth > 128) { json_fail(i); } // nesting bound, plain-stack safety
 	json_ws(s, i);
 	if (i >= s.size()) { json_fail(i); }
@@ -1575,7 +1575,7 @@ inline value json_value(std::string_view s, size_t & i, int depth) {
 	json_fail(i);
 }
 
-inline value make_json() {
+inline constexpr value make_json() {
 	object_t json;
 	json.set("parse", value::function(
 	                      [](context &, const std::vector<value> & a) {
@@ -1602,7 +1602,7 @@ inline value make_json() {
 } // namespace detail
 
 // days -> y/m/d (proleptic Gregorian, UTC); Hinnant's civil_from_days
-inline void civil_from_days(long long z, long long & y, unsigned & m, unsigned & d) {
+inline constexpr void civil_from_days(long long z, long long & y, unsigned & m, unsigned & d) {
 	z += 719468;
 	const long long era = (z >= 0 ? z : z - 146096) / 146097;
 	const unsigned long long doe = static_cast<unsigned long long>(z - era * 146097);
@@ -1628,7 +1628,7 @@ inline long long days_from_civil(long long y, unsigned m, unsigned d) {
 
 // parse the ISO-8601 subset toISOString produces (plus date-only and
 // no-Z forms), always as UTC; NaN on anything malformed
-inline double parse_date_ms(std::string_view s) {
+inline constexpr double parse_date_ms(std::string_view s) {
 	while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) { s.remove_prefix(1); }
 	while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) { s.remove_suffix(1); }
 	const auto num = [&](size_t pos, size_t len) -> long {
@@ -1678,7 +1678,7 @@ inline double parse_date_ms(std::string_view s) {
 	       static_cast<double>(ms);
 }
 
-inline value make_date_object(double ms) {
+inline constexpr value make_date_object(double ms) {
 	auto o = rc<object_t>::make();
 	o->set("__date_ms", value{ms});
 	const auto part = [ms](int which) -> double {
@@ -1735,7 +1735,7 @@ inline value make_date_object(double ms) {
 	return value{std::move(o)};
 }
 
-inline env_ptr make_globals() {
+inline constexpr env_ptr make_globals() {
 	auto g = rc<environment>::make();
 	g->function_scope = true; // the global scope is where top-level var lands
 	g->declare("undefined", value{});

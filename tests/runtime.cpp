@@ -6,6 +6,19 @@
 #include <cstdio>
 #include <string>
 
+// --- the interpreter is constexpr: whole programs evaluate AT COMPILE
+// TIME. These static_asserts run the interpreter during this file's
+// compilation - variables, loops, recursion, strings, objects, arrays
+// and closures, all evaluated with no runtime at all.
+static_assert(ctjs::eval<"2 + 3 * 4;">().to<int>() == 14);
+static_assert(ctjs::eval<"let a = 2, b = 3; a * b + 1;">().to<int>() == 7);
+static_assert(ctjs::eval<"let s = 0; for (let i = 1; i <= 10; i++) { s += i; } s;">().to<int>() == 55);
+static_assert(ctjs::eval<"function fact(n){ return n <= 1 ? 1 : n * fact(n - 1); } fact(5);">().to<int>() == 120);
+static_assert(ctjs::eval<"'a' + 'b' + 'c';">().to<std::string>() == "abc");
+static_assert(ctjs::eval<"let o = { x: 41 }; o.x + 1;">().to<int>() == 42);
+static_assert(ctjs::eval<"let xs = [1, 2, 3, 4]; let t = 0; for (const v of xs) { t += v; } t;">().to<int>() == 10);
+static_assert(ctjs::eval<"let add = (a, b) => a + b; add(20, 22);">().to<int>() == 42);
+
 static int failures = 0;
 #define CHECK(cond) \
 	do { \
@@ -721,6 +734,18 @@ static void named_function_folding() {
 	CHECK(out2["live"].to<int>() == 20);
 }
 
+static void constexpr_interpreter() {
+	// the SAME constexpr eval, called at runtime, agrees with itself and
+	// with run() - one interpreter, two evaluation times
+	CHECK(ctjs::eval<"let s = 0; for (let i = 1; i <= 100; i++) { s += i; } s;">().to<int>() == 5050);
+	CHECK(ctjs::eval<"function fib(n){ return n < 2 ? n : fib(n-1) + fib(n-2); } fib(15);">().to<int>() == 610);
+	CHECK(ctjs::eval<"let o = {}; o.a = 1; o.b = 2; o.a + o.b;">().to<int>() == 3);
+	CHECK(ctjs::eval<"'result: ' + (6 * 7);">().to<std::string>() == "result: 42");
+	// and run() gives the same globals
+	auto out = ctjs::run<"let answer = 6 * 7;">();
+	CHECK(out["answer"].to<int>() == 42);
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -742,6 +767,7 @@ int main() {
 	string_folding();
 	function_folding();
 	named_function_folding();
+	constexpr_interpreter();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

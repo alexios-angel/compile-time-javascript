@@ -112,7 +112,7 @@ namespace detail {
 
 template <typename Program> struct program_runner;
 template <typename... Ss> struct program_runner<ast::program<Ss...>> {
-	static void go(const env_ptr & env, context & cx) {
+	static constexpr void go(const env_ptr & env, context & cx) {
 		hoist_functions<Ss...>(env, cx);
 		value ret;
 		(void)exec_all<Ss...>(env, cx, ret);
@@ -120,6 +120,24 @@ template <typename... Ss> struct program_runner<ast::program<Ss...>> {
 };
 
 } // namespace detail
+
+// Evaluate a script AT COMPILE TIME. Because the interpreter is
+// constexpr, `ctjs::eval<Src>()` runs the whole program during constant
+// evaluation and hands back its completion value - usable in a
+// static_assert:
+//   static_assert(ctjs::eval<"let a = 2, b = 3; a * b + 1;">().to<int>() == 7);
+// A script that reaches a non-constexpr operation (Math via <cmath>,
+// Date via <chrono>, random, a throw, a host binding) is simply not a
+// constant expression there; run it at runtime with `.run()` instead.
+template <CTJS_STRING_INPUT Src> constexpr value eval() {
+	using tree = decltype(ctlark::parse<detail::js_grammar, Src, detail::js_start>());
+	using p0 = typename detail::lower_program<tree>::type;
+	using program = detail::rewrite_t<p0, typename detail::collect_fns<p0>::type>;
+	auto cx = rc<context>::make();
+	env_ptr globals = make_globals();
+	detail::program_runner<program>::go(globals, *cx);
+	return cx->last;
+}
 
 template <CTJS_STRING_INPUT Src> struct script_t {
 	static constexpr bool valid =

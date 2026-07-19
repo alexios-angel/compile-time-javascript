@@ -37,22 +37,36 @@ enum class flow { normal, brk, cont, ret };
 
 // --- literal cooking: once per node type, at first use
 
-template <typename Text> const double & num_of() {
-	static const double v = [] {
-		const std::string_view s = Text::view();
-		if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-			unsigned long long u = 0;
-			std::from_chars(s.data() + 2, s.data() + s.size(), u, 16);
-			return static_cast<double>(u);
+// parse a numeric literal. Integer and hex forms are exact and
+// constexpr; a fractional/exponent literal parses with from_chars
+// (non-constexpr), so such a literal is only reachable at runtime.
+template <typename Text> constexpr double num_of() {
+	const std::string_view s = Text::view();
+	if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+		unsigned long long u = 0;
+		for (size_t i = 2; i < s.size(); ++i) {
+			const char c = s[i];
+			const unsigned d = c <= '9' ? static_cast<unsigned>(c - '0')
+			                            : static_cast<unsigned>((c | 0x20) - 'a' + 10);
+			u = u * 16 + d;
 		}
-		double d = 0;
-		std::from_chars(s.data(), s.data() + s.size(), d);
-		return d;
-	}();
-	return v;
+		return static_cast<double>(u);
+	}
+	bool intlit = !s.empty();
+	for (const char c : s) {
+		if (c < '0' || c > '9') { intlit = false; break; }
+	}
+	if (intlit) {
+		unsigned long long u = 0;
+		for (const char c : s) { u = u * 10 + static_cast<unsigned>(c - '0'); }
+		return static_cast<double>(u);
+	}
+	double d = 0;
+	std::from_chars(s.data(), s.data() + s.size(), d);
+	return d;
 }
 
-inline void push_utf8(std::string & out, unsigned long cp) {
+constexpr void push_utf8(std::string & out, unsigned long cp) {
 	if (cp < 0x80) {
 		out += static_cast<char>(cp);
 	} else if (cp < 0x800) {
@@ -70,7 +84,7 @@ inline void push_utf8(std::string & out, unsigned long cp) {
 	}
 }
 
-inline std::string cook_string(std::string_view raw) {
+constexpr std::string cook_string(std::string_view raw) {
 	std::string out;
 	size_t i = 1;                    // skip the opening quote
 	const size_t end = raw.size() - 1; // and the closing one
@@ -116,9 +130,8 @@ inline std::string cook_string(std::string_view raw) {
 	return out;
 }
 
-template <typename Text> const std::string & str_of() {
-	static const std::string v = cook_string(Text::view());
-	return v;
+template <typename Text> constexpr std::string str_of() {
+	return cook_string(Text::view());
 }
 
 // --- forward declarations
@@ -126,7 +139,7 @@ template <typename Text> const std::string & str_of() {
 template <typename E> struct eval_;
 template <typename S> struct exec_;
 
-template <typename E> value ev(const env_ptr & env, context & cx) {
+template <typename E> constexpr value ev(const env_ptr & env, context & cx) {
 	return eval_<E>::go(env, cx);
 }
 
@@ -180,7 +193,7 @@ template <typename Op> bool compare_rel(const value & l, const value & r) {
 	else { return a >= b; }
 }
 
-template <typename Op> value apply_binary(const value & l, const value & r) {
+template <typename Op> constexpr value apply_binary(const value & l, const value & r) {
 	if constexpr (std::is_same_v<Op, op_eq>) { return value{loose_equals(l, r)}; }
 	else if constexpr (std::is_same_v<Op, op_ne>) { return value{!loose_equals(l, r)}; }
 	else if constexpr (std::is_same_v<Op, op_seq>) { return value{strict_equals(l, r)}; }
@@ -196,7 +209,7 @@ template <typename Op> value apply_binary(const value & l, const value & r) {
 // --- expressions
 
 template <typename Text> struct eval_<ident<Text>> {
-	static value go(const env_ptr & env, context &) {
+	static constexpr value go(const env_ptr & env, context &) {
 		bool tdz = false;
 		if (const value * slot = env->find_checked(Text::view(), tdz)) { return *slot; }
 		if (tdz) {
@@ -207,20 +220,20 @@ template <typename Text> struct eval_<ident<Text>> {
 	}
 };
 template <> struct eval_<this_lit> {
-	static value go(const env_ptr & env, context &) {
+	static constexpr value go(const env_ptr & env, context &) {
 		if (const value * t = env->find("this")) { return *t; }
 		return value{};
 	}
 };
 // bare `super` is never a value; only super(...) / super.x are legal
 template <> struct eval_<super_lit> {
-	static value go(const env_ptr &, context &) {
+	static constexpr value go(const env_ptr &, context &) {
 		throw_error("SyntaxError", "'super' keyword unexpected here");
 	}
 };
 // super.x — read a property off the parent prototype, `this` unchanged
 template <typename Name> struct eval_<member<super_lit, Name>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value * sp = env->find("__super_proto__");
 		if (sp == nullptr || !sp->is_object()) {
 			throw_error("SyntaxError", "'super' keyword unexpected here");
@@ -230,7 +243,7 @@ template <typename Name> struct eval_<member<super_lit, Name>> {
 };
 // super(args) — run the parent constructor against the current `this`
 template <typename... Args> struct eval_<call<super_lit, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value * sc = env->find("__super_ctor__");
 		if (sc == nullptr || !sc->is_function()) {
 			throw_error("SyntaxError", "'super' call outside a derived constructor");
@@ -245,7 +258,7 @@ template <typename... Args> struct eval_<call<super_lit, Args...>> {
 // super.method(args) — parent-prototype method, current `this`
 template <typename Name, typename... Args>
 struct eval_<call<member<super_lit, Name>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value * sp = env->find("__super_proto__");
 		if (sp == nullptr || !sp->is_object()) {
 			throw_error("SyntaxError", "'super' keyword unexpected here");
@@ -259,40 +272,37 @@ struct eval_<call<member<super_lit, Name>, Args...>> {
 };
 
 template <typename Text> struct eval_<num_lit<Text>> {
-	static value go(const env_ptr &, context &) { return value{num_of<Text>()}; }
+	static constexpr value go(const env_ptr &, context &) { return value{num_of<Text>()}; }
 };
 // a constant the folder computed at compile time (fold.hpp) - the value
 // rides in the type, so the runtime just loads it
 template <double V> struct eval_<const_num<V>> {
-	static value go(const env_ptr &, context &) { return value{V}; }
+	static constexpr value go(const env_ptr &, context &) { return value{V}; }
 };
 // a string the folder computed at compile time - bytes ride in the type
 template <char... Cs> struct eval_<const_str<Cs...>> {
-	static value go(const env_ptr &, context &) {
-		static const std::string s{Cs...};
-		return value{s};
-	}
+	static constexpr value go(const env_ptr &, context &) { return value{std::string{Cs...}}; }
 };
 template <typename Text> struct eval_<str_lit<Text>> {
-	static value go(const env_ptr &, context &) { return value{str_of<Text>()}; }
+	static constexpr value go(const env_ptr &, context &) { return value{str_of<Text>()}; }
 };
 template <> struct eval_<true_lit> {
-	static value go(const env_ptr &, context &) { return value{true}; }
+	static constexpr value go(const env_ptr &, context &) { return value{true}; }
 };
 template <> struct eval_<false_lit> {
-	static value go(const env_ptr &, context &) { return value{false}; }
+	static constexpr value go(const env_ptr &, context &) { return value{false}; }
 };
 template <> struct eval_<null_lit> {
-	static value go(const env_ptr &, context &) { return value::null(); }
+	static constexpr value go(const env_ptr &, context &) { return value::null(); }
 };
 
 template <typename E> struct spread_into {
-	static void go(array_t & out, const env_ptr & env, context & cx) {
+	static constexpr void go(array_t & out, const env_ptr & env, context & cx) {
 		out.push_back(ev<E>(env, cx));
 	}
 };
 template <typename E> struct spread_into<spread_arg<E>> {
-	static void go(array_t & out, const env_ptr & env, context & cx) {
+	static constexpr void go(array_t & out, const env_ptr & env, context & cx) {
 		const value v = ev<E>(env, cx);
 		if (v.is_array()) {
 			for (const value & el : *v.as_array()) { out.push_back(el); }
@@ -302,7 +312,7 @@ template <typename E> struct spread_into<spread_arg<E>> {
 	}
 };
 template <typename... Es> struct eval_<array_lit<Es...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		array_t out;
 		(spread_into<Es>::go(out, env, cx), ...);
 		return value::array(std::move(out));
@@ -311,10 +321,10 @@ template <typename... Es> struct eval_<array_lit<Es...>> {
 
 template <typename K> struct key_of;
 template <typename T> struct key_of<ident<T>> {
-	static std::string_view get() { return T::view(); }
+	static constexpr std::string get() { return std::string{T::view()}; }
 };
 template <typename T> struct key_of<str_lit<T>> {
-	static std::string_view get() { return str_of<T>(); }
+	static constexpr std::string get() { return str_of<T>(); }
 };
 
 template <typename... Ps> struct eval_<object_lit<Ps...>> {
@@ -350,7 +360,7 @@ template <typename... Ps> struct eval_<object_lit<Ps...>> {
 			}
 		}
 	}
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		object_t o;
 		(put(o, env, cx, Ps{}), ...);
 		return value::object(std::move(o));
@@ -358,7 +368,7 @@ template <typename... Ps> struct eval_<object_lit<Ps...>> {
 };
 
 template <typename Op, typename L, typename R> struct eval_<binary<Op, L, R>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		if constexpr (std::is_same_v<Op, op_and>) {
 			value l = ev<L>(env, cx);
 			return l.truthy() ? ev<R>(env, cx) : l;
@@ -377,7 +387,7 @@ template <typename Op, typename L, typename R> struct eval_<binary<Op, L, R>> {
 };
 
 template <typename Op, typename E> struct eval_<unary<Op, E>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		if constexpr (std::is_same_v<Op, op_typeof>) {
 			return value{typeof_value(env, cx)};
 		} else {
@@ -409,18 +419,18 @@ template <typename Op, typename E> struct eval_<unary<Op, E>> {
 };
 
 template <typename C, typename T, typename F> struct eval_<ternary<C, T, F>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		return ev<C>(env, cx).truthy() ? ev<T>(env, cx) : ev<F>(env, cx);
 	}
 };
 
 template <typename Obj, typename NameText> struct eval_<member<Obj, NameText>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		return get_member(cx, ev<Obj>(env, cx), NameText::view());
 	}
 };
 template <typename Obj, typename Index> struct eval_<index<Obj, Index>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value recv = ev<Obj>(env, cx);
 		return get_index(cx, recv, ev<Index>(env, cx));
 	}
@@ -436,14 +446,14 @@ inline std::vector<value> gather_args(const env_ptr & env, context & cx) {
 	return args;
 }
 template <typename Fn, typename... Args> struct eval_<call<Fn, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value fn = ev<Fn>(env, cx);
 		return call_value(cx, fn, gather_args<Args...>(env, cx));
 	}
 };
 template <typename Obj, typename NameText, typename... Args>
 struct eval_<call<member<Obj, NameText>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_member(cx, recv, NameText::view());
 		std::vector<value> args = gather_args<Args...>(env, cx);
@@ -453,7 +463,7 @@ struct eval_<call<member<Obj, NameText>, Args...>> {
 };
 template <typename Obj, typename Index, typename... Args>
 struct eval_<call<index<Obj, Index>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_index(cx, recv, ev<Index>(env, cx));
 		std::vector<value> args = gather_args<Args...>(env, cx);
@@ -467,20 +477,20 @@ struct eval_<call<index<Obj, Index>, Args...>> {
 // a?.b.c still throws when a?.b is undefined (write a?.b?.c), unlike
 // V8's whole-chain skip; documented deviation.
 template <typename Obj, typename NameText> struct eval_<opt_member<Obj, NameText>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value recv = ev<Obj>(env, cx);
 		return recv.is_nullish() ? value{} : get_member(cx, recv, NameText::view());
 	}
 };
 template <typename Obj, typename Index> struct eval_<opt_index<Obj, Index>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value recv = ev<Obj>(env, cx);
 		if (recv.is_nullish()) { return value{}; }
 		return get_index(cx, recv, ev<Index>(env, cx));
 	}
 };
 template <typename Fn, typename... Args> struct eval_<opt_call<Fn, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value fn = ev<Fn>(env, cx);
 		if (fn.is_nullish()) { return value{}; }
 		return call_value(cx, fn, gather_args<Args...>(env, cx));
@@ -490,7 +500,7 @@ template <typename Fn, typename... Args> struct eval_<opt_call<Fn, Args...>> {
 // counterparts; with opt_member the receiver may legally be nullish
 template <typename Obj, typename NameText, typename... Args>
 struct eval_<opt_call<member<Obj, NameText>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_member(cx, recv, NameText::view());
 		if (fn.is_nullish()) { return value{}; }
@@ -501,7 +511,7 @@ struct eval_<opt_call<member<Obj, NameText>, Args...>> {
 };
 template <typename Obj, typename NameText, typename... Args>
 struct eval_<opt_call<opt_member<Obj, NameText>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		if (recv.is_nullish()) { return value{}; }
 		const value fn = get_member(cx, recv, NameText::view());
@@ -513,7 +523,7 @@ struct eval_<opt_call<opt_member<Obj, NameText>, Args...>> {
 };
 template <typename Obj, typename Index, typename... Args>
 struct eval_<opt_call<index<Obj, Index>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_index(cx, recv, ev<Index>(env, cx));
 		if (fn.is_nullish()) { return value{}; }
@@ -524,7 +534,7 @@ struct eval_<opt_call<index<Obj, Index>, Args...>> {
 };
 template <typename Obj, typename Index, typename... Args>
 struct eval_<opt_call<opt_index<Obj, Index>, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		if (recv.is_nullish()) { return value{}; }
 		const value fn = get_index(cx, recv, ev<Index>(env, cx));
@@ -539,7 +549,7 @@ struct eval_<opt_call<opt_index<Obj, Index>, Args...>> {
 // subset: the value buffers up and the expression is undefined - a
 // caller cannot feed values back in through next())
 template <typename E> struct eval_<yield_op<E>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		if (cx.gen_sink == nullptr) {
 			throw_error("SyntaxError", "yield outside a generator");
 		}
@@ -548,7 +558,7 @@ template <typename E> struct eval_<yield_op<E>> {
 	}
 };
 template <> struct eval_<yield_op<void>> {
-	static value go(const env_ptr &, context & cx) {
+	static constexpr value go(const env_ptr &, context & cx) {
 		if (cx.gen_sink == nullptr) {
 			throw_error("SyntaxError", "yield outside a generator");
 		}
@@ -561,7 +571,7 @@ template <> struct eval_<yield_op<void>> {
 // hidden __ctor prop); identity of the function object decides. There
 // is no prototype chain and no extends, so this IS the whole answer.
 template <typename L, typename R> struct eval_<instanceof_op<L, R>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value lhs = ev<L>(env, cx);
 		const value rhs = ev<R>(env, cx);
 		if (!rhs.is_function()) {
@@ -592,7 +602,7 @@ template <typename L, typename R> struct eval_<instanceof_op<L, R>> {
 };
 
 template <typename Text> struct eval_<regex_lit<Text>> {
-	static value go(const env_ptr &, context &) {
+	static constexpr value go(const env_ptr &, context &) {
 		// spelling is /body/flags; split and hand to the runtime engine
 		constexpr std::string_view raw = Text::view();
 		constexpr size_t close = raw.rfind('/');
@@ -602,13 +612,13 @@ template <typename Text> struct eval_<regex_lit<Text>> {
 };
 
 template <typename L, typename R> struct eval_<comma_op<L, R>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		(void)ev<L>(env, cx);
 		return ev<R>(env, cx);
 	}
 };
 template <typename L, typename R> struct eval_<in_op<L, R>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value key = ev<L>(env, cx);
 		const value obj = ev<R>(env, cx);
 		if (obj.is_object()) {
@@ -626,13 +636,13 @@ template <typename L, typename R> struct eval_<in_op<L, R>> {
 // delete on a member/index removes the property (true); anything else
 // is true without effect, like sloppy-mode V8 on non-references
 template <typename T> struct eval_<delete_op<T>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		(void)ev<T>(env, cx);
 		return value{true};
 	}
 };
 template <typename O, typename N> struct eval_<delete_op<member<O, N>>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value recv = ev<O>(env, cx);
 		if (recv.is_object()) {
 			auto & props = recv.as_object()->props;
@@ -642,7 +652,7 @@ template <typename O, typename N> struct eval_<delete_op<member<O, N>>> {
 	}
 };
 template <typename O, typename I> struct eval_<delete_op<index<O, I>>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value recv = ev<O>(env, cx);
 		const value k = ev<I>(env, cx);
 		if (recv.is_object()) {
@@ -684,7 +694,7 @@ template <typename Text> struct tpl_eval<tpl_text<Text>> {
 	}
 };
 template <typename... Parts> struct eval_<template_lit<Parts...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		std::string out;
 		(tpl_eval<Parts>::append(out, env, cx), ...);
 		return value{std::move(out)};
@@ -694,7 +704,7 @@ template <typename... Parts> struct eval_<template_lit<Parts...>> {
 // new F(...): fresh object becomes `this` for the call; if the
 // function returns an object, that wins (spec); else the fresh object
 template <typename Callee, typename... Args> struct eval_<new_op<Callee, Args...>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		const value fn = ev<Callee>(env, cx);
 		std::vector<value> args = gather_args<Args...>(env, cx);
 		value obj = value::object();
@@ -784,7 +794,7 @@ value modify_place(const env_ptr & env, context & cx, Update update) {
 }
 
 template <typename Op, typename Target, typename V> struct eval_<assign<Op, Target, V>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		return modify_place<Target>(env, cx, [&](auto cur) {
 			if constexpr (std::is_same_v<Op, op_none>) {
 				return ev<V>(env, cx);
@@ -796,7 +806,7 @@ template <typename Op, typename Target, typename V> struct eval_<assign<Op, Targ
 };
 
 template <typename Target, bool Pre, bool Inc> struct eval_<incdec<Target, Pre, Inc>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		// the old value coerces to a number first, like ToNumeric
 		double old = 0;
 		const value nv = modify_place<Target>(env, cx, [&](auto cur) {
@@ -809,21 +819,21 @@ template <typename Target, bool Pre, bool Inc> struct eval_<incdec<Target, Pre, 
 
 // --- functions: closures capture the defining environment chain
 
-template <typename... Ss> flow exec_all(const env_ptr & env, context & cx, value & ret);
-template <typename... Ss> void hoist_functions(const env_ptr & env, context & cx);
+template <typename... Ss> constexpr flow exec_all(const env_ptr & env, context & cx, value & ret);
+template <typename... Ss> constexpr void hoist_functions(const env_ptr & env, context & cx);
 
 // one parameter binds and advances the positional cursor; a plain
 // param is a bare name text, param_default supplies a value when the
 // arg is missing (or undefined), param_rest sweeps the tail into array
 template <typename P> struct bind_param {
-	static void go(const env_ptr & local, const std::vector<value> & args, context &,
+	static constexpr void go(const env_ptr & local, const std::vector<value> & args, context &,
 	               size_t & i) {
 		local->declare(P::view(), i < args.size() ? args[i] : value{});
 		++i;
 	}
 };
 template <typename N, typename Def> struct bind_param<param_default<N, Def>> {
-	static void go(const env_ptr & local, const std::vector<value> & args, context & cx,
+	static constexpr void go(const env_ptr & local, const std::vector<value> & args, context & cx,
 	               size_t & i) {
 		value v = i < args.size() ? args[i] : value{};
 		if (v.is_undefined()) { v = ev<Def>(local, cx); } // default sees prior params
@@ -832,7 +842,7 @@ template <typename N, typename Def> struct bind_param<param_default<N, Def>> {
 	}
 };
 template <typename N> struct bind_param<param_rest<N>> {
-	static void go(const env_ptr & local, const std::vector<value> & args, context &,
+	static constexpr void go(const env_ptr & local, const std::vector<value> & args, context &,
 	               size_t & i) {
 		array_t rest;
 		for (; i < args.size(); ++i) { rest.push_back(args[i]); }
@@ -842,7 +852,7 @@ template <typename N> struct bind_param<param_rest<N>> {
 
 template <typename Params> struct param_binder;
 template <typename... Ps> struct param_binder<plist<Ps...>> {
-	static void bind(const env_ptr & local, const std::vector<value> & args, context & cx) {
+	static constexpr void bind(const env_ptr & local, const std::vector<value> & args, context & cx) {
 		size_t i = 0;
 		(bind_param<Ps>::go(local, args, cx, i), ...);
 	}
@@ -851,7 +861,7 @@ template <typename... Ps> struct param_binder<plist<Ps...>> {
 template <typename Params, typename Body, bool ExprBody, bool IsAsync = false,
           bool IsGen = false>
 struct fn_maker {
-	static value make(const env_ptr & env, std::string name) {
+	static constexpr value make(const env_ptr & env, std::string name) {
 		return value::function(
 		    [env](context & cx, const std::vector<value> & args) -> value {
 			    auto local = rc<environment>::make();
@@ -921,7 +931,7 @@ struct fn_maker {
 		}
 	}
 	template <typename... Ss>
-	static flow body_flow(const env_ptr & local, context & cx, value & ret, block<Ss...>) {
+	static constexpr flow body_flow(const env_ptr & local, context & cx, value & ret, block<Ss...>) {
 		hoist_functions<Ss...>(local, cx);
 		return exec_all<Ss...>(local, cx, ret);
 	}
@@ -929,7 +939,7 @@ struct fn_maker {
 
 template <typename Params, typename Body, bool ExprBody, bool IsAsync, bool IsGen>
 struct eval_<fn_expr<Params, Body, ExprBody, IsAsync, IsGen>> {
-	static value go(const env_ptr & env, context & cx) {
+	static constexpr value go(const env_ptr & env, context & cx) {
 		(void)cx;
 		return fn_maker<Params, Body, ExprBody, IsAsync, IsGen>::make(env, "");
 	}
@@ -940,7 +950,7 @@ struct eval_<fn_expr<Params, Body, ExprBody, IsAsync, IsGen>> {
 template <typename S> struct exec_;
 
 template <typename E> struct exec_<expr_stmt<E>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		cx.last = ev<E>(env, cx);
 		return flow::normal;
 	}
@@ -964,11 +974,11 @@ template <typename Key, typename Bind> struct dprop_key<dprop<Key, Bind>> {
 
 template <decl_kind K, typename... Ds> struct declare_all;
 template <decl_kind K> struct declare_all<K> {
-	static void go(const env_ptr &, context &) { }
+	static constexpr void go(const env_ptr &, context &) { }
 };
 // a declared binding lands in the right scope for its kind
 template <decl_kind K>
-inline void destr_declare(const env_ptr & env, std::string_view name, value v) {
+inline constexpr void destr_declare(const env_ptr & env, std::string_view name, value v) {
 	if constexpr (K == decl_kind::hoisted_var) {
 		env->hoist_target().declare(name, std::move(v));
 	} else {
@@ -980,7 +990,7 @@ inline void destr_declare(const env_ptr & env, std::string_view name, value v) {
 // [a, b, c] = init : positional, missing -> undefined
 template <decl_kind K, typename Init, typename... Names, typename... Rest>
 struct declare_all<K, destr_array<Init, Names...>, Rest...> {
-	static void go(const env_ptr & env, context & cx) {
+	static constexpr void go(const env_ptr & env, context & cx) {
 		const value src = ev<Init>(env, cx);
 		size_t i = 0;
 		const auto one = [&](std::string_view nm) {
@@ -1000,7 +1010,7 @@ struct declare_all<K, destr_array<Init, Names...>, Rest...> {
 // {x: dx, y} = init : by key (shorthand key==bind)
 template <decl_kind K, typename Init, typename... Props, typename... Rest>
 struct declare_all<K, destr_object<Init, Props...>, Rest...> {
-	static void go(const env_ptr & env, context & cx) {
+	static constexpr void go(const env_ptr & env, context & cx) {
 		const value src = ev<Init>(env, cx);
 		const auto one = [&](std::string_view key, std::string_view bind) {
 			value v;
@@ -1016,7 +1026,7 @@ struct declare_all<K, destr_object<Init, Props...>, Rest...> {
 
 template <decl_kind K, typename N, typename Init, typename... Rest>
 struct declare_all<K, declarator<N, Init>, Rest...> {
-	static void go(const env_ptr & env, context & cx) {
+	static constexpr void go(const env_ptr & env, context & cx) {
 		if constexpr (K == decl_kind::hoisted_var) {
 			environment & tgt = env->hoist_target();
 			if constexpr (std::is_void_v<Init>) {
@@ -1042,19 +1052,19 @@ struct declare_all<K, declarator<N, Init>, Rest...> {
 };
 
 template <typename... Ds> struct exec_<let_stmt<Ds...>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		declare_all<decl_kind::lexical, Ds...>::go(env, cx);
 		return flow::normal;
 	}
 };
 template <typename... Ds> struct exec_<const_stmt<Ds...>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		declare_all<decl_kind::constant, Ds...>::go(env, cx);
 		return flow::normal;
 	}
 };
 template <typename... Ds> struct exec_<var_stmt<Ds...>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		declare_all<decl_kind::hoisted_var, Ds...>::go(env, cx);
 		return flow::normal;
 	}
@@ -1062,7 +1072,7 @@ template <typename... Ds> struct exec_<var_stmt<Ds...>> {
 
 template <typename N, typename P, typename B, bool A, bool G>
 struct exec_<fn_decl<N, P, B, A, G>> {
-	static flow go(const env_ptr & env, context &, value &) {
+	static constexpr flow go(const env_ptr & env, context &, value &) {
 		// usually already hoisted; declaring again is harmless
 		if (env->local(N::view()) == nullptr) {
 			env->declare(N::view(),
@@ -1101,7 +1111,7 @@ struct class_build {
 template <typename Inner> struct node_installer;
 template <typename N, typename P, typename B>
 struct node_installer<class_method<N, P, B>> {
-	static void go(class_build & cb, bool st) {
+	static constexpr void go(class_build & cb, bool st) {
 		if constexpr (N::view() == std::string_view{"constructor"}) {
 			if (!st) { cb.ctor_closure = fn_maker<P, B, false>::make(cb.cenv, "constructor"); }
 		} else {
@@ -1112,27 +1122,27 @@ struct node_installer<class_method<N, P, B>> {
 };
 template <char Kd, typename N, typename P, typename B>
 struct node_installer<class_accessor<Kd, N, P, B>> {
-	static void go(class_build & cb, bool st) {
+	static constexpr void go(class_build & cb, bool st) {
 		attach_accessor(st ? *cb.statics : *cb.proto, N::view(), Kd,
 		                fn_maker<P, B, false>::make(cb.cenv, std::string{N::view()}));
 	}
 };
 template <typename KeyE, typename P, typename B>
 struct node_installer<class_computed_method<KeyE, P, B>> {
-	static void go(class_build & cb, bool st) {
+	static constexpr void go(class_build & cb, bool st) {
 		const std::string key = ev<KeyE>(cb.defn, *cb.cx).to_string();
 		(st ? *cb.statics : *cb.proto)
 		    .set(key, fn_maker<P, B, false>::make(cb.cenv, key));
 	}
 };
 template <typename N> struct node_installer<class_field<N, void>> {
-	static void go(class_build & cb, bool st) {
+	static constexpr void go(class_build & cb, bool st) {
 		(st ? cb.sfields : cb.ifields)
 		    .push_back({std::string{N::view()}, [](context &, const value &) { return value{}; }});
 	}
 };
 template <typename N, typename Init> struct node_installer<class_field<N, Init>> {
-	static void go(class_build & cb, bool st) {
+	static constexpr void go(class_build & cb, bool st) {
 		const env_ptr cenv = cb.cenv;
 		(st ? cb.sfields : cb.ifields)
 		    .push_back({std::string{N::view()}, [cenv](context & cx, const value & self) {
@@ -1145,7 +1155,7 @@ template <typename N, typename Init> struct node_installer<class_field<N, Init>>
 };
 template <typename KeyE, typename Init>
 struct node_installer<class_computed_field<KeyE, Init>> {
-	static void go(class_build & cb, bool st) {
+	static constexpr void go(class_build & cb, bool st) {
 		const std::string key = ev<KeyE>(cb.defn, *cb.cx).to_string();
 		const env_ptr cenv = cb.cenv;
 		(st ? cb.sfields : cb.ifields)
@@ -1159,10 +1169,10 @@ struct node_installer<class_computed_field<KeyE, Init>> {
 };
 
 template <typename M> struct member_installer {
-	static void go(class_build & cb) { node_installer<M>::go(cb, false); }
+	static constexpr void go(class_build & cb) { node_installer<M>::go(cb, false); }
 };
 template <typename Inner> struct member_installer<static_member<Inner>> {
-	static void go(class_build & cb) { node_installer<Inner>::go(cb, true); }
+	static constexpr void go(class_build & cb) { node_installer<Inner>::go(cb, true); }
 };
 
 template <typename M> struct method_is_ctor : std::false_type { };
@@ -1213,7 +1223,7 @@ inline value finish_class(std::string name, const rc<object_t> & proto,
 }
 
 template <typename Name, typename... Members> struct exec_<class_decl<Name, Members...>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		auto proto = rc<object_t>::make();
 		auto statics = rc<object_t>::make();
 		auto cenv = rc<environment>::make();
@@ -1230,7 +1240,7 @@ template <typename Name, typename... Members> struct exec_<class_decl<Name, Memb
 
 template <typename Name, typename SuperName, typename... Members>
 struct exec_<class_ext<Name, SuperName, Members...>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		const value base = ev<ident<SuperName>>(env, cx);
 		if (!base.is_function()) {
 			throw_error("TypeError", "Class extends value is not a constructor");
@@ -1259,7 +1269,7 @@ struct exec_<class_ext<Name, SuperName, Members...>> {
 };
 
 template <typename... Ss> struct exec_<block<Ss...>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		auto scope = rc<environment>::make();
 		scope->parent = env;
 		hoist_functions<Ss...>(scope, cx);
@@ -1268,7 +1278,7 @@ template <typename... Ss> struct exec_<block<Ss...>> {
 };
 
 template <typename C, typename T, typename E> struct exec_<if_stmt<C, T, E>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		if (ev<C>(env, cx).truthy()) { return exec_<T>::go(env, cx, ret); }
 		if constexpr (!std::is_void_v<E>) { return exec_<E>::go(env, cx, ret); }
 		return flow::normal;
@@ -1303,7 +1313,7 @@ struct loop_labels {
 };
 
 template <typename C, typename B> struct exec_<while_stmt<C, B>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		const loop_labels labels(cx);
 		while (ev<C>(env, cx).truthy()) {
 			const flow f = exec_<B>::go(env, cx, ret);
@@ -1316,7 +1326,7 @@ template <typename C, typename B> struct exec_<while_stmt<C, B>> {
 };
 
 template <typename B, typename C> struct exec_<do_stmt<B, C>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		const loop_labels labels(cx);
 		do {
 			const flow f = exec_<B>::go(env, cx, ret);
@@ -1333,11 +1343,11 @@ template <typename B, typename C> struct exec_<do_stmt<B, C>> {
 // so closures created in the body capture that iteration's values
 template <typename Init> struct loop_bindings {
 	static constexpr bool per_iteration = false;
-	static void copy(environment &, environment &) { }
+	static constexpr void copy(environment &, environment &) { }
 };
 template <typename... Ds> struct loop_bindings<let_stmt<Ds...>> {
 	static constexpr bool per_iteration = true;
-	static void copy(environment & from, environment & to) {
+	static constexpr void copy(environment & from, environment & to) {
 		const auto one = [&](std::string_view n) {
 			if (value * v = from.local(n)) { to.declare(n, *v); }
 		};
@@ -1347,7 +1357,7 @@ template <typename... Ds> struct loop_bindings<let_stmt<Ds...>> {
 
 template <typename Init, typename Cond, typename Step, typename B>
 struct exec_<for_stmt<Init, Cond, Step, B>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		const loop_labels labels(cx);
 		auto scope = rc<environment>::make();
 		scope->parent = env;
@@ -1395,7 +1405,7 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 };
 
 template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter, B>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		const loop_labels labels(cx);
 		const value seq = ev<Iter>(env, cx);
 		const auto step = [&](value element) -> flow {
@@ -1455,20 +1465,20 @@ template <typename E, typename... Ss> struct clause_match<case_clause<E, Ss...>>
 	static bool matches(const env_ptr & env, context & cx, const value & disc) {
 		return strict_equals(ev<E>(env, cx), disc);
 	}
-	static flow run(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow run(const env_ptr & env, context & cx, value & ret) {
 		return exec_all<Ss...>(env, cx, ret);
 	}
 	static constexpr bool is_default = false;
 };
 template <typename... Ss> struct clause_match<default_clause<Ss...>> {
 	static bool matches(const env_ptr &, context &, const value &) { return false; }
-	static flow run(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow run(const env_ptr & env, context & cx, value & ret) {
 		return exec_all<Ss...>(env, cx, ret);
 	}
 	static constexpr bool is_default = true;
 };
 template <typename D, typename... Clauses> struct exec_<switch_stmt<D, Clauses...>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		const value disc = ev<D>(env, cx);
 		auto scope = rc<environment>::make();
 		scope->parent = env;
@@ -1493,7 +1503,7 @@ template <typename D, typename... Clauses> struct exec_<switch_stmt<D, Clauses..
 };
 
 template <typename E> struct exec_<return_stmt<E>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		if constexpr (std::is_void_v<E>) {
 			ret = value{};
 		} else {
@@ -1503,22 +1513,22 @@ template <typename E> struct exec_<return_stmt<E>> {
 	}
 };
 template <> struct exec_<break_stmt> {
-	static flow go(const env_ptr &, context &, value &) { return flow::brk; }
+	static constexpr flow go(const env_ptr &, context &, value &) { return flow::brk; }
 };
 template <typename L> struct exec_<break_label<L>> {
-	static flow go(const env_ptr &, context & cx, value &) {
+	static constexpr flow go(const env_ptr &, context & cx, value &) {
 		cx.flow_label = std::string{L::view()};
 		return flow::brk;
 	}
 };
 template <typename L> struct exec_<continue_label<L>> {
-	static flow go(const env_ptr &, context & cx, value &) {
+	static constexpr flow go(const env_ptr &, context & cx, value &) {
 		cx.flow_label = std::string{L::view()};
 		return flow::cont;
 	}
 };
 template <typename L, typename S> struct exec_<labeled_stmt<L, S>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		cx.pending_labels.push_back(std::string{L::view()});
 		const flow f = exec_<S>::go(env, cx, ret);
 		// a wrapped non-loop never consumed the pending label; drop it
@@ -1538,21 +1548,21 @@ template <typename L, typename S> struct exec_<labeled_stmt<L, S>> {
 	}
 };
 template <> struct exec_<continue_stmt> {
-	static flow go(const env_ptr &, context &, value &) { return flow::cont; }
+	static constexpr flow go(const env_ptr &, context &, value &) { return flow::cont; }
 };
 template <> struct exec_<empty_stmt> {
-	static flow go(const env_ptr &, context &, value &) { return flow::normal; }
+	static constexpr flow go(const env_ptr &, context &, value &) { return flow::normal; }
 };
 
 template <typename E> struct exec_<throw_stmt<E>> {
-	static flow go(const env_ptr & env, context & cx, value &) {
+	static constexpr flow go(const env_ptr & env, context & cx, value &) {
 		throw js_throw{ev<E>(env, cx)};
 	}
 };
 
 template <typename Body, typename CatchName, typename Handler, typename Finally>
 struct exec_<try_stmt<Body, CatchName, Handler, Finally>> {
-	static flow go(const env_ptr & env, context & cx, value & ret) {
+	static constexpr flow go(const env_ptr & env, context & cx, value & ret) {
 		flow f = flow::normal;
 		bool rethrow = false;
 		js_throw pending{};
@@ -1595,11 +1605,11 @@ struct exec_<try_stmt<Body, CatchName, Handler, Finally>> {
 
 // recursive var collector: declares undefined-if-absent into fnscope
 template <typename S> struct hoist_vars {
-	static void go(environment &) { }
+	static constexpr void go(environment &) { }
 };
 // hoist every name a declarator BINDS (destructuring binds several)
 template <typename D> struct hoist_decl_names {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
 			if (fnscope.local(n) == nullptr) { fnscope.declare(n, value{}); }
 		};
@@ -1608,7 +1618,7 @@ template <typename D> struct hoist_decl_names {
 };
 template <typename Init, typename... Names>
 struct hoist_decl_names<destr_array<Init, Names...>> {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
 			if (fnscope.local(n) == nullptr) { fnscope.declare(n, value{}); }
 		};
@@ -1617,7 +1627,7 @@ struct hoist_decl_names<destr_array<Init, Names...>> {
 };
 template <typename Init, typename... Props>
 struct hoist_decl_names<destr_object<Init, Props...>> {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
 			if (fnscope.local(n) == nullptr) { fnscope.declare(n, value{}); }
 		};
@@ -1625,48 +1635,48 @@ struct hoist_decl_names<destr_object<Init, Props...>> {
 	}
 };
 template <typename... Ds> struct hoist_vars<var_stmt<Ds...>> {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		(hoist_decl_names<Ds>::go(fnscope), ...);
 	}
 };
 template <typename... Ss> struct hoist_vars<block<Ss...>> {
-	static void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
+	static constexpr void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
 };
 template <typename C, typename T, typename E> struct hoist_vars<if_stmt<C, T, E>> {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		hoist_vars<T>::go(fnscope);
 		if constexpr (!std::is_void_v<E>) { hoist_vars<E>::go(fnscope); }
 	}
 };
 template <typename C, typename B> struct hoist_vars<while_stmt<C, B>> {
-	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+	static constexpr void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
 };
 template <typename B, typename C> struct hoist_vars<do_stmt<B, C>> {
-	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+	static constexpr void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
 };
 template <typename Init, typename Cond, typename Step, typename B>
 struct hoist_vars<for_stmt<Init, Cond, Step, B>> {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		if constexpr (!std::is_void_v<Init>) { hoist_vars<Init>::go(fnscope); }
 		hoist_vars<B>::go(fnscope);
 	}
 };
 template <typename N, typename Iter, typename B> struct hoist_vars<forof_stmt<N, Iter, B>> {
-	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+	static constexpr void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
 };
 template <typename Clause> struct clause_vars;
 template <typename E, typename... Ss> struct clause_vars<case_clause<E, Ss...>> {
-	static void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
+	static constexpr void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
 };
 template <typename... Ss> struct clause_vars<default_clause<Ss...>> {
-	static void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
+	static constexpr void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
 };
 template <typename D, typename... Cs> struct hoist_vars<switch_stmt<D, Cs...>> {
-	static void go(environment & fnscope) { (clause_vars<Cs>::go(fnscope), ...); }
+	static constexpr void go(environment & fnscope) { (clause_vars<Cs>::go(fnscope), ...); }
 };
 template <typename B, typename CN, typename H, typename F>
 struct hoist_vars<try_stmt<B, CN, H, F>> {
-	static void go(environment & fnscope) {
+	static constexpr void go(environment & fnscope) {
 		hoist_vars<B>::go(fnscope);
 		if constexpr (!std::is_void_v<H>) { hoist_vars<H>::go(fnscope); }
 		if constexpr (!std::is_void_v<F>) { hoist_vars<F>::go(fnscope); }
@@ -1674,32 +1684,32 @@ struct hoist_vars<try_stmt<B, CN, H, F>> {
 };
 
 template <typename S> struct hoist_pick {
-	static void go(const env_ptr &, context &) { }
+	static constexpr void go(const env_ptr &, context &) { }
 };
 template <typename N, typename P, typename B, bool A, bool G>
 struct hoist_pick<fn_decl<N, P, B, A, G>> {
-	static void go(const env_ptr & env, context &) {
+	static constexpr void go(const env_ptr & env, context &) {
 		env->declare(N::view(),
 		             fn_maker<P, B, false, A, G>::make(env, std::string{N::view()}));
 	}
 };
 template <typename... Ds> struct hoist_pick<let_stmt<Ds...>> {
-	static void go(const env_ptr & env, context &) {
+	static constexpr void go(const env_ptr & env, context &) {
 		(env->tdz.push_back(std::string{decl_name<Ds>::view()}), ...);
 	}
 };
 template <typename... Ds> struct hoist_pick<const_stmt<Ds...>> {
-	static void go(const env_ptr & env, context &) {
+	static constexpr void go(const env_ptr & env, context &) {
 		(env->tdz.push_back(std::string{decl_name<Ds>::view()}), ...);
 	}
 };
-template <typename... Ss> void hoist_functions(const env_ptr & env, context & cx) {
+template <typename... Ss> constexpr void hoist_functions(const env_ptr & env, context & cx) {
 	environment & fnscope = env->hoist_target();
 	(hoist_vars<Ss>::go(fnscope), ...);
 	(hoist_pick<Ss>::go(env, cx), ...);
 }
 
-template <typename... Ss> flow exec_all(const env_ptr & env, context & cx, value & ret) {
+template <typename... Ss> constexpr flow exec_all(const env_ptr & env, context & cx, value & ret) {
 	flow f = flow::normal;
 	const auto one = [&](auto tag) {
 		using S = typename decltype(tag)::type;

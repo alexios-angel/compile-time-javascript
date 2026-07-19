@@ -32,6 +32,10 @@ struct op_none { }; // plain `=` in assignments
 template <typename Text> struct ident { };
 template <typename Text> struct num_lit { };            // raw spelling
 template <typename Text> struct str_lit { };            // raw, quotes included
+// a number computed AT COMPILE TIME by the constant folder (fold.hpp),
+// carried in the type itself; the runtime just loads it. true/false/
+// null folds reuse the literal nodes above.
+template <double V> struct const_num { };
 struct true_lit { }; struct false_lit { }; struct null_lit { };
 template <typename... Elems> struct array_lit { };
 template <typename KeyText, typename V> struct prop { }; // key already unquoted

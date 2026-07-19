@@ -71,6 +71,22 @@ static_assert(ctjs::is_valid<"class C { static x = 1; static m() {} field = 2; [
 static_assert(ctjs::is_valid<"class D extends C { constructor() { super(); super.m(); } }">);
 static_assert(ctjs::is_valid<"let a = this; let b = this.x; f(this);">);
 
+// --- constant folding: computed AT COMPILE TIME, usable in static_assert
+static_assert(ctjs::is_constant<"2 + 3 * 4;">);
+static_assert(ctjs::constant<"2 + 3 * 4;"> == 14.0);
+static_assert(ctjs::constant<"(1 + 2) * (3 + 4);"> == 21.0);
+static_assert(ctjs::constant<"2 ** 10;"> == 1024.0);
+static_assert(ctjs::constant<"100 % 7;"> == 2.0);
+static_assert(ctjs::constant<"-5 + 0x10;"> == 11.0);
+static_assert(ctjs::constant<"1 + 2 * 3 ** 2 - -4 / (5 % 2);"> == 23.0);
+static_assert(ctjs::constant<"true ? 10 : 20;"> == 10.0);   // dead branch pruned
+static_assert(ctjs::constant<"false ? 10 : 20;"> == 20.0);
+static_assert(ctjs::constant<"1 < 2 && 3 < 4 ? 7 : 8;"> == 7.0);
+static_assert(ctjs::is_constant<"5 > 3;">);                  // a boolean constant
+static_assert(!ctjs::is_constant<"x + 1;">);                // x is dynamic
+static_assert(!ctjs::is_constant<"1.5 + 2.5;">);           // fractional: left for runtime
+static_assert(!ctjs::is_constant<R"('a' + 'b';)">);         // strings not folded (yet)
+
 // --- the script surface
 static_assert(ctjs::script<"let x = 1;">.valid);
 static_assert(!ctjs::script_t<ctll::fixed_string{"let x = 1"}>::valid);

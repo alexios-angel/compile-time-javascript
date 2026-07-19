@@ -605,6 +605,39 @@ static void classes_prototypes_super_statics() {
 	CHECK(out["epoch1"].to<double>() == 86400000.0);
 }
 
+static void constant_folding() {
+	auto out = ctjs::run<R"(
+		let a = 2 + 3 * 4;               // -> 14 at compile time
+		let b = (10 - 2) ** 2;           // -> 64
+		let c = 100 % 7 + 0x10;          // -> 2 + 16 = 18
+		let f = 5 > 3 && 2 < 1;          // -> false
+		let ran = 0;
+		let d = true ? 42 : (ran = 99);  // dead branch dropped: ran untouched
+		let e = false && (ran = 88);     // short-circuited away: ran untouched
+		let g = 1 + 2 + 3 + x;           // partial: 6 folded, + dynamic x
+	)">({{"x", ctjs::value{10.0}}});
+	CHECK(out.ok());
+	CHECK(out["a"].to<int>() == 14);
+	CHECK(out["b"].to<int>() == 64);
+	CHECK(out["c"].to<int>() == 18);
+	CHECK(!out["f"].to<bool>());
+	CHECK(out["d"].to<int>() == 42);
+	CHECK(!out["e"].to<bool>());
+	CHECK(out["ran"].to<int>() == 0); // proves the folded-out branches never ran
+	CHECK(out["g"].to<int>() == 16);  // 6 (folded) + 10 (dynamic)
+
+	// folded results still match the interpreter exactly for the tricky
+	// cases (negative zero, chained comparison result, hex)
+	auto out2 = ctjs::run<R"(
+		let h = 10 / 4;                  // 2.5 (division of ints is exact)
+		let i = 2 ** 8 - 1;              // 255
+		let j = (1 + 1 === 2);           // true
+	)">();
+	CHECK(out2["h"].to<double>() == 2.5);
+	CHECK(out2["i"].to<int>() == 255);
+	CHECK(out2["j"].to<bool>());
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -622,6 +655,7 @@ int main() {
 	generators_instanceof_regex();
 	labels_date_accessors_extends();
 	classes_prototypes_super_statics();
+	constant_folding();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

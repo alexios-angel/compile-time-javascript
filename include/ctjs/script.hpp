@@ -149,6 +149,33 @@ template <CTJS_STRING_INPUT Src> struct script_t {
 
 #if CTLL_CNTTP_COMPILER_CHECK
 template <ctll::fixed_string Src> inline constexpr script_t<Src> script{};
+
+// --- compile-time constant evaluation (the folder, fold.hpp).
+//
+// A script that is a single constant expression statement is evaluated
+// AT COMPILE TIME, so its value is a `constexpr` usable in a
+// static_assert - no interpreter runs:
+//   static_assert(ctjs::is_constant<"2 ** 10 + 24;">);
+//   static_assert(ctjs::constant<"2 ** 10 + 24;"> == 1048.0);
+// (This is the same fold that, inside any larger script, collapses
+// constant subexpressions and dead ternary/`&&`/`||`/`??` branches
+// before the interpreter runs.) `is_constant` is false for a
+// non-constant expression; `constant` requires a numeric constant.
+namespace detail {
+template <ctll::fixed_string Src> struct const_of {
+	using tree = decltype(ctlark::parse<js_grammar, Src, js_start>());
+	using program = typename lower_program<tree>::type;
+	static constexpr folded value = program_constant<program>::value;
+};
+} // namespace detail
+
+template <ctll::fixed_string Src>
+inline constexpr bool is_constant =
+    ctlark::is_valid<detail::js_grammar, Src, detail::js_start> &&
+    detail::const_of<Src>::value.ok();
+
+template <ctll::fixed_string Src>
+inline constexpr double constant = detail::const_of<Src>::value.num;
 #endif
 
 // one-shot convenience: parse at compile time, run now

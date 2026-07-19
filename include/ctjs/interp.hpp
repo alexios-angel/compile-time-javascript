@@ -259,6 +259,11 @@ struct eval_<call<member<super_lit, Name>, Args...>> {
 template <typename Text> struct eval_<num_lit<Text>> {
 	static value go(const env_ptr &, context &) { return value{num_of<Text>()}; }
 };
+// a constant the folder computed at compile time (fold.hpp) - the value
+// rides in the type, so the runtime just loads it
+template <double V> struct eval_<const_num<V>> {
+	static value go(const env_ptr &, context &) { return value{V}; }
+};
 template <typename Text> struct eval_<str_lit<Text>> {
 	static value go(const env_ptr &, context &) { return value{str_of<Text>()}; }
 };

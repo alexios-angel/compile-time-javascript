@@ -56,6 +56,28 @@ auto ui = ctjs::run<R"(
 ui.call("onClick");   // the host's event loop, driving script handlers
 ```
 
+## Constant folding — evaluated at compile time
+
+A script does not have to be wholly static, but **anything that can be
+computed ahead of time is** — during lowering (all `constexpr`), a
+partial-evaluation pass collapses constant subexpressions and prunes
+dead `?:` / `&&` / `||` / `??` branches *before the interpreter runs*.
+A single constant expression is available as a `constexpr`:
+
+```c++
+static_assert(ctjs::is_constant<"2 ** 10 + 24;">);
+static_assert(ctjs::constant<"2 ** 10 + 24;"> == 1048.0);  // computed at compile time
+static_assert(!ctjs::is_constant<"x + 1;">);               // x is dynamic
+```
+
+Inside a larger script it folds in place: `1 + 2 + 3 + x` becomes
+`6 + x`, `true ? a : sideEffect()` becomes `a`, `false && boom()`
+becomes `false` — the runtime only does the genuinely dynamic work. The
+fold is deliberately **sound over speed**: it reproduces the
+interpreter bit-for-bit, so it folds integer literals, booleans and
+`null` (not fractional/exponent literals or strings — yet) with the
+IEEE-deterministic operators.
+
 ## What is supported (v0.1)
 
 * **values**: numbers (IEEE-754 doubles, hex/decimal/exponent

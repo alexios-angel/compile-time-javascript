@@ -3,6 +3,7 @@
 
 #include "grammar.hpp"
 #include "ast.hpp"
+#include "fold.hpp"
 #ifndef CTJS_IN_A_MODULE
 #include <cstddef>
 #include <string_view>
@@ -422,7 +423,7 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			}
 		}
 	}
-	using type = decltype(pick());
+	using type = fold_node_t<decltype(pick())>; // constant-fold this expression
 };
 
 // --- statements

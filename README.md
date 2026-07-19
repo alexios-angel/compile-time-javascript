@@ -61,20 +61,24 @@ ui.call("onClick");   // the host's event loop, driving script handlers
 * **values**: numbers (IEEE-754 doubles, hex/decimal/exponent
   literals), strings (`'`/`"`, escapes incl. `\u`/`\x`), booleans,
   `null`, `undefined`, arrays, objects, first-class functions
+
 * **expressions**: the full operator ladder — assignment (`=`, `+=`,
   ... `**=`), ternary, `??`, `||`/`&&` (short-circuit), `==`/`!=` and
   `===`/`!==` (spec coercion rules), relational, `+` (concat rules),
   `-` `*` `/` `%` `**`, unary `!` `-` `+` `typeof`, `++`/`--` (pre and
   post), calls, `obj.prop`, `obj[expr]`, array/object literals,
   grouping
+
 * **functions**: declarations (hoisted within their scope),
   expressions, arrow functions (expression- and block-bodied), REAL
   closures over lexical environment chains, recursion (soft
   `RangeError` at depth 256), first-class use as values/arguments
+
 * **statements**: `let`/`const`/`var` (multi-declarator), blocks with
   lexical scope, `if`/`else`, `while`, `do`/`while`, classic `for`,
   `for...of` (arrays and strings, per-iteration binding),
   `break`/`continue`, `return`, `throw`, `try`/`catch`/`finally`
+
 * **runtime library**: `console.log` (captured, node-style
   formatting), `Math` (floor/ceil/round/trunc/abs/sqrt/sign/pow/
   min/max/random/PI/E), `JSON.stringify`, `parseInt`, `parseFloat`,
@@ -85,6 +89,7 @@ ui.call("onClick");   // the host's event loop, driving script handlers
   endsWith/toUpperCase/toLowerCase/trim/split/charAt/charCodeAt/
   repeat/replace/replaceAll/padStart/padEnd, `.length`), number
   methods (toString/toFixed)
+
 * **semantics**: JS truthiness, ToNumber/ToString coercion, the
   ECMA-262 `Number::toString` algorithm (`0.1 + 0.2` prints
   `0.30000000000000004`, `1e21` prints `1e+21`), `NaN`, `typeof null

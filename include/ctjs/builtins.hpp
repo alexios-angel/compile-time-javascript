@@ -3,6 +3,8 @@
 
 #include "value.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <memory>
+#include <functional>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -76,7 +78,7 @@ inline value promise_handler_result(context & cx, const value & handler, const v
 } // namespace detail
 
 inline value make_promise(value settled, bool rejected) {
-	auto o = std::make_shared<object_t>();
+	auto o = rc<object_t>::make();
 	o->set("__ctjs_promise", value{true});
 	o->set("__state", value{rejected ? "rejected" : "fulfilled"});
 	o->set("__value", settled);
@@ -130,7 +132,7 @@ inline value make_promise(value settled, bool rejected) {
 // a non-thenable
 inline value await_value(value v) {
 	while (is_promise(v)) {
-		const std::shared_ptr<object_t> o = v.as_object();
+		const rc<object_t> o = v.as_object();
 		const value * state = o->find("__state");
 		const value * stored = o->find("__value");
 		value inner = stored != nullptr ? *stored : value{};
@@ -561,7 +563,7 @@ inline value rx_exec_array(const std::string & s, const rxd::rx_match & m) {
 inline value make_regex(std::string source, std::string flags) {
 	const auto prog = std::make_shared<rxd::rx_prog>(rxd::rx_compile(source, flags));
 	const auto last_index = std::make_shared<size_t>(0); // g-mode exec cursor
-	auto o = std::make_shared<object_t>();
+	auto o = rc<object_t>::make();
 	o->set("__regex", value{true});
 	o->set("source", value{source});
 	o->set("flags", value{flags});
@@ -745,7 +747,7 @@ inline value bound(std::string name, native_fn fn) {
 }
 
 inline value array_member(const value & recv, std::string_view name) {
-	const std::shared_ptr<array_t> arr = recv.as_array();
+	const rc<array_t> arr = recv.as_array();
 	if (name == "length") { return value{arr->size()}; }
 	if (name == "push") {
 		return bound("push", [arr](context &, const std::vector<value> & a) {
@@ -1209,11 +1211,11 @@ inline value get_member(context & cx, const value & recv, std::string_view name)
 	if (recv.is_string()) { return detail::string_member(recv, name); }
 	if (recv.is_number()) { return detail::number_member(recv, name); }
 	if (recv.is_function()) {
-		const std::shared_ptr<function_t> f = recv.as_function();
+		const rc<function_t> f = recv.as_function();
 		if (name == "prototype") {
 			// every function has a .prototype; make one on demand so plain
 			// `function F(){}; F.prototype.m = ...; new F()` works
-			if (!f->props) { f->props = std::make_shared<object_t>(); }
+			if (!f->props) { f->props = rc<object_t>::make(); }
 			if (const value * pt = f->props->find("prototype")) { return *pt; }
 			value proto = value::object();
 			f->props->set("prototype", proto);
@@ -1288,8 +1290,8 @@ inline void set_member(context & cx, const value & recv, std::string_view name, 
 		return;
 	}
 	if (recv.is_function()) { // statics: C.x = ... / F.prototype = ...
-		const std::shared_ptr<function_t> f = recv.as_function();
-		if (!f->props) { f->props = std::make_shared<object_t>(); }
+		const rc<function_t> f = recv.as_function();
+		if (!f->props) { f->props = rc<object_t>::make(); }
 		f->props->set(name, std::move(v));
 		return;
 	}
@@ -1677,7 +1679,7 @@ inline double parse_date_ms(std::string_view s) {
 }
 
 inline value make_date_object(double ms) {
-	auto o = std::make_shared<object_t>();
+	auto o = rc<object_t>::make();
 	o->set("__date_ms", value{ms});
 	const auto part = [ms](int which) -> double {
 		const long long total = static_cast<long long>(ms);
@@ -1734,7 +1736,7 @@ inline value make_date_object(double ms) {
 }
 
 inline env_ptr make_globals() {
-	auto g = std::make_shared<environment>();
+	auto g = rc<environment>::make();
 	g->function_scope = true; // the global scope is where top-level var lands
 	g->declare("undefined", value{});
 	g->declare("NaN", value{std::nan("")});
@@ -1772,7 +1774,7 @@ inline env_ptr make_globals() {
 			    return d;
 		    },
 		    "Date");
-		date_fn.as_function()->props = std::make_shared<object_t>();
+		date_fn.as_function()->props = rc<object_t>::make();
 		date_fn.as_function()->props->set(
 		    "now", value::function(
 		               [](context &, const std::vector<value> &) {
@@ -1909,7 +1911,7 @@ inline env_ptr make_globals() {
 						                 out.push_back(e);
 						                 continue;
 					                 }
-					                 const std::shared_ptr<object_t> o = e.as_object();
+					                 const rc<object_t> o = e.as_object();
 					                 const value * st = o->find("__state");
 					                 const value * pv = o->find("__value");
 					                 value inner = pv != nullptr ? *pv : value{};

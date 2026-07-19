@@ -130,7 +130,7 @@ template <CTJS_STRING_INPUT Src> struct script_t {
 		              "ctjs: the script is not valid JavaScript (within the supported "
 		              "subset) - print ctjs::error_message<Src>() for the location and "
 		              "the expected tokens");
-		auto cx = std::make_shared<context>();
+		auto cx = rc<context>::make();
 		env_ptr globals = make_globals();
 		for (binding & b : host) { globals->declare(b.name, std::move(b.v)); }
 		run_result out{cx, globals};

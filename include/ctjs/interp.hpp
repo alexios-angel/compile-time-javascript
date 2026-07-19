@@ -5,6 +5,8 @@
 #include "value.hpp"
 #include "builtins.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <memory>
+#include <functional>
 #include <charconv>
 #include <cmath>
 #include <string>
@@ -728,7 +730,7 @@ template <typename T> struct place<ident<T>> {
 		bool tdz = false;
 		if (value * slot = env->find_checked(T::view(), tdz)) {
 			if (environment * own = env->owner(T::view());
-			    own != nullptr && own->consts.contains(T::view())) {
+			    own != nullptr && own->is_const(T::view())) {
 				throw_error("TypeError", "Assignment to constant variable.");
 			}
 			*slot = std::move(v);
@@ -852,7 +854,7 @@ struct fn_maker {
 	static value make(const env_ptr & env, std::string name) {
 		return value::function(
 		    [env](context & cx, const std::vector<value> & args) -> value {
-			    auto local = std::make_shared<environment>();
+			    auto local = rc<environment>::make();
 			    local->parent = env;
 			    local->function_scope = true; // var declarations land here
 			    // `this` = the method-call receiver (call_value routed it
@@ -971,7 +973,7 @@ inline void destr_declare(const env_ptr & env, std::string_view name, value v) {
 		env->hoist_target().declare(name, std::move(v));
 	} else {
 		env->declare(name, std::move(v));
-		if constexpr (K == decl_kind::constant) { env->consts.insert(std::string{name}); }
+		if constexpr (K == decl_kind::constant) { env->consts.push_back(std::string{name}); }
 	}
 }
 
@@ -1019,7 +1021,7 @@ struct declare_all<K, declarator<N, Init>, Rest...> {
 			environment & tgt = env->hoist_target();
 			if constexpr (std::is_void_v<Init>) {
 				// `var x;` never clobbers an existing value
-				if (tgt.vars.find(N::view()) == tgt.vars.end()) {
+				if (tgt.local(N::view()) == nullptr) {
 					tgt.declare(N::view(), value{});
 				}
 			} else {
@@ -1032,7 +1034,7 @@ struct declare_all<K, declarator<N, Init>, Rest...> {
 				env->declare(N::view(), ev<Init>(env, cx));
 			}
 			if constexpr (K == decl_kind::constant) {
-				env->consts.insert(std::string{N::view()});
+				env->consts.push_back(std::string{N::view()});
 			}
 		}
 		declare_all<K, Rest...>::go(env, cx);
@@ -1062,7 +1064,7 @@ template <typename N, typename P, typename B, bool A, bool G>
 struct exec_<fn_decl<N, P, B, A, G>> {
 	static flow go(const env_ptr & env, context &, value &) {
 		// usually already hoisted; declaring again is harmless
-		if (env->vars.find(N::view()) == env->vars.end()) {
+		if (env->local(N::view()) == nullptr) {
 			env->declare(N::view(),
 			             fn_maker<P, B, false, A, G>::make(env, std::string{N::view()}));
 		}
@@ -1086,7 +1088,7 @@ using field_init = std::function<value(context &, const value &)>;
 
 struct class_build {
 	object_t * proto;                          // methods land here
-	std::shared_ptr<object_t> statics;         // becomes the ctor's .props
+	rc<object_t> statics;         // becomes the ctor's .props
 	env_ptr cenv;                              // methods' defn env (super bindings)
 	env_ptr defn;                              // outer env (computed keys/static fields)
 	context * cx;
@@ -1134,7 +1136,7 @@ template <typename N, typename Init> struct node_installer<class_field<N, Init>>
 		const env_ptr cenv = cb.cenv;
 		(st ? cb.sfields : cb.ifields)
 		    .push_back({std::string{N::view()}, [cenv](context & cx, const value & self) {
-			                auto le = std::make_shared<environment>();
+			                auto le = rc<environment>::make();
 			                le->parent = cenv;
 			                le->declare("this", self);
 			                return ev<Init>(le, cx);
@@ -1148,7 +1150,7 @@ struct node_installer<class_computed_field<KeyE, Init>> {
 		const env_ptr cenv = cb.cenv;
 		(st ? cb.sfields : cb.ifields)
 		    .push_back({key, [cenv](context & cx, const value & self) {
-			                auto le = std::make_shared<environment>();
+			                auto le = rc<environment>::make();
 			                le->parent = cenv;
 			                le->declare("this", self);
 			                return ev<Init>(le, cx);
@@ -1170,8 +1172,8 @@ struct method_is_ctor<class_method<N, P, B>>
 
 // finish a class: wire the constructor value, run static-field inits,
 // declare the binding. `base` is undefined for a base class.
-inline value finish_class(std::string name, const std::shared_ptr<object_t> & proto,
-                          const std::shared_ptr<object_t> & statics, class_build & cb,
+inline value finish_class(std::string name, const rc<object_t> & proto,
+                          const rc<object_t> & statics, class_build & cb,
                           context & cx, const value & base) {
 	const value protoval = value{proto};
 	auto ifields = std::make_shared<std::vector<std::pair<std::string, field_init>>>(
@@ -1212,9 +1214,9 @@ inline value finish_class(std::string name, const std::shared_ptr<object_t> & pr
 
 template <typename Name, typename... Members> struct exec_<class_decl<Name, Members...>> {
 	static flow go(const env_ptr & env, context & cx, value &) {
-		auto proto = std::make_shared<object_t>();
-		auto statics = std::make_shared<object_t>();
-		auto cenv = std::make_shared<environment>();
+		auto proto = rc<object_t>::make();
+		auto statics = rc<object_t>::make();
+		auto cenv = rc<environment>::make();
 		cenv->parent = env;
 		cenv->declare("__super_ctor__", value{});  // no super in a base class
 		cenv->declare("__super_proto__", value{});
@@ -1233,9 +1235,9 @@ struct exec_<class_ext<Name, SuperName, Members...>> {
 		if (!base.is_function()) {
 			throw_error("TypeError", "Class extends value is not a constructor");
 		}
-		auto proto = std::make_shared<object_t>();
+		auto proto = rc<object_t>::make();
 		value base_proto{};
-		auto statics = std::make_shared<object_t>();
+		auto statics = rc<object_t>::make();
 		if (base.as_function()->props) {
 			if (const value * bp = base.as_function()->props->find("prototype");
 			    bp != nullptr && bp->is_object()) {
@@ -1244,7 +1246,7 @@ struct exec_<class_ext<Name, SuperName, Members...>> {
 			}
 			statics->proto = base.as_function()->props; // static inheritance
 		}
-		auto cenv = std::make_shared<environment>();
+		auto cenv = rc<environment>::make();
 		cenv->parent = env;
 		cenv->declare("__super_ctor__", base);
 		cenv->declare("__super_proto__", base_proto);
@@ -1258,7 +1260,7 @@ struct exec_<class_ext<Name, SuperName, Members...>> {
 
 template <typename... Ss> struct exec_<block<Ss...>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
-		auto scope = std::make_shared<environment>();
+		auto scope = rc<environment>::make();
 		scope->parent = env;
 		hoist_functions<Ss...>(scope, cx);
 		return exec_all<Ss...>(scope, cx, ret);
@@ -1337,9 +1339,7 @@ template <typename... Ds> struct loop_bindings<let_stmt<Ds...>> {
 	static constexpr bool per_iteration = true;
 	static void copy(environment & from, environment & to) {
 		const auto one = [&](std::string_view n) {
-			if (const auto it = from.vars.find(n); it != from.vars.end()) {
-				to.vars.insert_or_assign(std::string{n}, it->second);
-			}
+			if (value * v = from.local(n)) { to.declare(n, *v); }
 		};
 		(one(decl_name<Ds>::view()), ...);
 	}
@@ -1349,7 +1349,7 @@ template <typename Init, typename Cond, typename Step, typename B>
 struct exec_<for_stmt<Init, Cond, Step, B>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
 		const loop_labels labels(cx);
-		auto scope = std::make_shared<environment>();
+		auto scope = rc<environment>::make();
 		scope->parent = env;
 		if constexpr (!std::is_void_v<Init>) {
 			value ignored;
@@ -1361,7 +1361,7 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 			// per the spec, the STEP runs in the NEXT iteration's copy of
 			// the bindings - closures made in the body keep the values
 			// from before the step (fs[0]() === 0, not 1)
-			auto iter = std::make_shared<environment>();
+			auto iter = rc<environment>::make();
 			iter->parent = env;
 			loop_bindings<Init>::copy(*scope, *iter);
 			while (true) {
@@ -1372,7 +1372,7 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 				const int t = labels.triage(f, cx);
 				if (t == 1) { break; }
 				if (t == 2) { return f; }
-				auto next = std::make_shared<environment>();
+				auto next = rc<environment>::make();
 				next->parent = env;
 				loop_bindings<Init>::copy(*iter, *next);
 				if constexpr (!std::is_void_v<Step>) { (void)ev<Step>(next, cx); }
@@ -1399,13 +1399,13 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 		const loop_labels labels(cx);
 		const value seq = ev<Iter>(env, cx);
 		const auto step = [&](value element) -> flow {
-			auto scope = std::make_shared<environment>();
+			auto scope = rc<environment>::make();
 			scope->parent = env;
 			scope->declare(N::view(), std::move(element)); // per-iteration binding
 			return exec_<B>::go(scope, cx, ret);
 		};
 		if (seq.is_array()) {
-			const std::shared_ptr<array_t> arr = seq.as_array();
+			const rc<array_t> arr = seq.as_array();
 			for (size_t i = 0; i < arr->size(); ++i) {
 				const flow f = step((*arr)[i]);
 				const int t = labels.triage(f, cx);
@@ -1470,7 +1470,7 @@ template <typename... Ss> struct clause_match<default_clause<Ss...>> {
 template <typename D, typename... Clauses> struct exec_<switch_stmt<D, Clauses...>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
 		const value disc = ev<D>(env, cx);
-		auto scope = std::make_shared<environment>();
+		auto scope = rc<environment>::make();
 		scope->parent = env;
 		flow f = flow::normal;
 		bool taken = false;
@@ -1560,7 +1560,7 @@ struct exec_<try_stmt<Body, CatchName, Handler, Finally>> {
 			f = exec_<Body>::go(env, cx, ret);
 		} catch (js_throw & t) {
 			if constexpr (!std::is_void_v<Handler>) {
-				auto scope = std::make_shared<environment>();
+				auto scope = rc<environment>::make();
 				scope->parent = env;
 				scope->declare(CatchName::view(), t.thrown);
 				try {
@@ -1601,7 +1601,7 @@ template <typename S> struct hoist_vars {
 template <typename D> struct hoist_decl_names {
 	static void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
-			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
+			if (fnscope.local(n) == nullptr) { fnscope.declare(n, value{}); }
 		};
 		one(decl_name<D>::view());
 	}
@@ -1610,7 +1610,7 @@ template <typename Init, typename... Names>
 struct hoist_decl_names<destr_array<Init, Names...>> {
 	static void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
-			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
+			if (fnscope.local(n) == nullptr) { fnscope.declare(n, value{}); }
 		};
 		(one(Names::view()), ...);
 	}
@@ -1619,7 +1619,7 @@ template <typename Init, typename... Props>
 struct hoist_decl_names<destr_object<Init, Props...>> {
 	static void go(environment & fnscope) {
 		const auto one = [&](std::string_view n) {
-			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
+			if (fnscope.local(n) == nullptr) { fnscope.declare(n, value{}); }
 		};
 		(one(dprop_key<Props>::bind()), ...);
 	}
@@ -1685,12 +1685,12 @@ struct hoist_pick<fn_decl<N, P, B, A, G>> {
 };
 template <typename... Ds> struct hoist_pick<let_stmt<Ds...>> {
 	static void go(const env_ptr & env, context &) {
-		(env->tdz.insert(std::string{decl_name<Ds>::view()}), ...);
+		(env->tdz.push_back(std::string{decl_name<Ds>::view()}), ...);
 	}
 };
 template <typename... Ds> struct hoist_pick<const_stmt<Ds...>> {
 	static void go(const env_ptr & env, context &) {
-		(env->tdz.insert(std::string{decl_name<Ds>::view()}), ...);
+		(env->tdz.push_back(std::string{decl_name<Ds>::view()}), ...);
 	}
 };
 template <typename... Ss> void hoist_functions(const env_ptr & env, context & cx) {

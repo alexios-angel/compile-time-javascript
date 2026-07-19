@@ -1,15 +1,14 @@
 #ifndef CTJS__VALUE__HPP
 #define CTJS__VALUE__HPP
 
+#include "rc.hpp"
+#include "cfunction.hpp"
 #ifndef CTJS_IN_A_MODULE
 #include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <map>
-#include <set>
-#include <memory>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,16 +16,21 @@
 #include <vector>
 #endif
 
-// The RUNTIME value model. ctjs parses JavaScript at compile time (the
-// AST is a type), but scripts execute at runtime, so values are
-// ordinary dynamic data: numbers are IEEE-754 doubles, strings own
-// their bytes, arrays/objects/functions have JS reference semantics
-// via shared_ptr, and closures capture real environment chains.
+// The value model. ctjs parses JavaScript at compile time (the AST is a
+// type) and executes it - AT RUNTIME OR AT COMPILE TIME. Everything here
+// is therefore CONSTEXPR-capable: numbers are IEEE-754 doubles, strings
+// own their bytes (std::string is constexpr in C++23), arrays/objects/
+// functions have JS reference semantics via `rc` (a constexpr refcounted
+// pointer, since std::shared_ptr is not constexpr), native functions live
+// behind `cfunction` (a constexpr type-erased callable, since
+// std::function is not), and scopes chain through `rc`. Constant-
+// evaluable scripts run at compile time; anything that reaches a non-
+// constexpr operation (Math via <cmath>, Date via <chrono>, a throw,
+// host natives) falls back to the runtime interpreter.
 //
 // The JS semantics live here too: truthiness, ToNumber/ToString
 // coercion, strict (===) and loose (==) equality, typeof, and the
-// ECMA-262 Number::toString algorithm (shortest round-trip digits,
-// fixed notation for exponents in (-7, 21), exponential outside).
+// ECMA-262 Number::toString algorithm.
 
 namespace ctjs {
 
@@ -40,30 +44,29 @@ using array_t = std::vector<value>;
 // live once on a shared prototype instead of on every instance.
 struct object_t {
 	std::vector<std::pair<std::string, value>> props;
-	std::shared_ptr<object_t> proto; // null for a plain {} / the chain root
+	rc<object_t> proto; // null for a plain {} / the chain root
 
-	value * find(std::string_view key);        // OWN property only
-	const value * find(std::string_view key) const;
-	void set(std::string_view key, value v);   // OWN property only
+	constexpr value * find(std::string_view key);        // OWN property only
+	constexpr const value * find(std::string_view key) const;
+	constexpr void set(std::string_view key, value v);   // OWN property only
 };
 
 // one representation for JS functions and native (C++) functions: the
-// closure environment, if any, is captured inside the std::function
-using native_fn = std::function<value(context &, const std::vector<value> &)>;
-struct object_t;
+// closure environment, if any, is captured inside the cfunction
+using native_fn = cfunction<value(context &, const std::vector<value> &)>;
 struct function_t {
 	native_fn fn;
 	std::string name; // for typeof/printing; may be empty
 	// statics riding on the function value (Date.now, class statics);
 	// null for the overwhelming majority that carry none
-	std::shared_ptr<object_t> props;
+	rc<object_t> props;
 };
 
 struct undefined_t {
-	bool operator==(const undefined_t &) const = default;
+	constexpr bool operator==(const undefined_t &) const = default;
 };
 struct null_t {
-	bool operator==(const null_t &) const = default;
+	constexpr bool operator==(const null_t &) const = default;
 };
 
 // JS `throw` rides a C++ exception carrying the thrown value
@@ -71,26 +74,49 @@ struct js_throw;
 
 namespace detail {
 
-// ECMA-262 6.1.6.1.20 Number::toString(x, 10): shortest round-trip
-// digits from to_chars, then fixed notation while the exponent is in
-// (-7, 21), exponential ("1e+21", "1.5e-7") outside
+// integer decimal string, exact and constexpr (used by the compile-time
+// path and as the fast common case)
+constexpr std::string int_to_string(long long v) {
+	if (v == 0) { return "0"; }
+	std::string out;
+	const bool neg = v < 0;
+	unsigned long long u = neg ? static_cast<unsigned long long>(-(v + 1)) + 1
+	                           : static_cast<unsigned long long>(v);
+	while (u) {
+		out.push_back(static_cast<char>('0' + u % 10));
+		u /= 10;
+	}
+	if (neg) { out.push_back('-'); }
+	for (size_t i = 0, j = out.size() - 1; i < j; ++i, --j) {
+		const char t = out[i];
+		out[i] = out[j];
+		out[j] = t;
+	}
+	return out;
+}
+
+// ECMA-262 Number::toString(x, 10). At runtime: shortest round-trip
+// digits via to_chars, fixed/exponential per the spec. At COMPILE time
+// (if consteval): exact for integers; a non-integer number stringifies
+// via a non-constexpr call, so a script that stringifies a fractional
+// number simply isn't constant-evaluable and runs at runtime.
 inline std::string number_to_string(double x) {
 	if (std::isnan(x)) { return "NaN"; }
 	if (x == 0) { return "0"; } // -0 prints "0", like JS
-	std::string out;
-	if (x < 0) {
-		out += '-';
-		x = -x;
+	if (std::isinf(x)) { return x < 0 ? std::string{"-Infinity"} : std::string{"Infinity"}; }
+	if (x == static_cast<double>(static_cast<long long>(x))) {
+		return int_to_string(static_cast<long long>(x)); // exact & constexpr
 	}
-	if (std::isinf(x)) {
-		out += "Infinity";
-		return out;
+	std::string out;
+	double m = x;
+	if (m < 0) {
+		out += '-';
+		m = -m;
 	}
 	// shortest digits + decimal exponent via scientific to_chars
 	char buf[40];
-	const auto res = std::to_chars(buf, buf + sizeof(buf), x, std::chars_format::scientific);
+	const auto res = std::to_chars(buf, buf + sizeof(buf), m, std::chars_format::scientific);
 	std::string_view sci{buf, static_cast<size_t>(res.ptr - buf)};
-	// sci looks like "d.dddde±xx" or "de±xx"
 	const size_t epos = sci.find('e');
 	std::string digits;
 	for (const char c : sci.substr(0, epos)) {
@@ -98,11 +124,10 @@ inline std::string number_to_string(double x) {
 	}
 	while (digits.size() > 1 && digits.back() == '0') { digits.pop_back(); }
 	int exp10 = 0;
-	// from_chars rejects the '+' to_chars writes into positive exponents
 	const size_t esign = epos + 1 + (sci[epos + 1] == '+' ? 1 : 0);
 	std::from_chars(sci.data() + esign, sci.data() + sci.size(), exp10);
 	const int k = static_cast<int>(digits.size());
-	const int n = exp10 + 1; // position of the decimal point
+	const int n = exp10 + 1;
 	if (k <= n && n <= 21) {
 		out += digits;
 		out.append(static_cast<size_t>(n - k), '0');
@@ -122,13 +147,13 @@ inline std::string number_to_string(double x) {
 		}
 		out += 'e';
 		out += (n - 1 >= 0) ? '+' : '-';
-		out += std::to_string(n - 1 >= 0 ? n - 1 : -(n - 1));
+		out += int_to_string(n - 1 >= 0 ? n - 1 : -(n - 1));
 	}
 	return out;
 }
 
 // JS ToNumber for strings: trimmed; "" -> 0; decimal/hex; else NaN
-inline double string_to_number(std::string_view s) {
+constexpr double string_to_number(std::string_view s) {
 	const auto blank = [](char c) {
 		return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
 	};
@@ -139,18 +164,41 @@ inline double string_to_number(std::string_view s) {
 	if (s.front() == '+' || s.front() == '-') {
 		neg = s.front() == '-';
 		s.remove_prefix(1);
-		if (s.empty()) { return std::nan(""); }
+		if (s.empty()) { return std::numeric_limits<double>::quiet_NaN(); }
 	}
-	if (s == "Infinity") { return neg ? -INFINITY : INFINITY; }
-	double d = 0;
+	if (s == "Infinity") {
+		return neg ? -std::numeric_limits<double>::infinity()
+		           : std::numeric_limits<double>::infinity();
+	}
+	// hex integer: exact and constexpr
 	if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
 		unsigned long long u = 0;
-		const auto r = std::from_chars(s.data() + 2, s.data() + s.size(), u, 16);
-		if (r.ec != std::errc{} || r.ptr != s.data() + s.size()) { return std::nan(""); }
-		d = static_cast<double>(u);
-	} else {
-		const auto r = std::from_chars(s.data(), s.data() + s.size(), d);
-		if (r.ec != std::errc{} || r.ptr != s.data() + s.size()) { return std::nan(""); }
+		for (size_t i = 2; i < s.size(); ++i) {
+			const char c = s[i];
+			unsigned d = 0;
+			if (c >= '0' && c <= '9') { d = static_cast<unsigned>(c - '0'); }
+			else if (c >= 'a' && c <= 'f') { d = static_cast<unsigned>(c - 'a' + 10); }
+			else if (c >= 'A' && c <= 'F') { d = static_cast<unsigned>(c - 'A' + 10); }
+			else { return std::numeric_limits<double>::quiet_NaN(); }
+			u = u * 16 + d;
+		}
+		return neg ? -static_cast<double>(u) : static_cast<double>(u);
+	}
+	// decimal integer: exact and constexpr; anything else (fraction /
+	// exponent) parses with from_chars (non-constexpr -> runtime only)
+	bool all_digits = !s.empty();
+	for (const char c : s) {
+		if (c < '0' || c > '9') { all_digits = false; break; }
+	}
+	if (all_digits) {
+		unsigned long long u = 0;
+		for (const char c : s) { u = u * 10 + static_cast<unsigned>(c - '0'); }
+		return neg ? -static_cast<double>(u) : static_cast<double>(u);
+	}
+	double d = 0;
+	const auto r = std::from_chars(s.data(), s.data() + s.size(), d);
+	if (r.ec != std::errc{} || r.ptr != s.data() + s.size()) {
+		return std::numeric_limits<double>::quiet_NaN();
 	}
 	return neg ? -d : d;
 }
@@ -161,82 +209,78 @@ inline double string_to_number(std::string_view s) {
 
 class value {
 public:
-	using storage = std::variant<undefined_t, null_t, bool, double, std::string,
-	                             std::shared_ptr<array_t>, std::shared_ptr<object_t>,
-	                             std::shared_ptr<function_t>>;
+	using storage = std::variant<undefined_t, null_t, bool, double, std::string, rc<array_t>,
+	                             rc<object_t>, rc<function_t>>;
 
 	constexpr value() noexcept = default; // undefined
-	value(null_t) : v_(null_t{}) { }
-	value(bool b) : v_(b) { }
-	value(double d) : v_(d) { }
-	value(int i) : v_(static_cast<double>(i)) { }
-	value(long long i) : v_(static_cast<double>(i)) { }
-	value(size_t i) : v_(static_cast<double>(i)) { }
-	value(const char * s) : v_(std::string{s}) { }
-	value(std::string s) : v_(std::move(s)) { }
-	value(std::string_view s) : v_(std::string{s}) { }
-	value(std::shared_ptr<array_t> a) : v_(std::move(a)) { }
-	value(std::shared_ptr<object_t> o) : v_(std::move(o)) { }
-	value(std::shared_ptr<function_t> f) : v_(std::move(f)) { }
+	constexpr value(null_t) : v_(null_t{}) { }
+	constexpr value(bool b) : v_(b) { }
+	constexpr value(double d) : v_(d) { }
+	constexpr value(int i) : v_(static_cast<double>(i)) { }
+	constexpr value(long long i) : v_(static_cast<double>(i)) { }
+	constexpr value(size_t i) : v_(static_cast<double>(i)) { }
+	constexpr value(const char * s) : v_(std::string{s}) { }
+	constexpr value(std::string s) : v_(std::move(s)) { }
+	constexpr value(std::string_view s) : v_(std::string{s}) { }
+	constexpr value(rc<array_t> a) : v_(std::move(a)) { }
+	constexpr value(rc<object_t> o) : v_(std::move(o)) { }
+	constexpr value(rc<function_t> f) : v_(std::move(f)) { }
 
-	static value undefined() { return value{}; }
-	static value null() { return value{null_t{}}; }
-	static value array(array_t init = {}) {
-		return value{std::make_shared<array_t>(std::move(init))};
+	static constexpr value undefined() { return value{}; }
+	static constexpr value null() { return value{null_t{}}; }
+	static constexpr value array(array_t init = {}) {
+		return value{rc<array_t>::make(std::move(init))};
 	}
-	static value object(object_t init = {}) {
-		return value{std::make_shared<object_t>(std::move(init))};
+	static constexpr value object(object_t init = {}) {
+		return value{rc<object_t>::make(std::move(init))};
 	}
-	static value function(native_fn fn, std::string name = {}) {
-		return value{std::make_shared<function_t>(function_t{std::move(fn), std::move(name), nullptr})};
+	static constexpr value function(native_fn fn, std::string name = {}) {
+		return value{rc<function_t>::make(function_t{std::move(fn), std::move(name), rc<object_t>{}})};
 	}
 
-	bool is_undefined() const { return std::holds_alternative<undefined_t>(v_); }
-	bool is_null() const { return std::holds_alternative<null_t>(v_); }
-	bool is_nullish() const { return is_undefined() || is_null(); }
-	bool is_bool() const { return std::holds_alternative<bool>(v_); }
-	bool is_number() const { return std::holds_alternative<double>(v_); }
-	bool is_string() const { return std::holds_alternative<std::string>(v_); }
-	bool is_array() const { return std::holds_alternative<std::shared_ptr<array_t>>(v_); }
-	bool is_object() const { return std::holds_alternative<std::shared_ptr<object_t>>(v_); }
-	bool is_function() const { return std::holds_alternative<std::shared_ptr<function_t>>(v_); }
+	constexpr bool is_undefined() const { return std::holds_alternative<undefined_t>(v_); }
+	constexpr bool is_null() const { return std::holds_alternative<null_t>(v_); }
+	constexpr bool is_nullish() const { return is_undefined() || is_null(); }
+	constexpr bool is_bool() const { return std::holds_alternative<bool>(v_); }
+	constexpr bool is_number() const { return std::holds_alternative<double>(v_); }
+	constexpr bool is_string() const { return std::holds_alternative<std::string>(v_); }
+	constexpr bool is_array() const { return std::holds_alternative<rc<array_t>>(v_); }
+	constexpr bool is_object() const { return std::holds_alternative<rc<object_t>>(v_); }
+	constexpr bool is_function() const { return std::holds_alternative<rc<function_t>>(v_); }
 
-	bool as_bool() const { return std::get<bool>(v_); }
-	double as_number() const { return std::get<double>(v_); }
-	const std::string & as_string() const { return std::get<std::string>(v_); }
-	std::string & as_string() { return std::get<std::string>(v_); }
-	const std::shared_ptr<array_t> & as_array() const {
-		return std::get<std::shared_ptr<array_t>>(v_);
-	}
-	const std::shared_ptr<object_t> & as_object() const {
-		return std::get<std::shared_ptr<object_t>>(v_);
-	}
-	const std::shared_ptr<function_t> & as_function() const {
-		return std::get<std::shared_ptr<function_t>>(v_);
-	}
+	constexpr bool as_bool() const { return std::get<bool>(v_); }
+	constexpr double as_number() const { return std::get<double>(v_); }
+	constexpr const std::string & as_string() const { return std::get<std::string>(v_); }
+	constexpr std::string & as_string() { return std::get<std::string>(v_); }
+	constexpr const rc<array_t> & as_array() const { return std::get<rc<array_t>>(v_); }
+	constexpr const rc<object_t> & as_object() const { return std::get<rc<object_t>>(v_); }
+	constexpr const rc<function_t> & as_function() const { return std::get<rc<function_t>>(v_); }
 
 	// --- JS coercions
 
-	bool truthy() const {
+	constexpr bool truthy() const {
 		if (is_undefined() || is_null()) { return false; }
 		if (is_bool()) { return as_bool(); }
-		if (is_number()) { return as_number() != 0 && !std::isnan(as_number()); }
+		if (is_number()) {
+			const double n = as_number();
+			return n != 0 && !(n != n);
+		}
 		if (is_string()) { return !as_string().empty(); }
 		return true; // arrays, objects, functions
 	}
 
-	double to_number() const {
+	constexpr double to_number() const {
 		if (is_number()) { return as_number(); }
 		if (is_bool()) { return as_bool() ? 1 : 0; }
 		if (is_null()) { return 0; }
-		if (is_undefined()) { return std::nan(""); }
+		if (is_undefined()) { return std::numeric_limits<double>::quiet_NaN(); }
 		if (is_string()) { return detail::string_to_number(as_string()); }
 		if (is_array()) { return detail::string_to_number(to_string()); } // via ToPrimitive
-		return std::nan(""); // objects, functions
+		return std::numeric_limits<double>::quiet_NaN();                   // objects, functions
 	}
 
 	// JS ToString (what `String(v)` and `+ ""` produce)
-	std::string to_string() const {
+	constexpr std::string to_string() const {
 		if (is_undefined()) { return "undefined"; }
 		if (is_null()) { return "null"; }
 		if (is_bool()) { return as_bool() ? "true" : "false"; }
@@ -259,7 +303,7 @@ public:
 		return "[object Object]";
 	}
 
-	std::string_view typeof_string() const {
+	constexpr std::string_view typeof_string() const {
 		if (is_undefined()) { return "undefined"; }
 		if (is_null()) { return "object"; } // yes, really
 		if (is_bool()) { return "boolean"; }
@@ -272,7 +316,7 @@ public:
 	// --- equality
 
 	// ===: same type and same value; objects by reference
-	friend bool strict_equals(const value & a, const value & b) {
+	friend constexpr bool strict_equals(const value & a, const value & b) {
 		if (a.v_.index() != b.v_.index()) { return false; }
 		if (a.is_number()) { return a.as_number() == b.as_number(); } // NaN != NaN
 		if (a.is_array()) { return a.as_array() == b.as_array(); }
@@ -283,7 +327,7 @@ public:
 
 	// ==: null == undefined; numeric coercion across number/string/bool;
 	// reference identity for objects (object-to-primitive not modeled)
-	friend bool loose_equals(const value & a, const value & b) {
+	friend constexpr bool loose_equals(const value & a, const value & b) {
 		if (a.v_.index() == b.v_.index()) { return strict_equals(a, b); }
 		if (a.is_nullish() && b.is_nullish()) { return true; }
 		if (a.is_nullish() || b.is_nullish()) { return false; }
@@ -292,23 +336,19 @@ public:
 		if (a_prim && b_prim) {
 			const double x = a.to_number();
 			const double y = b.to_number();
-			return x == y && !std::isnan(x) && !std::isnan(y);
+			return x == y && !(x != x) && !(y != y);
 		}
-		// one side is a reference type: compare via its array-join string
-		// only for arrays (JS ToPrimitive); plain objects never equal
 		if (a.is_array() && b_prim) { return loose_equals(value{a.to_string()}, b); }
 		if (b.is_array() && a_prim) { return loose_equals(a, value{b.to_string()}); }
 		return false;
 	}
 
-	// C++-side drilling: obj["key"], arr[2] - misses yield undefined and
-	// chain harmlessly (null-object style, like the family's views)
-	value operator[](std::string_view key) const;
-	value operator[](size_t i) const;
+	// C++-side drilling: obj["key"], arr[2] - misses yield undefined
+	constexpr value operator[](std::string_view key) const;
+	constexpr value operator[](size_t i) const;
 
-	// C++-side extraction: to<double>(), to<int>(), to<bool>(),
-	// to<std::string>() - JS coercion rules apply
-	template <typename T> T to() const {
+	// C++-side extraction: to<double>(), to<int>(), to<bool>(), to<std::string>()
+	template <typename T> constexpr T to() const {
 		if constexpr (std::is_same_v<T, bool>) {
 			return truthy();
 		} else if constexpr (std::is_same_v<T, std::string>) {
@@ -318,36 +358,36 @@ public:
 		}
 	}
 
-	const storage & raw() const { return v_; }
+	constexpr const storage & raw() const { return v_; }
 
 private:
 	storage v_;
 };
 
-inline value value::operator[](std::string_view key) const {
+constexpr value value::operator[](std::string_view key) const {
 	if (is_object()) {
 		if (const value * v = as_object()->find(key)) { return *v; }
 	}
 	return value{};
 }
-inline value value::operator[](size_t i) const {
+constexpr value value::operator[](size_t i) const {
 	if (is_array() && i < as_array()->size()) { return (*as_array())[i]; }
 	return value{};
 }
 
-inline value * object_t::find(std::string_view key) {
+constexpr value * object_t::find(std::string_view key) {
 	for (auto & [k, v] : props) {
 		if (k == key) { return &v; }
 	}
 	return nullptr;
 }
-inline const value * object_t::find(std::string_view key) const {
+constexpr const value * object_t::find(std::string_view key) const {
 	for (const auto & [k, v] : props) {
 		if (k == key) { return &v; }
 	}
 	return nullptr;
 }
-inline void object_t::set(std::string_view key, value v) {
+constexpr void object_t::set(std::string_view key, value v) {
 	if (value * slot = find(key)) {
 		*slot = std::move(v);
 	} else {
@@ -361,9 +401,8 @@ struct js_throw {
 	value thrown;
 };
 
-// helpers making the spec error shapes: { name, message } objects with
-// the usual "TypeError: ..." rendering
-inline value make_error(std::string_view name, std::string_view message) {
+// helpers making the spec error shapes: { name, message } objects
+constexpr value make_error(std::string_view name, std::string_view message) {
 	object_t o;
 	o.set("name", value{name});
 	o.set("message", value{message});
@@ -374,7 +413,7 @@ inline value make_error(std::string_view name, std::string_view message) {
 }
 
 // the "TypeError: message" line for uncaught errors and console output
-inline std::string error_to_string(const value & v) {
+constexpr std::string error_to_string(const value & v) {
 	if (v.is_object()) {
 		const object_t & o = *v.as_object();
 		if (const value * n = o.find("name")) {
@@ -390,34 +429,47 @@ inline std::string error_to_string(const value & v) {
 }
 
 // --- environments: lexical scopes as a shared chain (closures keep
-// their defining chain alive)
+// their defining chain alive). vars/consts/tdz are flat vectors (not
+// std::map/std::set, which are not constexpr); scopes are small.
 
 struct environment {
-	std::shared_ptr<environment> parent;
-	std::map<std::string, value, std::less<>> vars;
-	// V8-faithful binding metadata: which names are const, which are in
-	// their temporal dead zone (let/const hoisted but uninitialized),
-	// and whether this scope is a var-hoisting boundary (function/global)
-	std::set<std::string, std::less<>> consts;
-	std::set<std::string, std::less<>> tdz;
+	rc<environment> parent;
+	std::vector<std::pair<std::string, value>> vars;
+	std::vector<std::string> consts;
+	std::vector<std::string> tdz; // let/const hoisted but uninitialized
 	bool function_scope = false;
 
-	value * find(std::string_view name) {
+	constexpr value * local(std::string_view name) {
+		for (auto & [k, v] : vars) {
+			if (k == name) { return &v; }
+		}
+		return nullptr;
+	}
+	constexpr bool has_tdz(std::string_view name) const {
+		for (const std::string & s : tdz) {
+			if (s == name) { return true; }
+		}
+		return false;
+	}
+	constexpr bool is_const(std::string_view name) const {
+		for (const std::string & s : consts) {
+			if (s == name) { return true; }
+		}
+		return false;
+	}
+
+	constexpr value * find(std::string_view name) {
 		for (environment * e = this; e != nullptr; e = e->parent.get()) {
-			if (const auto it = e->vars.find(name); it != e->vars.end()) {
-				return &it->second;
-			}
+			if (value * v = e->local(name)) { return v; }
 		}
 		return nullptr;
 	}
 	// like find, but stops with tdz_hit when the nearest declaration of
 	// the name is still in its temporal dead zone (shadowing respected)
-	value * find_checked(std::string_view name, bool & tdz_hit) {
+	constexpr value * find_checked(std::string_view name, bool & tdz_hit) {
 		for (environment * e = this; e != nullptr; e = e->parent.get()) {
-			if (const auto it = e->vars.find(name); it != e->vars.end()) {
-				return &it->second;
-			}
-			if (e->tdz.contains(name)) {
+			if (value * v = e->local(name)) { return v; }
+			if (e->has_tdz(name)) {
 				tdz_hit = true;
 				return nullptr;
 			}
@@ -425,50 +477,49 @@ struct environment {
 		return nullptr;
 	}
 	// the environment holding the nearest binding of name (nullptr = none)
-	environment * owner(std::string_view name) {
+	constexpr environment * owner(std::string_view name) {
 		for (environment * e = this; e != nullptr; e = e->parent.get()) {
-			if (e->vars.find(name) != e->vars.end()) { return e; }
+			if (e->local(name) != nullptr) { return e; }
 		}
 		return nullptr;
 	}
 	// nearest enclosing function/global scope: where `var` declarations land
-	environment & hoist_target() {
+	constexpr environment & hoist_target() {
 		environment * e = this;
 		while (!e->function_scope && e->parent != nullptr) { e = e->parent.get(); }
 		return *e;
 	}
-	void declare(std::string_view name, value v) {
-		tdz.erase(std::string{name}); // initialization ends the dead zone
-		vars.insert_or_assign(std::string{name}, std::move(v));
+	constexpr void declare(std::string_view name, value v) {
+		for (size_t i = 0; i < tdz.size(); ++i) {
+			if (tdz[i] == name) {
+				tdz.erase(tdz.begin() + static_cast<std::ptrdiff_t>(i));
+				break;
+			}
+		}
+		if (value * slot = local(name)) {
+			*slot = std::move(v);
+		} else {
+			vars.emplace_back(std::string{name}, std::move(v));
+		}
 	}
 };
-using env_ptr = std::shared_ptr<environment>;
+using env_ptr = rc<environment>;
 
 // --- the execution context: console capture, recursion guard
 
 struct context {
-	std::string console;                          // captured console output
-	std::function<void(std::string_view)> sink{}; // optional live sink
-	value last;                                   // last expression-statement value
-	// `this` plumbing: a method call parks the receiver in pending_this
-	// just before call_value; call_value moves it into current_this for
-	// exactly that call (fn_maker binds it as `this` in the callee env).
-	// Plain calls see undefined - module/strict semantics, documented.
+	std::string console;                    // captured console output
+	cfunction<void(std::string_view)> sink; // optional live sink (empty by default)
+	value last;                             // last expression-statement value
 	value pending_this;
 	value current_this;
-	// eager generators: while a generator body runs, its yields land
-	// here; non-generator calls null it out so a stray `yield` inside a
-	// nested plain function throws instead of leaking into the buffer
 	std::vector<value> * gen_sink = nullptr;
-	// labeled break/continue: the label rides here while flow::brk/cont
-	// unwinds; loops consume their own labels (pending_labels carries a
-	// labeled_stmt's label down INTO the loop it directly wraps)
 	std::string flow_label;
 	std::vector<std::string> pending_labels;
 	int depth = 0;
 	int max_depth = 256;
 
-	void write(std::string_view s) {
+	constexpr void write(std::string_view s) {
 		console += s;
 		if (sink) { sink(s); }
 	}

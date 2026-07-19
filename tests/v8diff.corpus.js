@@ -173,3 +173,25 @@ console.log(`a\nb`, `tick: \` done`, `${"x"}${"y"}z`);
 // === template-literal-nested-expr
 var xs = [1, 2, 3];
 console.log(`len ${xs.length} last ${xs[xs.length - 1]}`);
+
+// === default-params
+function pad(s, w = 4, c = "0") { return c.repeat(w - s.length) + s; }
+console.log(pad("7"), pad("42", 6), pad("9", 3, " "));
+
+// === array-destructuring
+var [a1, b1, c1] = [10, 20];
+console.log(a1, b1, c1);
+
+// === object-destructuring
+var {x: dx, y: dy} = {x: 1, y: 2, z: 3};
+var {w} = {w: 9};
+console.log(dx, dy, w);
+
+// === spread-in-call-and-array
+function add3(a, b, c) { return a + b + c; }
+var nums = [1, 2, 3];
+console.log(add3(...nums), [0, ...nums, 4]);
+
+// === rest-params
+function tally(first, ...rest) { return first + rest.length; }
+console.log(tally(100, 1, 2, 3), tally(5));

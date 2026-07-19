@@ -412,6 +412,38 @@ template <typename O, typename I> struct eval_<delete_op<index<O, I>>> {
 	}
 };
 
+// template segments arrive with their delimiters on: ` or } in
+// front, ` or ${ behind; escapes cook like strings (minus the quotes)
+inline std::string cook_template_segment(std::string_view raw) {
+	size_t from = 1; // leading ` or }
+	size_t to = raw.size();
+	if (raw.size() >= 2 && raw.substr(raw.size() - 2) == "${") { to -= 2; }
+	else if (!raw.empty()) { to -= 1; } // trailing `
+	std::string quoted = "\"";
+	quoted.append(raw.substr(from, to - from));
+	quoted += '\"';
+	return cook_string(quoted);
+}
+
+template <typename P> struct tpl_eval {
+	static void append(std::string & out, const env_ptr & env, context & cx) {
+		out += ev<P>(env, cx).to_string();
+	}
+};
+template <typename Text> struct tpl_eval<tpl_text<Text>> {
+	static void append(std::string & out, const env_ptr &, context &) {
+		static const std::string cooked = cook_template_segment(Text::view());
+		out += cooked;
+	}
+};
+template <typename... Parts> struct eval_<template_lit<Parts...>> {
+	static value go(const env_ptr & env, context & cx) {
+		std::string out;
+		(tpl_eval<Parts>::append(out, env, cx), ...);
+		return value{std::move(out)};
+	}
+};
+
 // new F(...): fresh object becomes `this` for the call; if the
 // function returns an object, that wins (spec); else the fresh object
 template <typename Callee, typename... Args> struct eval_<new_op<Callee, Args...>> {

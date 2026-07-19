@@ -31,6 +31,7 @@ template <size_t I, typename... Ts> using nth_t = typename nth_s<I, Ts...>::type
 template <typename Node> struct lower_expr;
 template <typename Node> struct lower_stmt;
 template <typename... Ks2> struct lower_new;
+template <typename K> struct tpl_part;
 template <typename... Ks2> struct lower_class;
 template <typename Tree> struct lower_method;
 template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
@@ -204,6 +205,8 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			return ast::array_lit<lower_expr_t<Ks>...>{};
 		} else if constexpr (n == std::string_view{"object_lit"}) {
 			return ast::object_lit<typename lower_prop<Ks>::type...>{};
+		} else if constexpr (n == std::string_view{"template_lit"}) {
+			return ast::template_lit<typename tpl_part<Ks>::type...>{};
 		} else if constexpr (n == std::string_view{"new_op"}) {
 			return typename lower_new<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"comma_op"}) {
@@ -278,6 +281,23 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 };
 
 // --- statements
+
+// template literal parts: TEMPLATE_* tokens are text; any other kid
+// (tree OR collapsed single-token expression like a bare NAME) lowers
+// as an expression
+template <typename TN, typename TV> struct tpl_part<ctlark::token<TN, TV>> {
+	static constexpr auto pick() {
+		if constexpr (TN::view().starts_with("TEMPLATE")) {
+			return ast::tpl_text<TV>{};
+		} else {
+			return typename lower_expr<ctlark::token<TN, TV>>::type{};
+		}
+	}
+	using type = decltype(pick());
+};
+template <typename TN, typename... Ks3> struct tpl_part<ctlark::tree<TN, Ks3...>> {
+	using type = lower_expr_t<ctlark::tree<TN, Ks3...>>;
+};
 
 // new C(a, b): kids are [callee, args-tree]; args-tree kids are exprs
 template <typename Callee, typename AN, typename... ArgKs>

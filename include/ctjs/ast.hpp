@@ -77,6 +77,8 @@ template <typename E> struct throw_stmt { };
 template <typename Body, typename CatchName, typename Handler, typename Finally>
 struct try_stmt { };
 template <typename Callee, typename... Args> struct new_op { };
+template <typename Text> struct tpl_text { };
+template <typename... Parts> struct template_lit { };
 template <typename Name, typename Params, typename Body> struct class_method { };
 template <typename Name, typename... Methods> struct class_decl { };
 template <typename E, typename... Ss> struct case_clause { };

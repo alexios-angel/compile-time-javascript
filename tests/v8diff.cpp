@@ -188,7 +188,19 @@ console.log(new Greeter("ada").shout());
 console.log(new Weird().b, new Weird().a);
 )v8">(R"v8(new-returns-object-override)v8", R"v8(2 undefined
 )v8");
+	run_case<R"v8(var name = "ada";
+console.log(`hi ${name}!`, `1+1=${1 + 1}`, `plain`);
+)v8">(R"v8(template-literal-basics)v8", R"v8(hi ada! 1+1=2 plain
+)v8");
+	run_case<R"v8(console.log(`a\nb`, `tick: \` done`, `${"x"}${"y"}z`);
+)v8">(R"v8(template-literal-multiline-escapes)v8", R"v8(a
+b tick: ` done xyz
+)v8");
+	run_case<R"v8(var xs = [1, 2, 3];
+console.log(`len ${xs.length} last ${xs[xs.length - 1]}`);
+)v8">(R"v8(template-literal-nested-expr)v8", R"v8(len 3 last 3
+)v8");
 	std::printf("v8diff: %d failures, %d parse gaps, %d cases\n",
-	            failures, parse_gaps, 35);
+	            failures, parse_gaps, 38);
 	return failures == 0 ? 0 : 1;
 }

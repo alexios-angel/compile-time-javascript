@@ -145,11 +145,14 @@ args: [assign ("," assign)*]
         | "true"      -> true_lit
         | "false"     -> false_lit
         | "null"      -> null_lit
+        | template_lit
         | array_lit
         | object_lit
         | fn_expr
         | arrow_fn
         | "(" expr ")" -> paren
+template_lit: TEMPLATE_FULL
+            | TEMPLATE_HEAD assign (TEMPLATE_MID assign)* TEMPLATE_TAIL
 array_lit: "[" [assign ("," assign)*] "]"
 object_lit: "{" [prop ("," prop)*] "}"
 prop: NAME ":" assign     -> prop_name
@@ -163,6 +166,10 @@ arrow_fn: "(" params ")" "=>" arrow_body
 NAME: /[A-Za-z_$][A-Za-z0-9_$]*/
 NUMBER: /0[xX][0-9a-fA-F]+|(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+\-]?[0-9]+)?|\.[0-9]+/
 DQSTRING: /"([^"\\\x0a]|\\[\s\S])*"/
+TEMPLATE_FULL: /`([^`\\$]|\\[\s\S]|\$[^{`\\])*\$?`/
+TEMPLATE_HEAD: /`([^`\\$]|\\[\s\S]|\$[^{`\\])*\$\{/
+TEMPLATE_MID: /\}([^`\\$]|\\[\s\S]|\$[^{`\\])*\$\{/
+TEMPLATE_TAIL: /\}([^`\\$]|\\[\s\S]|\$[^{`\\])*\$?`/
 SQSTRING: /'([^'\\\x0a]|\\[\s\S])*'/
 ASSIGN_OP: /(\*\*|[+\-*\/%])?=/
 EQ_OP: /[=!]==?/

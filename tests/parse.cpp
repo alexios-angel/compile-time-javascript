@@ -45,7 +45,13 @@ static_assert(!ctjs::is_valid<"function () {}">);   // declarations need a name
 static_assert(!ctjs::is_valid<"let x = 'unterminated;">);
 static_assert(ctjs::is_valid<"class C { constructor() {} m() { return 1; } }">);
 static_assert(ctjs::is_valid<"let p = new C(1, 2).m();">);
-static_assert(!ctjs::is_valid<"class C extends D {}">); // no inheritance yet
+static_assert(ctjs::is_valid<"class C extends D { m() { return 1; } }">);
+static_assert(ctjs::is_valid<"class C { get x() { return 1; } set x(v) {} }">);
+static_assert(ctjs::is_valid<"let o = { [k]: 1, get n() { return 2; } };">);
+static_assert(ctjs::is_valid<"outer: for (;;) { break outer; }">);
+static_assert(ctjs::is_valid<"function* g() { yield 1; }">);
+static_assert(ctjs::is_valid<"let r = /ab+c/gi;">);
+static_assert(ctjs::is_valid<"let t = new Date(0).getTime();">);
 
 // --- the script surface
 static_assert(ctjs::script<"let x = 1;">.valid);

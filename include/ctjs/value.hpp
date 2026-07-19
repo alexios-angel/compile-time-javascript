@@ -47,9 +47,13 @@ struct object_t {
 // one representation for JS functions and native (C++) functions: the
 // closure environment, if any, is captured inside the std::function
 using native_fn = std::function<value(context &, const std::vector<value> &)>;
+struct object_t;
 struct function_t {
 	native_fn fn;
 	std::string name; // for typeof/printing; may be empty
+	// statics riding on the function value (Date.now, class statics);
+	// null for the overwhelming majority that carry none
+	std::shared_ptr<object_t> props;
 };
 
 struct undefined_t {
@@ -181,7 +185,7 @@ public:
 		return value{std::make_shared<object_t>(std::move(init))};
 	}
 	static value function(native_fn fn, std::string name = {}) {
-		return value{std::make_shared<function_t>(function_t{std::move(fn), std::move(name)})};
+		return value{std::make_shared<function_t>(function_t{std::move(fn), std::move(name), nullptr})};
 	}
 
 	bool is_undefined() const { return std::holds_alternative<undefined_t>(v_); }
@@ -453,6 +457,11 @@ struct context {
 	// here; non-generator calls null it out so a stray `yield` inside a
 	// nested plain function throws instead of leaking into the buffer
 	std::vector<value> * gen_sink = nullptr;
+	// labeled break/continue: the label rides here while flow::brk/cont
+	// unwinds; loops consume their own labels (pending_labels carries a
+	// labeled_stmt's label down INTO the loop it directly wraps)
+	std::string flow_label;
+	std::vector<std::string> pending_labels;
 	int depth = 0;
 	int max_depth = 256;
 

@@ -4,9 +4,11 @@
 #include "value.hpp"
 #ifndef CTJS_IN_A_MODULE
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <random>
+#include <unordered_map>
 #endif
 
 // The runtime library: property access on every value kind (array and
@@ -138,6 +140,32 @@ inline value await_value(value v) {
 		v = std::move(inner);
 	}
 	return v;
+}
+
+// --- accessors: { get x() {}, set x(v) {} } (object literals and
+// classes) store a hidden marker object per property; get_member calls
+// the getter with the receiver as `this`, set_member the setter.
+
+inline bool is_accessor(const value & v) {
+	return v.is_object() && v.as_object()->find("__accessor") != nullptr;
+}
+
+inline void attach_accessor(object_t & o, std::string_view name, char kind, value fn) {
+	value * slot = o.find(name);
+	if (slot == nullptr || !is_accessor(*slot)) {
+		object_t acc;
+		acc.set("__accessor", value{true});
+		o.set(name, value::object(std::move(acc)));
+		slot = o.find(name);
+	}
+	slot->as_object()->set(kind == 'g' ? "get" : "set", std::move(fn));
+}
+
+// class B extends A: instanceof walks this side table (function values
+// cannot be map keys; identity of the function_t cell is the key)
+inline std::unordered_map<const function_t *, value> & class_supers() {
+	static std::unordered_map<const function_t *, value> m;
+	return m;
 }
 
 // --- regular expressions: a small backtracking engine behind regex
@@ -625,10 +653,10 @@ inline std::string inspect(const value & v) {
 	}
 	if (v.is_object()) {
 		const object_t & o = *v.as_object();
-		if (o.props.empty()) { return "{}"; }
 		std::string out = "{ ";
 		bool first = true;
 		for (const auto & [k, pv] : o.props) {
+			if (k == "__ctor" || is_accessor(pv)) { continue; } // engine-internal
 			if (!first) { out += ", "; }
 			first = false;
 			out += k;
@@ -636,7 +664,7 @@ inline std::string inspect(const value & v) {
 			out += inspect_parts(pv);
 		}
 		out += " }";
-		return out;
+		return first ? std::string{"{}"} : out;
 	}
 	if (v.is_function()) {
 		const std::string & n = v.as_function()->name;
@@ -696,6 +724,7 @@ inline bool json_piece(const value & v, std::string & out) {
 	out += '{';
 	bool first = true;
 	for (const auto & [k, pv] : v.as_object()->props) {
+		if (k == "__ctor" || is_accessor(pv)) { continue; } // engine-internal
 		std::string piece;
 		if (!json_piece(pv, piece)) { continue; }
 		if (!first) { out += ','; }
@@ -1156,20 +1185,36 @@ inline value number_member(const value & recv, std::string_view name) {
 
 } // namespace detail
 
-inline value get_member(context &, const value & recv, std::string_view name) {
+inline value get_member(context & cx, const value & recv, std::string_view name) {
 	if (recv.is_undefined() || recv.is_null()) {
 		throw_error("TypeError", "Cannot read properties of " +
 		                             std::string{recv.is_null() ? "null" : "undefined"} +
 		                             " (reading '" + std::string{name} + "')");
 	}
 	if (recv.is_object()) {
-		if (const value * v = recv.as_object()->find(name)) { return *v; }
+		if (const value * v = recv.as_object()->find(name)) {
+			if (is_accessor(*v)) {
+				const value * g = v->as_object()->find("get");
+				if (g != nullptr && g->is_function()) {
+					cx.pending_this = recv;
+					return call_value(cx, *g, {});
+				}
+				return value{}; // setter-only property reads undefined
+			}
+			return *v;
+		}
 		return value{};
 	}
 	if (recv.is_array()) { return detail::array_member(recv, name); }
 	if (recv.is_string()) { return detail::string_member(recv, name); }
 	if (recv.is_number()) { return detail::number_member(recv, name); }
-	if (recv.is_function() && name == "name") { return value{recv.as_function()->name}; }
+	if (recv.is_function()) {
+		// statics riding on the function value (Date.now, class statics)
+		if (const auto & props = recv.as_function()->props; props != nullptr) {
+			if (const value * v = props->find(name)) { return *v; }
+		}
+		if (name == "name") { return value{recv.as_function()->name}; }
+	}
 	return value{};
 }
 
@@ -1197,13 +1242,21 @@ inline value get_index(context & cx, const value & recv, const value & key) {
 	return get_member(cx, recv, key.to_string());
 }
 
-inline void set_member(const value & recv, std::string_view name, value v) {
+inline void set_member(context & cx, const value & recv, std::string_view name, value v) {
 	if (recv.is_undefined() || recv.is_null()) {
 		throw_error("TypeError", "Cannot set properties of " +
 		                             std::string{recv.is_null() ? "null" : "undefined"} +
 		                             " (setting '" + std::string{name} + "')");
 	}
 	if (recv.is_object()) {
+		if (value * cur = recv.as_object()->find(name); cur != nullptr && is_accessor(*cur)) {
+			const value * st = cur->as_object()->find("set");
+			if (st != nullptr && st->is_function()) {
+				cx.pending_this = recv;
+				(void)call_value(cx, *st, {std::move(v)});
+			}
+			return; // getter-only property writes are silent no-ops
+		}
 		recv.as_object()->set(name, std::move(v));
 		return;
 	}
@@ -1214,7 +1267,7 @@ inline void set_member(const value & recv, std::string_view name, value v) {
 	// numbers/strings: silent no-op, like non-strict JS
 }
 
-inline void set_index(const value & recv, const value & key, value v) {
+inline void set_index(context & cx, const value & recv, const value & key, value v) {
 	if (recv.is_array() && key.is_number()) {
 		const double d = key.as_number();
 		if (d >= 0 && d == static_cast<double>(static_cast<size_t>(d))) {
@@ -1225,7 +1278,7 @@ inline void set_index(const value & recv, const value & key, value v) {
 			return;
 		}
 	}
-	set_member(recv, key.to_string(), std::move(v));
+	set_member(cx, recv, key.to_string(), std::move(v));
 }
 
 // --- the default global environment
@@ -1517,6 +1570,77 @@ inline value make_json() {
 
 } // namespace detail
 
+// days -> y/m/d (proleptic Gregorian, UTC); Hinnant's civil_from_days
+inline void civil_from_days(long long z, long long & y, unsigned & m, unsigned & d) {
+	z += 719468;
+	const long long era = (z >= 0 ? z : z - 146096) / 146097;
+	const unsigned long long doe = static_cast<unsigned long long>(z - era * 146097);
+	const unsigned long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+	y = static_cast<long long>(yoe) + era * 400;
+	const unsigned long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+	const unsigned long long mp = (5 * doy + 2) / 153;
+	d = static_cast<unsigned>(doy - (153 * mp + 2) / 5 + 1);
+	m = static_cast<unsigned>(mp < 10 ? mp + 3 : mp - 9);
+	if (m <= 2) { ++y; }
+}
+
+inline value make_date_object(double ms) {
+	auto o = std::make_shared<object_t>();
+	o->set("__date_ms", value{ms});
+	const auto part = [ms](int which) -> double {
+		const long long total = static_cast<long long>(ms);
+		long long days = total / 86400000;
+		long long rem = total % 86400000;
+		if (rem < 0) { rem += 86400000; --days; }
+		long long y;
+		unsigned mo, dy;
+		civil_from_days(days, y, mo, dy);
+		switch (which) {
+		case 0: return static_cast<double>(y);
+		case 1: return static_cast<double>(mo - 1); // JS months are 0-based
+		case 2: return static_cast<double>(dy);
+		case 3: return static_cast<double>(rem / 3600000);
+		case 4: return static_cast<double>((rem / 60000) % 60);
+		case 5: return static_cast<double>((rem / 1000) % 60);
+		case 6: return static_cast<double>(rem % 1000);
+		default: return static_cast<double>((days % 7 + 11) % 7); // 1970-01-01 = Thursday
+		}
+	};
+	const auto getter = [part](const char * name, int which) {
+		return value::function(
+		    [part, which](context &, const std::vector<value> &) { return value{part(which)}; },
+		    name);
+	};
+	o->set("getTime", value::function(
+	                      [ms](context &, const std::vector<value> &) { return value{ms}; },
+	                      "getTime"));
+	o->set("getUTCFullYear", getter("getUTCFullYear", 0));
+	o->set("getFullYear", getter("getFullYear", 0)); // engine is UTC-only
+	o->set("getMonth", getter("getMonth", 1));
+	o->set("getDate", getter("getDate", 2));
+	o->set("getHours", getter("getHours", 3));
+	o->set("getMinutes", getter("getMinutes", 4));
+	o->set("getSeconds", getter("getSeconds", 5));
+	o->set("getMilliseconds", getter("getMilliseconds", 6));
+	o->set("getDay", getter("getDay", 7));
+	o->set("toISOString", value::function(
+	                          [part](context &, const std::vector<value> &) {
+		                          char buf[40];
+		                          std::snprintf(buf, sizeof(buf),
+		                                        "%04lld-%02u-%02uT%02u:%02u:%02u.%03uZ",
+		                                        static_cast<long long>(part(0)),
+		                                        static_cast<unsigned>(part(1)) + 1,
+		                                        static_cast<unsigned>(part(2)),
+		                                        static_cast<unsigned>(part(3)),
+		                                        static_cast<unsigned>(part(4)),
+		                                        static_cast<unsigned>(part(5)),
+		                                        static_cast<unsigned>(part(6)));
+		                          return value{std::string{buf}};
+	                          },
+	                          "toISOString"));
+	return value{std::move(o)};
+}
+
 inline env_ptr make_globals() {
 	auto g = std::make_shared<environment>();
 	g->function_scope = true; // the global scope is where top-level var lands
@@ -1526,6 +1650,44 @@ inline env_ptr make_globals() {
 	g->declare("console", detail::make_console());
 	g->declare("Math", detail::make_math());
 	g->declare("JSON", detail::make_json());
+	{
+		// Date, the UTC subset: new Date() / new Date(ms) with the usual
+		// getters + toISOString; Date.now() is the host wall clock (the
+		// one impure global besides console - hosts can rebind it).
+		// Local-time getters alias the UTC ones; no parsing, no setters.
+		value date_fn = value::function(
+		    [](context & cx, const std::vector<value> & a) -> value {
+			    const double ms =
+			        !a.empty() && a[0].is_number()
+			            ? a[0].as_number()
+			            : static_cast<double>(
+			                  std::chrono::duration_cast<std::chrono::milliseconds>(
+			                      std::chrono::system_clock::now().time_since_epoch())
+			                      .count());
+			    value d = make_date_object(ms);
+			    // fold into the fresh `this` new_op parked, keeping the
+			    // __ctor stamp so `x instanceof Date` holds
+			    if (cx.current_this.is_object()) {
+				    for (auto & [k, pv] : d.as_object()->props) {
+					    cx.current_this.as_object()->set(k, pv);
+				    }
+				    return cx.current_this;
+			    }
+			    return d;
+		    },
+		    "Date");
+		date_fn.as_function()->props = std::make_shared<object_t>();
+		date_fn.as_function()->props->set(
+		    "now", value::function(
+		               [](context &, const std::vector<value> &) {
+			               return value{static_cast<double>(
+			                   std::chrono::duration_cast<std::chrono::milliseconds>(
+			                       std::chrono::system_clock::now().time_since_epoch())
+			                       .count())};
+		               },
+		               "now"));
+		g->declare("Date", std::move(date_fn));
+	}
 	{
 		// Promise, the settled subset (see make_promise above):
 		// resolve/reject/all - `new Promise(executor)` is deliberately

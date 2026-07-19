@@ -35,6 +35,9 @@ template <typename Text> struct str_lit { };            // raw, quotes included
 struct true_lit { }; struct false_lit { }; struct null_lit { };
 template <typename... Elems> struct array_lit { };
 template <typename KeyText, typename V> struct prop { }; // key already unquoted
+template <typename K, typename V> struct computed_prop { }; // { [expr]: v }
+template <char Kind, typename Name, typename Params, typename Body>
+struct accessor_prop { }; // { get x() {} / set x(v) {} }
 template <typename E> struct spread_prop { };            // { ...expr }
 template <typename... Props> struct object_lit { };
 template <typename Op, typename L, typename R> struct binary { };
@@ -98,6 +101,9 @@ template <typename Init, typename Cond, typename Step, typename Body> struct for
 template <typename NameText, typename Iter, typename Body> struct forof_stmt { };
 template <typename E> struct return_stmt { }; // E = void for bare return
 struct break_stmt { }; struct continue_stmt { };
+template <typename LabelText> struct break_label { };
+template <typename LabelText> struct continue_label { };
+template <typename LabelText, typename S> struct labeled_stmt { };
 template <typename E> struct throw_stmt { };
 // CatchName/Handler = void for try/finally; Finally = void when absent
 template <typename Body, typename CatchName, typename Handler, typename Finally>
@@ -106,7 +112,12 @@ template <typename Callee, typename... Args> struct new_op { };
 template <typename Text> struct tpl_text { };
 template <typename... Parts> struct template_lit { };
 template <typename Name, typename Params, typename Body> struct class_method { };
+// Kind: 'g' getter, 's' setter (validated at lowering from the NAME
+// NAME(...) accessor shape - get/set stay ordinary identifiers)
+template <char Kind, typename Name, typename Params, typename Body>
+struct class_accessor { };
 template <typename Name, typename... Methods> struct class_decl { };
+template <typename Name, typename SuperName, typename... Methods> struct class_ext { };
 template <typename E, typename... Ss> struct case_clause { };
 template <typename... Ss> struct default_clause { };
 template <typename D, typename... Clauses> struct switch_stmt { };

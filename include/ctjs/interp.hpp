@@ -256,6 +256,17 @@ template <typename... Ps> struct eval_<object_lit<Ps...>> {
 	static void put(object_t & o, const env_ptr & env, context & cx, prop<K, V>) {
 		o.set(key_of<K>::get(), ev<V>(env, cx));
 	}
+	template <typename K, typename V>
+	static void put(object_t & o, const env_ptr & env, context & cx, computed_prop<K, V>) {
+		const std::string key = ev<K>(env, cx).to_string();
+		o.set(key, ev<V>(env, cx));
+	}
+	template <char Kd, typename N, typename P, typename B>
+	static void put(object_t & o, const env_ptr & env, context & cx,
+	                accessor_prop<Kd, N, P, B>) {
+		attach_accessor(o, N::view(), Kd,
+		                ev<fn_expr<P, B, false>>(env, cx));
+	}
 	// { ...src }: copy own enumerable props; arrays/strings spread as
 	// index keys; other primitives contribute nothing, like the spec
 	template <typename E>
@@ -493,8 +504,16 @@ template <typename L, typename R> struct eval_<instanceof_op<L, R>> {
 		}
 		if (!lhs.is_object()) { return value{false}; }
 		const value * ctor = lhs.as_object()->find("__ctor");
-		return value{ctor != nullptr && ctor->is_function() &&
-		             ctor->as_function() == rhs.as_function()};
+		if (ctor == nullptr || !ctor->is_function()) { return value{false}; }
+		value cur = *ctor;
+		for (int hops = 0; hops < 64 && cur.is_function(); ++hops) {
+			if (cur.as_function() == rhs.as_function()) { return value{true}; }
+			const auto & supers = class_supers();
+			const auto it = supers.find(cur.as_function().get());
+			if (it == supers.end()) { break; }
+			cur = it->second;
+		}
+		return value{false};
 	}
 };
 
@@ -649,7 +668,9 @@ template <typename O, typename N> struct place<member<O, N>> {
 	static value get_from(context & cx, const value & r) {
 		return get_member(cx, r, N::view());
 	}
-	static void set_to(const value & r, value v) { set_member(r, N::view(), std::move(v)); }
+	static void set_to(context & cx, const value & r, value v) {
+		set_member(cx, r, N::view(), std::move(v));
+	}
 };
 template <typename O, typename I> struct place<index<O, I>> {
 	static value recv(const env_ptr & env, context & cx) { return ev<O>(env, cx); }
@@ -670,13 +691,13 @@ value modify_place(const env_ptr & env, context & cx, Update update) {
 	} else if constexpr (is_member_node<Target>::value) {
 		const value r = place<Target>::recv(env, cx);
 		value nv = update([&] { return place<Target>::get_from(cx, r); });
-		place<Target>::set_to(r, nv);
+		place<Target>::set_to(cx, r, nv);
 		return nv;
 	} else {
 		const value r = place<Target>::recv(env, cx);
 		const value key = ev<typename index_parts_of<Target>::key_expr>(env, cx);
 		value nv = update([&] { return get_index(cx, r, key); });
-		set_index(r, key, nv);
+		set_index(cx, r, key, nv);
 		return nv;
 	}
 }
@@ -983,6 +1004,21 @@ template <typename N, typename P, typename B> struct attach_method<class_method<
 	}
 	static value ctor(const env_ptr &) { return value{}; }
 };
+template <char Kd, typename N, typename P, typename B>
+struct attach_method<class_accessor<Kd, N, P, B>> {
+	static constexpr bool is_ctor = false;
+	static void attach(const env_ptr & defn_env, const value & obj) {
+		attach_accessor(*obj.as_object(), N::view(), Kd,
+		                fn_maker<P, B, false>::make(defn_env, std::string{N::view()}));
+	}
+	static value ctor(const env_ptr &) { return value{}; }
+};
+
+template <typename M> struct method_is_ctor : std::false_type { };
+template <typename N, typename P, typename B>
+struct method_is_ctor<class_method<N, P, B>>
+    : std::bool_constant<N::view() == std::string_view{"constructor"}> { };
+
 template <typename P, typename B> struct ctor_of {
 	static value make(const env_ptr & env) { return fn_maker<P, B, false>::make(env, "constructor"); }
 };
@@ -1016,6 +1052,48 @@ template <typename Name, typename... Methods> struct exec_<class_decl<Name, Meth
 	}
 };
 
+// class B extends A: base methods + base ctor first (an implicit
+// ARGLESS super() when B declares its own constructor, else the args
+// pass straight through - the JS default-ctor behavior), then B's
+// methods override and B's ctor runs. No super.method() calls, no
+// prototype chain - instanceof walks the class_supers side table.
+template <typename Name, typename SuperName, typename... Methods>
+struct exec_<class_ext<Name, SuperName, Methods...>> {
+	static constexpr bool has_own_ctor = (method_is_ctor<Methods>::value || ...);
+	static flow go(const env_ptr & env, context & cx, value &) {
+		const value base = ev<ident<SuperName>>(env, cx);
+		if (!base.is_function()) {
+			throw_error("TypeError", "Class extends value is not a constructor");
+		}
+		env_ptr defn = env;
+		value cls = value::function(
+		    [defn, base](context & cx2, const std::vector<value> & args) -> value {
+			    value self = cx2.current_this;
+			    if (!self.is_object()) { self = value::object(); }
+			    cx2.pending_this = self;
+			    (void)call_value(cx2, base,
+			                     has_own_ctor ? std::vector<value>{} : args);
+			    (attach_one<Methods>(defn, self), ...);
+			    if constexpr (has_own_ctor) {
+				    if (const value * c = self.as_object()->find("constructor");
+				        c != nullptr && c->is_function()) {
+					    value ctor_fn = *c;
+					    cx2.pending_this = self;
+					    (void)call_value(cx2, ctor_fn, args);
+				    }
+			    }
+			    return self;
+		    },
+		    std::string{Name::view()});
+		class_supers()[cls.as_function().get()] = base;
+		env->declare(Name::view(), std::move(cls));
+		return flow::normal;
+	}
+	template <typename M> static void attach_one(const env_ptr & defn, const value & self) {
+		attach_method<M>::attach(defn, self);
+	}
+};
+
 template <typename... Ss> struct exec_<block<Ss...>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
 		auto scope = std::make_shared<environment>();
@@ -1033,12 +1111,41 @@ template <typename C, typename T, typename E> struct exec_<if_stmt<C, T, E>> {
 	}
 };
 
+// labeled-flow triage shared by every loop: a loop consumes unlabeled
+// break/continue and ones naming a label that directly wraps it;
+// anything else propagates so an OUTER loop (or labeled_stmt) takes it
+struct loop_labels {
+	std::vector<std::string> mine;
+	explicit loop_labels(context & cx) : mine(std::move(cx.pending_labels)) {
+		cx.pending_labels.clear();
+	}
+	bool owns(const context & cx) const {
+		for (const std::string & l : mine) {
+			if (l == cx.flow_label) { return true; }
+		}
+		return false;
+	}
+	// 0 = proceed to next iteration, 1 = stop loop, 2 = propagate f
+	int triage(flow f, context & cx) const {
+		if (f == flow::ret) { return 2; }
+		if (f == flow::brk) {
+			if (cx.flow_label.empty() || owns(cx)) { cx.flow_label.clear(); return 1; }
+			return 2;
+		}
+		if (f == flow::cont && !cx.flow_label.empty() && !owns(cx)) { return 2; }
+		if (f == flow::cont) { cx.flow_label.clear(); }
+		return 0;
+	}
+};
+
 template <typename C, typename B> struct exec_<while_stmt<C, B>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
+		const loop_labels labels(cx);
 		while (ev<C>(env, cx).truthy()) {
 			const flow f = exec_<B>::go(env, cx, ret);
-			if (f == flow::brk) { break; }
-			if (f == flow::ret) { return f; }
+			const int t = labels.triage(f, cx);
+			if (t == 1) { break; }
+			if (t == 2) { return f; }
 		}
 		return flow::normal;
 	}
@@ -1046,10 +1153,12 @@ template <typename C, typename B> struct exec_<while_stmt<C, B>> {
 
 template <typename B, typename C> struct exec_<do_stmt<B, C>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
+		const loop_labels labels(cx);
 		do {
 			const flow f = exec_<B>::go(env, cx, ret);
-			if (f == flow::brk) { break; }
-			if (f == flow::ret) { return f; }
+			const int t = labels.triage(f, cx);
+			if (t == 1) { break; }
+			if (t == 2) { return f; }
 		} while (ev<C>(env, cx).truthy());
 		return flow::normal;
 	}
@@ -1077,6 +1186,7 @@ template <typename... Ds> struct loop_bindings<let_stmt<Ds...>> {
 template <typename Init, typename Cond, typename Step, typename B>
 struct exec_<for_stmt<Init, Cond, Step, B>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
+		const loop_labels labels(cx);
 		auto scope = std::make_shared<environment>();
 		scope->parent = env;
 		if constexpr (!std::is_void_v<Init>) {
@@ -1097,8 +1207,9 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 					if (!ev<Cond>(iter, cx).truthy()) { break; }
 				}
 				const flow f = exec_<B>::go(iter, cx, ret);
-				if (f == flow::ret) { return f; }
-				if (f == flow::brk) { break; }
+				const int t = labels.triage(f, cx);
+				if (t == 1) { break; }
+				if (t == 2) { return f; }
 				auto next = std::make_shared<environment>();
 				next->parent = env;
 				loop_bindings<Init>::copy(*iter, *next);
@@ -1112,8 +1223,9 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 				if (!ev<Cond>(scope, cx).truthy()) { break; }
 			}
 			const flow f = exec_<B>::go(scope, cx, ret);
-			if (f == flow::brk) { break; }
-			if (f == flow::ret) { return f; }
+			const int t = labels.triage(f, cx);
+			if (t == 1) { break; }
+			if (t == 2) { return f; }
 			if constexpr (!std::is_void_v<Step>) { (void)ev<Step>(scope, cx); }
 		}
 		return flow::normal;
@@ -1122,6 +1234,7 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 
 template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter, B>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
+		const loop_labels labels(cx);
 		const value seq = ev<Iter>(env, cx);
 		const auto step = [&](value element) -> flow {
 			auto scope = std::make_shared<environment>();
@@ -1133,16 +1246,18 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 			const std::shared_ptr<array_t> arr = seq.as_array();
 			for (size_t i = 0; i < arr->size(); ++i) {
 				const flow f = step((*arr)[i]);
-				if (f == flow::brk) { break; }
-				if (f == flow::ret) { return f; }
+				const int t = labels.triage(f, cx);
+				if (t == 1) { break; }
+				if (t == 2) { return f; }
 			}
 			return flow::normal;
 		}
 		if (seq.is_string()) {
 			for (const char c : seq.as_string()) {
 				const flow f = step(value{std::string(1, c)});
-				if (f == flow::brk) { break; }
-				if (f == flow::ret) { return f; }
+				const int t = labels.triage(f, cx);
+				if (t == 1) { break; }
+				if (t == 2) { return f; }
 			}
 			return flow::normal;
 		}
@@ -1159,8 +1274,9 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 					if (done != nullptr && done->truthy()) { break; }
 					const value * v = r.as_object()->find("value");
 					const flow f = step(v != nullptr ? *v : value{});
-					if (f == flow::brk) { break; }
-					if (f == flow::ret) { return f; }
+					const int t = labels.triage(f, cx);
+					if (t == 1) { break; }
+					if (t == 2) { return f; }
 				}
 				return flow::normal;
 			}
@@ -1209,7 +1325,7 @@ template <typename D, typename... Clauses> struct exec_<switch_stmt<D, Clauses..
 		};
 		(step(std::type_identity<Clauses>{}, false), ...);
 		if (!taken) { (step(std::type_identity<Clauses>{}, true), ...); }
-		if (f == flow::brk) { f = flow::normal; }
+		if (f == flow::brk && cx.flow_label.empty()) { f = flow::normal; }
 		return f;
 	}
 };
@@ -1226,6 +1342,38 @@ template <typename E> struct exec_<return_stmt<E>> {
 };
 template <> struct exec_<break_stmt> {
 	static flow go(const env_ptr &, context &, value &) { return flow::brk; }
+};
+template <typename L> struct exec_<break_label<L>> {
+	static flow go(const env_ptr &, context & cx, value &) {
+		cx.flow_label = std::string{L::view()};
+		return flow::brk;
+	}
+};
+template <typename L> struct exec_<continue_label<L>> {
+	static flow go(const env_ptr &, context & cx, value &) {
+		cx.flow_label = std::string{L::view()};
+		return flow::cont;
+	}
+};
+template <typename L, typename S> struct exec_<labeled_stmt<L, S>> {
+	static flow go(const env_ptr & env, context & cx, value & ret) {
+		cx.pending_labels.push_back(std::string{L::view()});
+		const flow f = exec_<S>::go(env, cx, ret);
+		// a wrapped non-loop never consumed the pending label; drop it
+		for (size_t i = cx.pending_labels.size(); i-- > 0;) {
+			if (cx.pending_labels[i] == L::view()) {
+				cx.pending_labels.erase(cx.pending_labels.begin() +
+				                        static_cast<ptrdiff_t>(i));
+				break;
+			}
+		}
+		// `break label` targeting a labeled non-loop statement lands here
+		if (f == flow::brk && cx.flow_label == L::view()) {
+			cx.flow_label.clear();
+			return flow::normal;
+		}
+		return f;
+	}
 };
 template <> struct exec_<continue_stmt> {
 	static flow go(const env_ptr &, context &, value &) { return flow::cont; }

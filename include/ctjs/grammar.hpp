@@ -54,6 +54,7 @@ start: stmt*
      | try_stmt
      | switch_stmt
      | class_decl
+     | labeled_stmt
      | empty_stmt
      | expr_stmt
 
@@ -88,16 +89,21 @@ forof_stmt: "for" "(" "let" NAME "of" expr ")" stmt   -> forof_let
           | "for" "(" "var" NAME "of" expr ")" stmt   -> forof_var
 return_stmt: "return" [expr] ";"
 break_stmt: "break" ";"
+          | "break" NAME ";" -> break_label
 continue_stmt: "continue" ";"
+             | "continue" NAME ";" -> continue_label
 throw_stmt: "throw" expr ";"
 try_stmt: "try" block "catch" "(" NAME ")" block                  -> try_catch
         | "try" block "catch" "(" NAME ")" block "finally" block  -> try_catch_fin
         | "try" block "finally" block                             -> try_fin
 class_decl: "class" NAME "{" class_member* "}"
+          | "class" NAME "extends" NAME "{" class_member* "}" -> class_extends
 class_member: NAME "(" params ")" block -> class_method
+            | NAME NAME "(" params ")" block -> class_accessor
 switch_stmt: "switch" "(" expr ")" "{" switch_clause* "}"
 switch_clause: "case" expr ":" stmt*  -> case_clause
              | "default" ":" stmt*     -> default_clause
+labeled_stmt: NAME ":" stmt
 empty_stmt: ";"
 expr_stmt: expr ";"
 
@@ -178,6 +184,8 @@ prop: NAME ":" assign     -> prop_name
     | DQSTRING ":" assign -> prop_str
     | SQSTRING ":" assign -> prop_str2
     | NAME "(" params ")" block -> prop_method
+    | NAME NAME "(" params ")" block -> prop_accessor
+    | "[" expr "]" ":" assign -> prop_computed
     | "..." assign        -> prop_spread
     | NAME                -> prop_shorthand
 fn_expr: "function" "(" params ")" block

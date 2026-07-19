@@ -28,6 +28,7 @@ template <size_t I, typename T0, typename... Ts> struct nth_s<I, T0, Ts...>
     : nth_s<I - 1, Ts...> { };
 template <size_t I, typename... Ts> using nth_t = typename nth_s<I, Ts...>::type;
 
+template <typename KindText> constexpr char accessor_kind_of(); // defined below
 template <typename Node> struct lower_expr;
 template <typename Node> struct lower_stmt;
 template <typename... Ks2> struct lower_new;
@@ -99,6 +100,8 @@ template <typename PN, typename K, typename V> struct lower_prop<ctlark::tree<PN
 	static constexpr auto pick() {
 		if constexpr (PN::view() == std::string_view{"prop_name"}) {
 			return ast::prop<ast::ident<typename K::value_type>, lower_expr_t<V>>{};
+		} else if constexpr (PN::view() == std::string_view{"prop_computed"}) {
+			return ast::computed_prop<lower_expr_t<K>, lower_expr_t<V>>{};
 		} else {
 			return ast::prop<ast::str_lit<typename K::value_type>, lower_expr_t<V>>{};
 		}
@@ -120,9 +123,29 @@ template <typename PN, typename K> struct lower_prop<ctlark::tree<PN, K>> {
 // three kids: { method(params) { ... } } - sugar for a fn_expr prop
 template <typename PN, typename K, typename P, typename B>
 struct lower_prop<ctlark::tree<PN, K, P, B>> {
-	using type = ast::prop<ast::ident<typename K::value_type>,
-	                       ast::fn_expr<typename lower_params<P>::type,
-	                                    typename lower_block<B>::type, false>>;
+	static constexpr auto pick() {
+		if constexpr (PN::view() == std::string_view{"prop_method"}) {
+			return ast::prop<ast::ident<typename K::value_type>,
+			                 ast::fn_expr<typename lower_params<P>::type,
+			                              typename lower_block<B>::type, false>>{};
+		} else { // prop_accessor without... unreachable; keep method shape
+			return ast::prop<ast::ident<typename K::value_type>,
+			                 ast::fn_expr<typename lower_params<P>::type,
+			                              typename lower_block<B>::type, false>>{};
+		}
+	}
+	using type = decltype(pick());
+};
+template <typename ExprK> struct lower_computed_key {
+	using type = ExprK;
+};
+// four kids: { get x() {} } / { set x(v) {} } accessors
+template <typename PN, typename Kind, typename K, typename P, typename B>
+struct lower_prop<ctlark::tree<PN, Kind, K, P, B>> {
+	using type = ast::accessor_prop<accessor_kind_of<typename Kind::value_type>(),
+	                                typename K::value_type,
+	                                typename lower_params<P>::type,
+	                                typename lower_block<B>::type>;
 };
 
 template <typename K> struct lower_arg; // spread-aware (defined below)
@@ -449,9 +472,33 @@ struct lower_method<ctlark::tree<MN, Name, Params, Body>> {
 	                               typename lower_params<Params>::type,
 	                               lower_stmt_t<Body>>;
 };
+// accessor: NAME NAME(params) block, first NAME must be get or set -
+// validated HERE so get/set stay ordinary identifiers everywhere else
+template <char K> struct accessor_kind {
+	static constexpr char value = K;
+};
+template <typename KindText> constexpr char accessor_kind_of() {
+	constexpr std::string_view k = KindText::view();
+	static_assert(k == std::string_view{"get"} || k == std::string_view{"set"},
+	              "ctjs: only `get name()` / `set name(v)` accessors exist");
+	return k == std::string_view{"get"} ? 'g' : 's';
+}
+template <typename MN, typename Kind, typename Name, typename Params, typename Body>
+struct lower_method<ctlark::tree<MN, Kind, Name, Params, Body>> {
+	using type = ast::class_accessor<accessor_kind_of<typename Kind::value_type>(),
+	                                 typename Name::value_type,
+	                                 typename lower_params<Params>::type,
+	                                 lower_stmt_t<Body>>;
+};
 template <typename Name, typename... Ms> struct lower_class<Name, Ms...> {
 	using type = ast::class_decl<typename Name::value_type,
 	                             typename lower_method<Ms>::type...>;
+};
+template <typename... Ks3> struct lower_class_ext;
+template <typename Name, typename Super, typename... Ms>
+struct lower_class_ext<Name, Super, Ms...> {
+	using type = ast::class_ext<typename Name::value_type, typename Super::value_type,
+	                            typename lower_method<Ms>::type...>;
 };
 
 template <typename Tree> struct lower_clause;
@@ -529,8 +576,16 @@ template <typename TN, typename... Ks> struct lower_stmt<ctlark::tree<TN, Ks...>
 			return ast::break_stmt{};
 		} else if constexpr (n == std::string_view{"continue_stmt"}) {
 			return ast::continue_stmt{};
+		} else if constexpr (n == std::string_view{"break_label"}) {
+			return ast::break_label<typename kid<0>::value_type>{};
+		} else if constexpr (n == std::string_view{"continue_label"}) {
+			return ast::continue_label<typename kid<0>::value_type>{};
+		} else if constexpr (n == std::string_view{"labeled_stmt"}) {
+			return ast::labeled_stmt<typename kid<0>::value_type, lower_stmt_t<kid<1>>>{};
 		} else if constexpr (n == std::string_view{"class_decl"}) {
 			return typename lower_class<Ks...>::type{};
+		} else if constexpr (n == std::string_view{"class_extends"}) {
+			return typename lower_class_ext<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"switch_stmt"}) {
 			return typename lower_switch<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"empty_stmt"}) {

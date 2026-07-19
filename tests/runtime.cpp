@@ -424,6 +424,95 @@ static void generators_instanceof_regex() {
 	CHECK(bad["boom"].to<std::string>() == "SyntaxError");
 }
 
+static void labels_date_accessors_extends() {
+	auto out = ctjs::run<R"(
+		// labeled break/continue across nested loops
+		let pairs = [];
+		outer:
+		for (let i = 0; i < 3; i++) {
+			for (let j = 0; j < 3; j++) {
+				if (j === 2) { continue outer; }
+				if (i === 2) { break outer; }
+				pairs.push(i * 10 + j);
+			}
+		}
+
+		// computed keys + object accessors
+		let k = "dyn";
+		let obj = {
+			[k]: 1,
+			["a" + "b"]: 2,
+			_n: 5,
+			get n() { return this._n; },
+			set n(v) { this._n = v * 2; }
+		};
+		let dyn_read = obj.dyn;
+		let ab_read = obj.ab;
+		let got = obj.n;
+		obj.n = 10;
+		let after_set = obj._n;
+
+		// class getters/setters
+		class Temp {
+			constructor(c) { this._c = c; }
+			get celsius() { return this._c; }
+			set celsius(v) { this._c = v; }
+			get fahrenheit() { return this._c * 9 / 5 + 32; }
+		}
+		let t = new Temp(100);
+		let f = t.fahrenheit;
+		t.celsius = 0;
+		let f2 = t.fahrenheit;
+
+		// extends: base ctor + method inheritance + override + instanceof chain
+		class Animal {
+			constructor(name) { this.name = name; }
+			speak() { return this.name + " makes a sound"; }
+			kind() { return "animal"; }
+		}
+		class Dog extends Animal {
+			speak() { return this.name + " barks"; }
+		}
+		let d = new Dog("rex");
+		let d_speak = d.speak();
+		let d_kind = d.kind();
+		let d_name = d.name;
+		let is_dog = d instanceof Dog;
+		let is_animal = d instanceof Animal;
+
+		// Date, UTC subset
+		let epoch = new Date(0);
+		let y = epoch.getUTCFullYear();
+		let iso = new Date(1609459200000).toISOString(); // 2021-01-01T00:00:00Z
+		let is_date = epoch instanceof Date;
+		let now_positive = Date.now() > 0;
+	)">();
+	CHECK(out.ok());
+	CHECK(out["pairs"][0].to<int>() == 0);   // i0 j0
+	CHECK(out["pairs"][1].to<int>() == 1);   // i0 j1
+	CHECK(out["pairs"][2].to<int>() == 10);  // i1 j0
+	CHECK(out["pairs"][3].to<int>() == 11);  // i1 j1
+	CHECK(out["pairs"].to_string().size() > 0);
+	CHECK(out["dyn_read"].to<int>() == 1);
+	CHECK(out["ab_read"].to<int>() == 2);
+	CHECK(out["got"].to<int>() == 5);
+	CHECK(out["after_set"].to<int>() == 20); // setter doubled
+	CHECK(out["f"].to<double>() == 212.0);
+	CHECK(out["f2"].to<double>() == 32.0);
+	CHECK(out["d_speak"].to<std::string>() == "rex barks");
+	CHECK(out["d_kind"].to<std::string>() == "animal");
+	CHECK(out["d_name"].to<std::string>() == "rex");
+	CHECK(out["is_dog"].to<bool>());
+	CHECK(out["is_animal"].to<bool>());
+	CHECK(out["y"].to<int>() == 1970);
+	CHECK(out["iso"].to<std::string>() == "2021-01-01T00:00:00.000Z");
+	CHECK(out["is_date"].to<bool>());
+	CHECK(out["now_positive"].to<bool>());
+
+	// exactly 4 pairs pushed (break outer fired at i2)
+	CHECK(out["pairs"].to<std::string>() == "0,1,10,11");
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -439,6 +528,7 @@ int main() {
 	json_parse();
 	optional_chaining_and_object_sugar();
 	generators_instanceof_regex();
+	labels_date_accessors_extends();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

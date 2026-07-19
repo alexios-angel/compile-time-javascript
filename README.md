@@ -128,8 +128,17 @@ contain a BARE space, `;` or `,` — write `[ ]`, `[;]`, `[,]` or `\x20`
 — which also keeps `a / b / c` division safe; the regex engine has no
 lookaround, backreferences or named groups, `exec` results carry no
 `.index/.input`, and `replace` takes string templates (`$&`, `$1`…),
-not callbacks. Not yet: labels, `Date`, computed object keys
-(`{[k]: v}`), getters/setters, `extends`.
+not callbacks; **`class B extends A`** inherits and overrides methods
+and chains `instanceof`, but there is no prototype chain and no
+`super` — a derived constructor runs the base constructor with NO
+arguments (an implicit argless `super()`), and a class with no own
+constructor forwards its arguments to the base; **`Date` is UTC-only**
+— `new Date(ms)`/`new Date()`, the `getUTC*`/`get*` getters (local
+aliases UTC), `getTime`, `getDay`, `toISOString`, and `Date.now()`;
+no date parsing and no setters; `Date.now()` is the one impure global
+besides `console`, so hosts wanting determinism rebind it. Not yet:
+`super`, prototype methods, date string parsing, computed *class*
+member names, static class fields.
 
 ## API
 

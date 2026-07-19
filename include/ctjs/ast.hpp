@@ -24,6 +24,7 @@ struct op_eq { }; struct op_ne { }; struct op_seq { }; struct op_sne { };
 struct op_lt { }; struct op_gt { }; struct op_le { }; struct op_ge { };
 struct op_and { }; struct op_or { }; struct op_nullish { };
 struct op_not { }; struct op_neg { }; struct op_pos { }; struct op_typeof { };
+struct op_await { }; // settled-promise unwrap (the engine has no pending state)
 struct op_none { }; // plain `=` in assignments
 
 // --- expressions
@@ -57,8 +58,11 @@ template <typename Init, typename... Names> struct destr_array { };
 template <typename Key, typename Bind> struct dprop { };
 template <typename Init, typename... Props> struct destr_object { };
 // Body: block for function/arrow-with-block, else the expression of
-// an expression-bodied arrow
-template <typename Params, typename Body, bool ExprBody> struct fn_expr { };
+// an expression-bodied arrow. IsAsync functions wrap their return
+// value in a resolved promise (settled-promise subset: bodies run
+// synchronously, so the promise is settled by the time callers see it)
+template <typename Params, typename Body, bool ExprBody, bool IsAsync = false>
+struct fn_expr { };
 
 // --- statements
 
@@ -69,7 +73,8 @@ template <typename... Decls> struct let_stmt { };
 template <typename... Decls> struct const_stmt { };
 template <typename... Decls> struct var_stmt { };
 template <typename E> struct expr_stmt { };
-template <typename NameText, typename Params, typename Body> struct fn_decl { };
+template <typename NameText, typename Params, typename Body, bool IsAsync = false>
+struct fn_decl { };
 template <typename C, typename Then, typename Else> struct if_stmt { }; // Else = void
 template <typename C, typename Body> struct while_stmt { };
 template <typename Body, typename C> struct do_stmt { };

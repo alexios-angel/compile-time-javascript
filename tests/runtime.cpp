@@ -235,6 +235,74 @@ static void math_and_builtins() {
 	CHECK(out["l2"].to<int>() == 1);
 }
 
+static void async_and_promises() {
+	auto out = ctjs::run<R"(
+		async function double_it(x) { return x * 2; }
+		let direct = double_it(21);          // a promise object
+		let awaited = await double_it(21);   // top-level await unwraps
+		let chained = -1;
+		double_it(10).then((v) => { chained = v; });
+		let flat = await Promise.resolve(Promise.resolve(7));
+		let all = await Promise.all([double_it(1), Promise.resolve(4), 5]);
+		let caught = "";
+		let recovered = await Promise.reject("boom").catch((e) => "caught " + e);
+		try { await Promise.reject("bang"); } catch (e) { caught = e; }
+		let ran_finally = false;
+		let kept = await Promise.resolve("kept").finally(() => { ran_finally = true; });
+		async function inner() {
+			const v = await Promise.resolve(30);
+			return v + 3;
+		}
+		let nested = await inner();
+	)">();
+	CHECK(out.ok());
+	CHECK(out["direct"].is_object());
+	CHECK(out["awaited"].to<int>() == 42);
+	CHECK(out["chained"].to<int>() == 20);
+	CHECK(out["flat"].to<int>() == 7);
+	CHECK(out["all"].is_array());
+	CHECK(out["all"][0].to<int>() == 2);
+	CHECK(out["all"][1].to<int>() == 4);
+	CHECK(out["all"][2].to<int>() == 5);
+	CHECK(out["recovered"].to<std::string>() == "caught boom");
+	CHECK(out["caught"].to<std::string>() == "bang");
+	CHECK(out["ran_finally"].to<bool>());
+	CHECK(out["kept"].to<std::string>() == "kept");
+	CHECK(out["nested"].to<int>() == 33);
+
+	// a host binding can hand a settled promise straight to the script
+	auto host = ctjs::run<R"(
+		const response = await fetchish("hello");
+		const upper = response.toUpperCase();
+	)">({{"fetchish", ctjs::native([](const std::vector<ctjs::value> & a) {
+		     return ctjs::make_promise(ctjs::value{a[0].to_string() + " world"}, false);
+	     },
+	     "fetchish")}});
+	CHECK(host.ok());
+	CHECK(host["upper"].to<std::string>() == "HELLO WORLD");
+}
+
+static void json_parse() {
+	auto out = ctjs::run<R"(
+		let doc = JSON.parse('{"name":"pong","scores":[3,1,4],"live":true,"pi":3.5,"nothing":null,"nested":{"deep":"yes!"}}');
+		let round = JSON.stringify(doc);
+		let arr = JSON.parse("[1, -2.5, 1e3]");
+		let bad = "";
+		try { JSON.parse("{nope}"); } catch (e) { bad = e.name; }
+	)">();
+	CHECK(out.ok());
+	CHECK(out["doc"]["name"].to<std::string>() == "pong");
+	CHECK(out["doc"]["scores"][2].to<int>() == 4);
+	CHECK(out["doc"]["live"].to<bool>());
+	CHECK(out["doc"]["pi"].to<double>() == 3.5);
+	CHECK(out["doc"]["nothing"].is_null());
+	CHECK(out["doc"]["nested"]["deep"].to<std::string>() == "yes!");
+	CHECK(out["round"].to<std::string>() ==
+	      R"({"name":"pong","scores":[3,1,4],"live":true,"pi":3.5,"nothing":null,"nested":{"deep":"yes!"}})");
+	CHECK(out["arr"][2].to<double>() == 1000.0);
+	CHECK(out["bad"].to<std::string>() == "SyntaxError");
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -246,6 +314,8 @@ int main() {
 	exceptions();
 	host_bindings();
 	math_and_builtins();
+	async_and_promises();
+	json_parse();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

@@ -326,6 +326,8 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			return ast::unary<ast::op_pos, lower_expr_t<kid<0>>>{};
 		} else if constexpr (n == std::string_view{"typeof_op"}) {
 			return ast::unary<ast::op_typeof, lower_expr_t<kid<0>>>{};
+		} else if constexpr (n == std::string_view{"await_op"}) {
+			return ast::unary<ast::op_await, lower_expr_t<kid<0>>>{};
 		} else if constexpr (n == std::string_view{"pre_incdec"}) {
 			return ast::incdec<lower_expr_t<kid<1>>, true, is_increment<kid<0>>()>{};
 		} else if constexpr (n == std::string_view{"post_incdec"}) {
@@ -335,6 +337,9 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 		} else if constexpr (n == std::string_view{"fn_expr"}) {
 			return ast::fn_expr<typename lower_params<kid<0>>::type,
 			                    typename lower_block<kid<1>>::type, false>{};
+		} else if constexpr (n == std::string_view{"async_fn_expr"}) {
+			return ast::fn_expr<typename lower_params<kid<0>>::type,
+			                    typename lower_block<kid<1>>::type, false, true>{};
 		} else {
 			static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
 			using params = typename arrow_params<kid<0>>::type;
@@ -441,6 +446,10 @@ template <typename TN, typename... Ks> struct lower_stmt<ctlark::tree<TN, Ks...>
 			return ast::fn_decl<typename kid<0>::value_type,
 			                    typename lower_params<kid<1>>::type,
 			                    typename lower_block<kid<2>>::type>{};
+		} else if constexpr (n == std::string_view{"async_fn_decl"}) {
+			return ast::fn_decl<typename kid<0>::value_type,
+			                    typename lower_params<kid<1>>::type,
+			                    typename lower_block<kid<2>>::type, true>{};
 		} else if constexpr (n == std::string_view{"if_stmt"}) {
 			if constexpr (sizeof...(Ks) == 3) {
 				return ast::if_stmt<lower_expr_t<kid<0>>, lower_stmt_t<kid<1>>,

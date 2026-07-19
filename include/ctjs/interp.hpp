@@ -290,6 +290,7 @@ template <typename Op, typename E> struct eval_<unary<Op, E>> {
 			const value v = ev<E>(env, cx);
 			if constexpr (std::is_same_v<Op, op_not>) { return value{!v.truthy()}; }
 			else if constexpr (std::is_same_v<Op, op_neg>) { return value{-v.to_number()}; }
+			else if constexpr (std::is_same_v<Op, op_await>) { return await_value(v); }
 			else { return value{v.to_number()}; }
 		}
 	}
@@ -604,7 +605,8 @@ template <typename... Ps> struct param_binder<plist<Ps...>> {
 	}
 };
 
-template <typename Params, typename Body, bool ExprBody> struct fn_maker {
+template <typename Params, typename Body, bool ExprBody, bool IsAsync = false>
+struct fn_maker {
 	static value make(const env_ptr & env, std::string name) {
 		return value::function(
 		    [env](context & cx, const std::vector<value> & args) -> value {
@@ -616,14 +618,23 @@ template <typename Params, typename Body, bool ExprBody> struct fn_maker {
 			    local->declare("this", cx.current_this);
 			    param_binder<Params>::bind(local, args, cx);
 			    if constexpr (ExprBody) {
-				    return ev<Body>(local, cx);
+				    return wrap(ev<Body>(local, cx));
 			    } else {
 				    value ret;
 				    const flow f = body_flow(local, cx, ret, Body{});
-				    return f == flow::ret ? ret : value{};
+				    return wrap(f == flow::ret ? std::move(ret) : value{});
 			    }
 		    },
 		    std::move(name));
+	}
+	// async functions hand back a promise: settled, because the body
+	// just ran to completion; a returned promise is adopted as-is
+	static value wrap(value v) {
+		if constexpr (IsAsync) {
+			return is_promise(v) ? v : make_promise(std::move(v), false);
+		} else {
+			return v;
+		}
 	}
 	template <typename... Ss>
 	static flow body_flow(const env_ptr & local, context & cx, value & ret, block<Ss...>) {
@@ -632,11 +643,11 @@ template <typename Params, typename Body, bool ExprBody> struct fn_maker {
 	}
 };
 
-template <typename Params, typename Body, bool ExprBody>
-struct eval_<fn_expr<Params, Body, ExprBody>> {
+template <typename Params, typename Body, bool ExprBody, bool IsAsync>
+struct eval_<fn_expr<Params, Body, ExprBody, IsAsync>> {
 	static value go(const env_ptr & env, context & cx) {
 		(void)cx;
-		return fn_maker<Params, Body, ExprBody>::make(env, "");
+		return fn_maker<Params, Body, ExprBody, IsAsync>::make(env, "");
 	}
 };
 
@@ -765,11 +776,12 @@ template <typename... Ds> struct exec_<var_stmt<Ds...>> {
 	}
 };
 
-template <typename N, typename P, typename B> struct exec_<fn_decl<N, P, B>> {
+template <typename N, typename P, typename B, bool A> struct exec_<fn_decl<N, P, B, A>> {
 	static flow go(const env_ptr & env, context &, value &) {
 		// usually already hoisted; declaring again is harmless
 		if (env->vars.find(N::view()) == env->vars.end()) {
-			env->declare(N::view(), fn_maker<P, B, false>::make(env, std::string{N::view()}));
+			env->declare(N::view(),
+			             fn_maker<P, B, false, A>::make(env, std::string{N::view()}));
 		}
 		return flow::normal;
 	}
@@ -1152,9 +1164,10 @@ struct hoist_vars<try_stmt<B, CN, H, F>> {
 template <typename S> struct hoist_pick {
 	static void go(const env_ptr &, context &) { }
 };
-template <typename N, typename P, typename B> struct hoist_pick<fn_decl<N, P, B>> {
+template <typename N, typename P, typename B, bool A> struct hoist_pick<fn_decl<N, P, B, A>> {
 	static void go(const env_ptr & env, context &) {
-		env->declare(N::view(), fn_maker<P, B, false>::make(env, std::string{N::view()}));
+		env->declare(N::view(),
+		             fn_maker<P, B, false, A>::make(env, std::string{N::view()}));
 	}
 };
 template <typename... Ds> struct hoist_pick<let_stmt<Ds...>> {

@@ -67,6 +67,7 @@ declarator: NAME ["=" assign]
 dprop: NAME            -> dprop_shorthand
      | NAME ":" NAME   -> dprop_renamed
 fn_decl: "function" NAME "(" params ")" block
+       | "async" "function" NAME "(" params ")" block -> async_fn_decl
 params: [param ("," param)*]
 param: NAME               -> param_plain
      | NAME "=" assign    -> param_default
@@ -134,6 +135,7 @@ lhs: NAME                    -> lhs_name
       | "+" unary      -> pos_op
       | "typeof" unary -> typeof_op
       | "delete" unary -> delete_op
+      | "await" unary  -> await_op
       | INCDEC lhs     -> pre_incdec
 ?postfix: primary
         | "new" newable "(" args ")" -> new_op
@@ -168,6 +170,7 @@ prop: NAME ":" assign     -> prop_name
     | DQSTRING ":" assign -> prop_str
     | SQSTRING ":" assign -> prop_str2
 fn_expr: "function" "(" params ")" block
+       | "async" "function" "(" params ")" block -> async_fn_expr
 arrow_fn: "(" params ")" "=>" arrow_body
         | NAME "=>" arrow_body
 ?arrow_body: block | assign

@@ -107,10 +107,15 @@ one is a *compile* error, which is rather the point); plain calls see
 not modeled); keywords may be used as variable names where the grammar
 is unambiguous (`let let = 1;` parses); strings are bytes (UTF-8
 passes through, `.length` counts bytes); `Math.random` is seeded
-deterministically. Not yet: template literals, regex literals,
-classes, `new`, `instanceof` (nothing to construct), destructuring,
-spread/rest, default parameters, labels, generators/async, `Date`,
-`JSON.parse`.
+deterministically; **promises are the SETTLED subset** — the engine is
+synchronous, so `async function` / top-level `await` /
+then/catch/finally / `Promise.resolve|reject|all` all exist, but a
+promise is fulfilled or rejected the moment it is created and handlers
+run immediately instead of on a microtask queue (host natives hand
+scripts pre-resolved promises — compile-time-browser's `await
+fetch(url)`; `new Promise(executor)` is deliberately absent since an
+executor implies pending state). Not yet: regex literals, `instanceof`,
+labels, generators, `Date`.
 
 ## API
 

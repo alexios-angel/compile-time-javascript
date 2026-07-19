@@ -44,6 +44,102 @@ inline value call_value(context & cx, const value & fn, std::vector<value> args)
 	return out;
 }
 
+// --- promises, the SETTLED subset. The engine is synchronous and
+// single-threaded: nothing can be pending, so a promise is an object
+// that is already fulfilled or rejected at creation. `await` and
+// then/catch/finally run handlers immediately instead of queueing
+// microtasks - observable ordering differs from V8 only where code
+// relies on deferral, which nothing synchronous can. Async hosts
+// (compile-time-browser's fetch) resolve their work before the script
+// ever sees the promise, so the subset is exact for them.
+
+inline value make_promise(value settled, bool rejected);
+
+inline bool is_promise(const value & v) {
+	return v.is_object() && v.as_object()->find("__ctjs_promise") != nullptr;
+}
+
+namespace detail {
+
+// handler result chaining: a returned promise adopts, a throw rejects
+inline value promise_handler_result(context & cx, const value & handler, const value & input) {
+	try {
+		value r = call_value(cx, handler, {input});
+		return is_promise(r) ? r : make_promise(std::move(r), false);
+	} catch (const js_throw & ex) {
+		return make_promise(ex.thrown, true);
+	}
+}
+
+} // namespace detail
+
+inline value make_promise(value settled, bool rejected) {
+	auto o = std::make_shared<object_t>();
+	o->set("__ctjs_promise", value{true});
+	o->set("__state", value{rejected ? "rejected" : "fulfilled"});
+	o->set("__value", settled);
+	// a settled promise is immutable, so the methods capture the state
+	// BY VALUE - no cycle through the object, nothing to invalidate
+	const value stored = std::move(settled);
+	o->set("then",
+	       value::function(
+	           [stored, rejected](context & cx, const std::vector<value> & a) -> value {
+		           const value on_ok = a.size() > 0 ? a[0] : value{};
+		           const value on_err = a.size() > 1 ? a[1] : value{};
+		           if (!rejected) {
+			           return on_ok.is_function()
+			                      ? detail::promise_handler_result(cx, on_ok, stored)
+			                      : make_promise(stored, false);
+		           }
+		           return on_err.is_function()
+		                      ? detail::promise_handler_result(cx, on_err, stored)
+		                      : make_promise(stored, true);
+	           },
+	           "then"));
+	o->set("catch",
+	       value::function(
+	           [stored, rejected](context & cx, const std::vector<value> & a) -> value {
+		           const value on_err = a.empty() ? value{} : a[0];
+		           if (rejected && on_err.is_function()) {
+			           return detail::promise_handler_result(cx, on_err, stored);
+		           }
+		           return make_promise(stored, rejected);
+	           },
+	           "catch"));
+	o->set("finally",
+	       value::function(
+	           [stored, rejected](context & cx, const std::vector<value> & a) -> value {
+		           const value fn = a.empty() ? value{} : a[0];
+		           if (fn.is_function()) {
+			           try {
+				           (void)call_value(cx, fn, {});
+			           } catch (const js_throw & ex) {
+				           return make_promise(ex.thrown, true);
+			           }
+		           }
+		           return make_promise(stored, rejected);
+	           },
+	           "finally"));
+	return value{std::move(o)};
+}
+
+// `await v`: unwrap settled promises (rethrowing rejections as JS
+// throws); every other value passes through, exactly like V8 awaiting
+// a non-thenable
+inline value await_value(value v) {
+	while (is_promise(v)) {
+		const std::shared_ptr<object_t> o = v.as_object();
+		const value * state = o->find("__state");
+		const value * stored = o->find("__value");
+		value inner = stored != nullptr ? *stored : value{};
+		if (state != nullptr && state->is_string() && state->as_string() == "rejected") {
+			throw js_throw{std::move(inner)};
+		}
+		v = std::move(inner);
+	}
+	return v;
+}
+
 namespace detail {
 
 inline value arg_or_undefined(const std::vector<value> & a, size_t i) {
@@ -726,8 +822,172 @@ inline value make_math() {
 	return value::object(std::move(math));
 }
 
+// JSON.parse: strict recursive descent -> value tree; SyntaxError on
+// anything malformed (no reviver in v0.1)
+inline void json_ws(std::string_view s, size_t & i) {
+	while (i < s.size() &&
+	       (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) {
+		++i;
+	}
+}
+
+[[noreturn]] inline void json_fail(size_t at) {
+	throw_error("SyntaxError", "Unexpected token in JSON at position " + std::to_string(at));
+}
+
+inline void json_utf8(std::string & out, unsigned cp) {
+	if (cp < 0x80) {
+		out += static_cast<char>(cp);
+	} else if (cp < 0x800) {
+		out += static_cast<char>(0xC0 | (cp >> 6));
+		out += static_cast<char>(0x80 | (cp & 0x3F));
+	} else if (cp < 0x10000) {
+		out += static_cast<char>(0xE0 | (cp >> 12));
+		out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+		out += static_cast<char>(0x80 | (cp & 0x3F));
+	} else {
+		out += static_cast<char>(0xF0 | (cp >> 18));
+		out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+		out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+		out += static_cast<char>(0x80 | (cp & 0x3F));
+	}
+}
+
+inline unsigned json_hex4(std::string_view s, size_t & i) {
+	if (i + 4 > s.size()) { json_fail(i); }
+	unsigned cp = 0;
+	for (size_t k = 0; k < 4; ++k) {
+		const char c = s[i + k];
+		cp <<= 4;
+		if (c >= '0' && c <= '9') { cp |= static_cast<unsigned>(c - '0'); }
+		else if (c >= 'a' && c <= 'f') { cp |= static_cast<unsigned>(c - 'a' + 10); }
+		else if (c >= 'A' && c <= 'F') { cp |= static_cast<unsigned>(c - 'A' + 10); }
+		else { json_fail(i + k); }
+	}
+	i += 4;
+	return cp;
+}
+
+inline std::string json_string(std::string_view s, size_t & i) {
+	// s[i] == '"' on entry
+	++i;
+	std::string out;
+	while (true) {
+		if (i >= s.size()) { json_fail(i); }
+		const char c = s[i];
+		if (c == '"') { ++i; return out; }
+		if (static_cast<unsigned char>(c) < 0x20) { json_fail(i); }
+		if (c != '\\') {
+			out += c;
+			++i;
+			continue;
+		}
+		if (++i >= s.size()) { json_fail(i); }
+		switch (s[i]) {
+		case '"': out += '"'; ++i; break;
+		case '\\': out += '\\'; ++i; break;
+		case '/': out += '/'; ++i; break;
+		case 'b': out += '\b'; ++i; break;
+		case 'f': out += '\f'; ++i; break;
+		case 'n': out += '\n'; ++i; break;
+		case 'r': out += '\r'; ++i; break;
+		case 't': out += '\t'; ++i; break;
+		case 'u': {
+			++i;
+			unsigned cp = json_hex4(s, i);
+			if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < s.size() && s[i] == '\\' &&
+			    s[i + 1] == 'u') { // surrogate pair
+				size_t j = i + 2;
+				const unsigned lo = json_hex4(s, j);
+				if (lo >= 0xDC00 && lo <= 0xDFFF) {
+					cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+					i = j;
+				}
+			}
+			json_utf8(out, cp);
+			break;
+		}
+		default: json_fail(i);
+		}
+	}
+}
+
+inline value json_value(std::string_view s, size_t & i, int depth) {
+	if (depth > 128) { json_fail(i); } // nesting bound, plain-stack safety
+	json_ws(s, i);
+	if (i >= s.size()) { json_fail(i); }
+	const char c = s[i];
+	if (c == '"') { return value{json_string(s, i)}; }
+	if (c == '{') {
+		++i;
+		object_t obj;
+		json_ws(s, i);
+		if (i < s.size() && s[i] == '}') { ++i; return value::object(std::move(obj)); }
+		while (true) {
+			json_ws(s, i);
+			if (i >= s.size() || s[i] != '"') { json_fail(i); }
+			std::string key = json_string(s, i);
+			json_ws(s, i);
+			if (i >= s.size() || s[i] != ':') { json_fail(i); }
+			++i;
+			obj.set(key, json_value(s, i, depth + 1));
+			json_ws(s, i);
+			if (i < s.size() && s[i] == ',') { ++i; continue; }
+			if (i < s.size() && s[i] == '}') { ++i; return value::object(std::move(obj)); }
+			json_fail(i);
+		}
+	}
+	if (c == '[') {
+		++i;
+		array_t arr;
+		json_ws(s, i);
+		if (i < s.size() && s[i] == ']') { ++i; return value::array(std::move(arr)); }
+		while (true) {
+			arr.push_back(json_value(s, i, depth + 1));
+			json_ws(s, i);
+			if (i < s.size() && s[i] == ',') { ++i; continue; }
+			if (i < s.size() && s[i] == ']') { ++i; return value::array(std::move(arr)); }
+			json_fail(i);
+		}
+	}
+	if (s.compare(i, 4, "true") == 0) { i += 4; return value{true}; }
+	if (s.compare(i, 5, "false") == 0) { i += 5; return value{false}; }
+	if (s.compare(i, 4, "null") == 0) { i += 4; return value::null(); }
+	if (c == '-' || (c >= '0' && c <= '9')) {
+		const size_t start = i;
+		if (s[i] == '-') { ++i; }
+		if (i >= s.size() || s[i] < '0' || s[i] > '9') { json_fail(i); }
+		if (s[i] == '0') { ++i; } // no leading zeros
+		else { while (i < s.size() && s[i] >= '0' && s[i] <= '9') { ++i; } }
+		if (i < s.size() && s[i] == '.') {
+			++i;
+			if (i >= s.size() || s[i] < '0' || s[i] > '9') { json_fail(i); }
+			while (i < s.size() && s[i] >= '0' && s[i] <= '9') { ++i; }
+		}
+		if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+			++i;
+			if (i < s.size() && (s[i] == '+' || s[i] == '-')) { ++i; }
+			if (i >= s.size() || s[i] < '0' || s[i] > '9') { json_fail(i); }
+			while (i < s.size() && s[i] >= '0' && s[i] <= '9') { ++i; }
+		}
+		const std::string num{s.substr(start, i - start)};
+		return value{std::strtod(num.c_str(), nullptr)};
+	}
+	json_fail(i);
+}
+
 inline value make_json() {
 	object_t json;
+	json.set("parse", value::function(
+	                      [](context &, const std::vector<value> & a) {
+		                      const std::string text = arg_or_undefined(a, 0).to_string();
+		                      size_t i = 0;
+		                      value out = json_value(text, i, 0);
+		                      json_ws(text, i);
+		                      if (i != text.size()) { json_fail(i); }
+		                      return out;
+	                      },
+	                      "parse"));
 	json.set("stringify", value::function(
 	                          [](context &, const std::vector<value> & a) {
 		                          std::string out;
@@ -751,6 +1011,47 @@ inline env_ptr make_globals() {
 	g->declare("console", detail::make_console());
 	g->declare("Math", detail::make_math());
 	g->declare("JSON", detail::make_json());
+	{
+		// Promise, the settled subset (see make_promise above):
+		// resolve/reject/all - `new Promise(executor)` is deliberately
+		// absent, since an executor implies pending state
+		object_t p;
+		p.set("resolve", value::function(
+		                     [](context &, const std::vector<value> & a) {
+			                     value v = detail::arg_or_undefined(a, 0);
+			                     return is_promise(v) ? v : make_promise(std::move(v), false);
+		                     },
+		                     "resolve"));
+		p.set("reject", value::function(
+		                    [](context &, const std::vector<value> & a) {
+			                    return make_promise(detail::arg_or_undefined(a, 0), true);
+		                    },
+		                    "reject"));
+		p.set("all", value::function(
+		                 [](context &, const std::vector<value> & a) -> value {
+			                 array_t out;
+			                 if (!a.empty() && a[0].is_array()) {
+				                 for (const value & e : *a[0].as_array()) {
+					                 if (!is_promise(e)) {
+						                 out.push_back(e);
+						                 continue;
+					                 }
+					                 const std::shared_ptr<object_t> o = e.as_object();
+					                 const value * st = o->find("__state");
+					                 const value * pv = o->find("__value");
+					                 value inner = pv != nullptr ? *pv : value{};
+					                 if (st != nullptr && st->is_string() &&
+					                     st->as_string() == "rejected") {
+						                 return make_promise(std::move(inner), true);
+					                 }
+					                 out.push_back(std::move(inner));
+				                 }
+			                 }
+			                 return make_promise(value::array(std::move(out)), false);
+		                 },
+		                 "all"));
+		g->declare("Promise", value::object(std::move(p)));
+	}
 	g->declare("parseInt", value::function(
 	                           [](context &, const std::vector<value> & a) {
 		                           std::string s = detail::arg_or_undefined(a, 0).to_string();

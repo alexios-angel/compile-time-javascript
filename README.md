@@ -91,17 +91,25 @@ ui.call("onClick");   // the host's event loop, driving script handlers
   === "object"`, reference semantics for arrays/objects, `Math.random`
   deterministic-seeded (reproducible runs)
 
-**Documented deviations (v0.1):** no ASI — semicolons are required
-(a missing one is a *compile* error, which is rather the point);
-`var` scopes like `let` (no function-scope hoisting); `const` does not
-reject reassignment; classic `for` uses one binding for the whole loop
-(`for...of` binds per iteration); no `this` — object-held functions
-are callable but see only their closure; keywords may be used as
-variable names where the grammar is unambiguous (`let let = 1;`
-parses); strings are bytes (UTF-8 passes through, `.length` counts
-bytes). Not in v0.1: template literals, regex literals, classes,
-`new`, `delete`, `in`/`instanceof`, destructuring, spread/rest,
-default parameters, labels, `switch`, generators/async, `Date`,
+**V8-aligned semantics (v0.2):** `var` is function-scoped and hoists
+(reads before the declaration see `undefined`); `let`/`const` are
+block-scoped with a temporal dead zone (access before initialization
+throws V8's `ReferenceError`); `const` reassignment throws V8's
+`TypeError`; classic `for` with `let` creates per-iteration bindings
+(closures capture each iteration's values); method calls bind `this`
+to the receiver. Verified against node by the generated differential
+suite: `python3 tools/gen-v8diff.py && make tests/v8diff` re-captures
+V8's output for every corpus snippet and byte-compares.
+
+**Documented deviations:** no ASI — semicolons are required (a missing
+one is a *compile* error, which is rather the point); plain calls see
+`this === undefined` (module semantics; sloppy-mode `globalThis` is
+not modeled); keywords may be used as variable names where the grammar
+is unambiguous (`let let = 1;` parses); strings are bytes (UTF-8
+passes through, `.length` counts bytes); `Math.random` is seeded
+deterministically. Not yet: template literals, regex literals,
+classes, `new`, `instanceof` (nothing to construct), destructuring,
+spread/rest, default parameters, labels, generators/async, `Date`,
 `JSON.parse`.
 
 ## API

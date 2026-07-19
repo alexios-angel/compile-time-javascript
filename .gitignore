@@ -3,6 +3,8 @@
 build/
 .claude
 *.pch
+*.pch.tmp
 *.gch
 tests/parse
 tests/runtime
+*.log

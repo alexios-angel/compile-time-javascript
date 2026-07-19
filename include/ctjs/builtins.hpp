@@ -26,14 +26,20 @@ inline value call_value(context & cx, const value & fn, std::vector<value> args)
 	if (cx.depth >= cx.max_depth) {
 		throw_error("RangeError", "Maximum call stack size exceeded");
 	}
+	// route the (possibly absent) method-call receiver into current_this
+	// for exactly this call; restore the caller's `this` afterwards
+	value saved_this = std::move(cx.current_this);
+	cx.current_this = std::exchange(cx.pending_this, value{});
 	++cx.depth;
 	value out;
 	try {
 		out = fn.as_function()->fn(cx, args);
 	} catch (...) {
 		--cx.depth;
+		cx.current_this = std::move(saved_this);
 		throw;
 	}
+	cx.current_this = std::move(saved_this);
 	--cx.depth;
 	return out;
 }
@@ -99,6 +105,8 @@ inline std::string inspect(const value & v) {
 		const std::string & n = v.as_function()->name;
 		return n.empty() ? "[Function (anonymous)]" : "[Function: " + n + "]";
 	}
+	// node's inspect distinguishes negative zero; String(-0) stays "0"
+	if (v.is_number() && v.as_number() == 0 && std::signbit(v.as_number())) { return "-0"; }
 	return v.to_string();
 }
 
@@ -255,6 +263,23 @@ inline value array_member(const value & recv, std::string_view name) {
 	if (name == "reverse") {
 		return bound("reverse", [arr, recv](context &, const std::vector<value> &) {
 			std::reverse(arr->begin(), arr->end());
+			return recv;
+		});
+	}
+	if (name == "sort") {
+		// default comparator is LEXICOGRAPHIC (ToString order) like the
+		// spec - [10,1,2].sort() is [1,10,2]; undefined sorts last
+		return bound("sort", [arr, recv](context & cx, const std::vector<value> & a) {
+			const value cmp = arg_or_undefined(a, 0);
+			std::stable_sort(arr->begin(), arr->end(),
+			                 [&](const value & x, const value & y) {
+				                 if (x.is_undefined()) { return false; }
+				                 if (y.is_undefined()) { return true; }
+				                 if (cmp.is_function()) {
+					                 return call_value(cx, cmp, {x, y}).to_number() < 0;
+				                 }
+				                 return x.to_string() < y.to_string();
+			                 });
 			return recv;
 		});
 	}
@@ -719,6 +744,7 @@ inline value make_json() {
 
 inline env_ptr make_globals() {
 	auto g = std::make_shared<environment>();
+	g->function_scope = true; // the global scope is where top-level var lands
 	g->declare("undefined", value{});
 	g->declare("NaN", value{std::nan("")});
 	g->declare("Infinity", value{INFINITY});
@@ -742,6 +768,19 @@ inline env_ptr make_globals() {
 			                           neg = s[at] == '-';
 			                           ++at;
 		                           }
+		                           // spec: an unspecified (or 16) radix accepts an
+		                           // 0x/0X prefix and parses hexadecimal
+		                           int r = radix;
+		                           if ((r == 10 || r == 16) && at + 1 < s.size() &&
+		                               s[at] == '0' && (s[at + 1] == 'x' || s[at + 1] == 'X')) {
+			                           const bool defaulted =
+			                               a.size() <= 1 || a[1].is_undefined() ||
+			                               a[1].to_number() == 0 || r == 16;
+			                           if (defaulted) {
+				                           r = 16;
+				                           at += 2;
+			                           }
+		                           }
 		                           long long out = 0;
 		                           size_t digits = 0;
 		                           for (; at < s.size(); ++at) {
@@ -750,8 +789,8 @@ inline env_ptr make_globals() {
 			                           if (c >= '0' && c <= '9') { d = c - '0'; }
 			                           else if (c >= 'a' && c <= 'z') { d = c - 'a' + 10; }
 			                           else if (c >= 'A' && c <= 'Z') { d = c - 'A' + 10; }
-			                           if (d < 0 || d >= radix) { break; }
-			                           out = out * radix + d;
+			                           if (d < 0 || d >= r) { break; }
+			                           out = out * r + d;
 			                           ++digits;
 		                           }
 		                           if (digits == 0) { return value{std::nan("")}; }

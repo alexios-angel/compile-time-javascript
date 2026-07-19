@@ -18,11 +18,14 @@
 // generated for THAT script - the tree walk happens in the compiler's
 // inliner, not in a loop over node tags.
 //
-// Semantics notes (v0.1): `var` behaves like `let` (block-scoped, no
-// hoisting); `const` does not reject reassignment; classic `for` uses
-// one binding for the whole loop (for-of binds per iteration); there
-// is no `this` - object properties holding functions are callable but
-// see only their closure. All documented in the README.
+// Semantics notes (v0.2, V8-aligned): `var` is function-scoped and
+// hoists (pre-declared undefined at function entry, recursing through
+// nested blocks); let/const enter a TEMPORAL DEAD ZONE at block entry
+// and `const` rejects reassignment (TypeError, V8's message); classic
+// `for` with `let` creates PER-ITERATION bindings (the step runs in
+// the next iteration's copy); method calls bind `this` to the receiver
+// (plain calls see undefined - module semantics; sloppy-mode
+// globalThis is NOT modeled). All documented in the README.
 
 namespace ctjs::detail {
 
@@ -192,7 +195,12 @@ template <typename Op> value apply_binary(const value & l, const value & r) {
 
 template <typename Text> struct eval_<ident<Text>> {
 	static value go(const env_ptr & env, context &) {
-		if (const value * slot = env->find(Text::view())) { return *slot; }
+		bool tdz = false;
+		if (const value * slot = env->find_checked(Text::view(), tdz)) { return *slot; }
+		if (tdz) {
+			throw_error("ReferenceError", "Cannot access '" + std::string{Text::view()} +
+			                                  "' before initialization");
+		}
 		throw_error("ReferenceError", std::string{Text::view()} + " is not defined");
 	}
 };
@@ -309,12 +317,39 @@ template <typename Obj, typename Index> struct eval_<index<Obj, Index>> {
 	}
 };
 
+// calls: a member/index callee evaluates its receiver ONCE and parks it
+// in cx.pending_this so the callee (if a script function) sees it as
+// `this` - V8 method-call semantics; plain calls leave it undefined
 template <typename Fn, typename... Args> struct eval_<call<Fn, Args...>> {
 	static value go(const env_ptr & env, context & cx) {
 		std::vector<value> args;
 		args.reserve(sizeof...(Args));
 		const value fn = ev<Fn>(env, cx);
 		(args.push_back(ev<Args>(env, cx)), ...);
+		return call_value(cx, fn, std::move(args));
+	}
+};
+template <typename Obj, typename NameText, typename... Args>
+struct eval_<call<member<Obj, NameText>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		value recv = ev<Obj>(env, cx);
+		const value fn = get_member(cx, recv, NameText::view());
+		std::vector<value> args;
+		args.reserve(sizeof...(Args));
+		(args.push_back(ev<Args>(env, cx)), ...);
+		cx.pending_this = std::move(recv);
+		return call_value(cx, fn, std::move(args));
+	}
+};
+template <typename Obj, typename Index, typename... Args>
+struct eval_<call<index<Obj, Index>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		value recv = ev<Obj>(env, cx);
+		const value fn = get_index(cx, recv, ev<Index>(env, cx));
+		std::vector<value> args;
+		args.reserve(sizeof...(Args));
+		(args.push_back(ev<Args>(env, cx)), ...);
+		cx.pending_this = std::move(recv);
 		return call_value(cx, fn, std::move(args));
 	}
 };
@@ -334,9 +369,18 @@ template <typename Target> struct place;
 template <typename T> struct place<ident<T>> {
 	static value get(const env_ptr & env, context & cx) { return ev<ident<T>>(env, cx); }
 	static void set(const env_ptr & env, context &, value v) {
-		if (value * slot = env->find(T::view())) {
+		bool tdz = false;
+		if (value * slot = env->find_checked(T::view(), tdz)) {
+			if (environment * own = env->owner(T::view());
+			    own != nullptr && own->consts.contains(T::view())) {
+				throw_error("TypeError", "Assignment to constant variable.");
+			}
 			*slot = std::move(v);
 			return;
+		}
+		if (tdz) {
+			throw_error("ReferenceError", "Cannot access '" + std::string{T::view()} +
+			                                  "' before initialization");
 		}
 		throw_error("ReferenceError", std::string{T::view()} + " is not defined");
 	}
@@ -422,6 +466,10 @@ template <typename Params, typename Body, bool ExprBody> struct fn_maker {
 		    [env](context & cx, const std::vector<value> & args) -> value {
 			    auto local = std::make_shared<environment>();
 			    local->parent = env;
+			    local->function_scope = true; // var declarations land here
+			    // `this` = the method-call receiver (call_value routed it
+			    // into current_this), undefined for plain calls
+			    local->declare("this", cx.current_this);
 			    param_binder<Params>::bind(local, args);
 			    if constexpr (ExprBody) {
 				    return ev<Body>(local, cx);
@@ -459,37 +507,62 @@ template <typename E> struct exec_<expr_stmt<E>> {
 	}
 };
 
-template <typename... Ds> struct declare_all;
-template <> struct declare_all<> {
+template <typename D> struct decl_name;
+template <typename N, typename I> struct decl_name<declarator<N, I>> {
+	static constexpr std::string_view view() { return N::view(); }
+};
+
+// V8-faithful declaration kinds: let/const are block-scoped (const
+// additionally write-protected), var lands in the nearest FUNCTION or
+// global scope - its initializer still evaluates in the current env
+enum class decl_kind { lexical, constant, hoisted_var };
+
+template <decl_kind K, typename... Ds> struct declare_all;
+template <decl_kind K> struct declare_all<K> {
 	static void go(const env_ptr &, context &) { }
 };
-template <typename N, typename Init, typename... Rest>
-struct declare_all<declarator<N, Init>, Rest...> {
+template <decl_kind K, typename N, typename Init, typename... Rest>
+struct declare_all<K, declarator<N, Init>, Rest...> {
 	static void go(const env_ptr & env, context & cx) {
-		if constexpr (std::is_void_v<Init>) {
-			env->declare(N::view(), value{});
+		if constexpr (K == decl_kind::hoisted_var) {
+			environment & tgt = env->hoist_target();
+			if constexpr (std::is_void_v<Init>) {
+				// `var x;` never clobbers an existing value
+				if (tgt.vars.find(N::view()) == tgt.vars.end()) {
+					tgt.declare(N::view(), value{});
+				}
+			} else {
+				tgt.declare(N::view(), ev<Init>(env, cx));
+			}
 		} else {
-			env->declare(N::view(), ev<Init>(env, cx));
+			if constexpr (std::is_void_v<Init>) {
+				env->declare(N::view(), value{});
+			} else {
+				env->declare(N::view(), ev<Init>(env, cx));
+			}
+			if constexpr (K == decl_kind::constant) {
+				env->consts.insert(std::string{N::view()});
+			}
 		}
-		declare_all<Rest...>::go(env, cx);
+		declare_all<K, Rest...>::go(env, cx);
 	}
 };
 
 template <typename... Ds> struct exec_<let_stmt<Ds...>> {
 	static flow go(const env_ptr & env, context & cx, value &) {
-		declare_all<Ds...>::go(env, cx);
+		declare_all<decl_kind::lexical, Ds...>::go(env, cx);
 		return flow::normal;
 	}
 };
 template <typename... Ds> struct exec_<const_stmt<Ds...>> {
 	static flow go(const env_ptr & env, context & cx, value &) {
-		declare_all<Ds...>::go(env, cx);
+		declare_all<decl_kind::constant, Ds...>::go(env, cx);
 		return flow::normal;
 	}
 };
 template <typename... Ds> struct exec_<var_stmt<Ds...>> {
 	static flow go(const env_ptr & env, context & cx, value &) {
-		declare_all<Ds...>::go(env, cx);
+		declare_all<decl_kind::hoisted_var, Ds...>::go(env, cx);
 		return flow::normal;
 	}
 };
@@ -543,6 +616,25 @@ template <typename B, typename C> struct exec_<do_stmt<B, C>> {
 	}
 };
 
+// classic for: a `let` init gets V8's PER-ITERATION bindings - each
+// iteration runs in a fresh environment seeded from the previous one,
+// so closures created in the body capture that iteration's values
+template <typename Init> struct loop_bindings {
+	static constexpr bool per_iteration = false;
+	static void copy(environment &, environment &) { }
+};
+template <typename... Ds> struct loop_bindings<let_stmt<Ds...>> {
+	static constexpr bool per_iteration = true;
+	static void copy(environment & from, environment & to) {
+		const auto one = [&](std::string_view n) {
+			if (const auto it = from.vars.find(n); it != from.vars.end()) {
+				to.vars.insert_or_assign(std::string{n}, it->second);
+			}
+		};
+		(one(decl_name<Ds>::view()), ...);
+	}
+};
+
 template <typename Init, typename Cond, typename Step, typename B>
 struct exec_<for_stmt<Init, Cond, Step, B>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
@@ -551,6 +643,30 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 		if constexpr (!std::is_void_v<Init>) {
 			value ignored;
 			(void)exec_<Init>::go(scope, cx, ignored);
+		}
+		constexpr bool fresh_per_iter =
+		    !std::is_void_v<Init> && loop_bindings<Init>::per_iteration;
+		if constexpr (fresh_per_iter) {
+			// per the spec, the STEP runs in the NEXT iteration's copy of
+			// the bindings - closures made in the body keep the values
+			// from before the step (fs[0]() === 0, not 1)
+			auto iter = std::make_shared<environment>();
+			iter->parent = env;
+			loop_bindings<Init>::copy(*scope, *iter);
+			while (true) {
+				if constexpr (!std::is_void_v<Cond>) {
+					if (!ev<Cond>(iter, cx).truthy()) { break; }
+				}
+				const flow f = exec_<B>::go(iter, cx, ret);
+				if (f == flow::ret) { return f; }
+				if (f == flow::brk) { break; }
+				auto next = std::make_shared<environment>();
+				next->parent = env;
+				loop_bindings<Init>::copy(*iter, *next);
+				if constexpr (!std::is_void_v<Step>) { (void)ev<Step>(next, cx); }
+				iter = std::move(next);
+			}
+			return flow::normal;
 		}
 		while (true) {
 			if constexpr (!std::is_void_v<Cond>) {
@@ -654,12 +770,62 @@ struct exec_<try_stmt<Body, CatchName, Handler, Finally>> {
 	}
 };
 
-// --- suites: hoist function declarations, then run in order
+// --- suites: hoisting, then run in order.
+//
+// Three hoisting behaviors, all V8-faithful:
+//  - function declarations bind at scope entry (as before);
+//  - let/const names enter their TEMPORAL DEAD ZONE at block entry
+//    (reads/writes before the declaration throw, with V8's message);
+//  - `var` names are pre-declared undefined in the nearest FUNCTION or
+//    global scope, recursing through nested blocks/ifs/loops/trys (but
+//    never into nested function bodies).
 
-template <typename S> void hoist_one(const env_ptr & env, context & cx) {
-	(void)env;
-	(void)cx;
-}
+// recursive var collector: declares undefined-if-absent into fnscope
+template <typename S> struct hoist_vars {
+	static void go(environment &) { }
+};
+template <typename... Ds> struct hoist_vars<var_stmt<Ds...>> {
+	static void go(environment & fnscope) {
+		const auto one = [&](std::string_view n) {
+			if (fnscope.vars.find(n) == fnscope.vars.end()) { fnscope.declare(n, value{}); }
+		};
+		(one(decl_name<Ds>::view()), ...);
+	}
+};
+template <typename... Ss> struct hoist_vars<block<Ss...>> {
+	static void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
+};
+template <typename C, typename T, typename E> struct hoist_vars<if_stmt<C, T, E>> {
+	static void go(environment & fnscope) {
+		hoist_vars<T>::go(fnscope);
+		if constexpr (!std::is_void_v<E>) { hoist_vars<E>::go(fnscope); }
+	}
+};
+template <typename C, typename B> struct hoist_vars<while_stmt<C, B>> {
+	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+};
+template <typename B, typename C> struct hoist_vars<do_stmt<B, C>> {
+	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+};
+template <typename Init, typename Cond, typename Step, typename B>
+struct hoist_vars<for_stmt<Init, Cond, Step, B>> {
+	static void go(environment & fnscope) {
+		if constexpr (!std::is_void_v<Init>) { hoist_vars<Init>::go(fnscope); }
+		hoist_vars<B>::go(fnscope);
+	}
+};
+template <typename N, typename Iter, typename B> struct hoist_vars<forof_stmt<N, Iter, B>> {
+	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+};
+template <typename B, typename CN, typename H, typename F>
+struct hoist_vars<try_stmt<B, CN, H, F>> {
+	static void go(environment & fnscope) {
+		hoist_vars<B>::go(fnscope);
+		if constexpr (!std::is_void_v<H>) { hoist_vars<H>::go(fnscope); }
+		if constexpr (!std::is_void_v<F>) { hoist_vars<F>::go(fnscope); }
+	}
+};
+
 template <typename S> struct hoist_pick {
 	static void go(const env_ptr &, context &) { }
 };
@@ -668,7 +834,19 @@ template <typename N, typename P, typename B> struct hoist_pick<fn_decl<N, P, B>
 		env->declare(N::view(), fn_maker<P, B, false>::make(env, std::string{N::view()}));
 	}
 };
+template <typename... Ds> struct hoist_pick<let_stmt<Ds...>> {
+	static void go(const env_ptr & env, context &) {
+		(env->tdz.insert(std::string{decl_name<Ds>::view()}), ...);
+	}
+};
+template <typename... Ds> struct hoist_pick<const_stmt<Ds...>> {
+	static void go(const env_ptr & env, context &) {
+		(env->tdz.insert(std::string{decl_name<Ds>::view()}), ...);
+	}
+};
 template <typename... Ss> void hoist_functions(const env_ptr & env, context & cx) {
+	environment & fnscope = env->hoist_target();
+	(hoist_vars<Ss>::go(fnscope), ...);
 	(hoist_pick<Ss>::go(env, cx), ...);
 }
 

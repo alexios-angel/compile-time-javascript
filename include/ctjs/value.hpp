@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -387,6 +388,12 @@ inline std::string error_to_string(const value & v) {
 struct environment {
 	std::shared_ptr<environment> parent;
 	std::map<std::string, value, std::less<>> vars;
+	// V8-faithful binding metadata: which names are const, which are in
+	// their temporal dead zone (let/const hoisted but uninitialized),
+	// and whether this scope is a var-hoisting boundary (function/global)
+	std::set<std::string, std::less<>> consts;
+	std::set<std::string, std::less<>> tdz;
+	bool function_scope = false;
 
 	value * find(std::string_view name) {
 		for (environment * e = this; e != nullptr; e = e->parent.get()) {
@@ -396,7 +403,35 @@ struct environment {
 		}
 		return nullptr;
 	}
+	// like find, but stops with tdz_hit when the nearest declaration of
+	// the name is still in its temporal dead zone (shadowing respected)
+	value * find_checked(std::string_view name, bool & tdz_hit) {
+		for (environment * e = this; e != nullptr; e = e->parent.get()) {
+			if (const auto it = e->vars.find(name); it != e->vars.end()) {
+				return &it->second;
+			}
+			if (e->tdz.contains(name)) {
+				tdz_hit = true;
+				return nullptr;
+			}
+		}
+		return nullptr;
+	}
+	// the environment holding the nearest binding of name (nullptr = none)
+	environment * owner(std::string_view name) {
+		for (environment * e = this; e != nullptr; e = e->parent.get()) {
+			if (e->vars.find(name) != e->vars.end()) { return e; }
+		}
+		return nullptr;
+	}
+	// nearest enclosing function/global scope: where `var` declarations land
+	environment & hoist_target() {
+		environment * e = this;
+		while (!e->function_scope && e->parent != nullptr) { e = e->parent.get(); }
+		return *e;
+	}
 	void declare(std::string_view name, value v) {
+		tdz.erase(std::string{name}); // initialization ends the dead zone
 		vars.insert_or_assign(std::string{name}, std::move(v));
 	}
 };
@@ -408,6 +443,12 @@ struct context {
 	std::string console;                          // captured console output
 	std::function<void(std::string_view)> sink{}; // optional live sink
 	value last;                                   // last expression-statement value
+	// `this` plumbing: a method call parks the receiver in pending_this
+	// just before call_value; call_value moves it into current_this for
+	// exactly that call (fn_maker binds it as `this` in the callee env).
+	// Plain calls see undefined - module/strict semantics, documented.
+	value pending_this;
+	value current_this;
 	int depth = 0;
 	int max_depth = 256;
 

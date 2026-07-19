@@ -38,10 +38,18 @@ WSL2) — see the memory notes; `make -j1` for anything grammar-touching.
 - `tests/` (`parse.cpp` — compile-time static_asserts, `runtime.cpp` — behavior vs node), `examples/` (`hello`, `host`).
 
 ## Semantics decisions (keep consistent; all in README too)
-- No ASI. `var` == `let` scoping. `const` doesn't reject reassignment.
-  Classic `for` = one binding per loop; `for...of` binds per iteration.
-  No `this`. Keywords usable as names where unambiguous (`let let`).
-  Strings are bytes. `Math.random` seeded deterministically.
+- V8-ALIGNED (v0.2): `var` function-scoped + hoisted (recursive
+  pre-declare at function entry); let/const TDZ ("Cannot access 'x'
+  before initialization"); const reassignment → TypeError ("Assignment
+  to constant variable."); classic `for`+let = PER-ITERATION bindings
+  (step runs in the next copy); method calls bind `this` (plain calls:
+  undefined — module semantics, no sloppy globalThis). Differential
+  suite: `python3 tools/gen-v8diff.py && make tests/v8diff` (captures
+  node's output per corpus snippet, byte-compares; PARSE-GAP = grammar
+  hole, not a wrong answer).
+- Still deliberate: no ASI. Keywords usable as names where unambiguous
+  (`let let`). Strings are bytes. `Math.random` seeded
+  deterministically. Array sort default = lexicographic (spec).
 - Number printing follows ECMA-262 Number::toString exactly (shortest
   digits via to_chars, fixed for exponent in (-7,21), else exponential).
   Careful: `from_chars` rejects the `+` in `to_chars` exponents.

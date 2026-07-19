@@ -2,17 +2,23 @@
 
 default: all
 
-CXX_STANDARD := 20
+CXX_STANDARD := 23
 
 PYTHON := python3
 
-# Earley at compile time needs more constexpr budget than the defaults
-CXX_IS_CLANG := $(shell $(CXX) --version 2>/dev/null | grep -qi clang && echo yes)
-ifeq ($(CXX_IS_CLANG),yes)
-CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=2048
-else
-CONSTEXPR_FLAGS := -fconstexpr-ops-limit=3000000000 -fconstexpr-loop-limit=10000000 -fconstexpr-depth=1024
+# THE compiler: the stack's std::embed clang (see compile-time-browser
+# tools/clang-std-embed or the embed repo's release); plain clang++ as
+# a fallback for standalone checkouts. gcc paths are gone (clang-only).
+ifeq ($(origin CXX),default)
+CTB_CLANG := $(wildcard ../../tools/clang-std-embed/bin/clang++)
+CXX := $(if $(CTB_CLANG),$(CTB_CLANG),clang++)
 endif
+CXX_IS_CLANG := yes
+
+# Earley at compile time needs more constexpr budget than the defaults;
+# trunk clang also needs the deeper bracket limit AND a big stack
+# (recipes run ulimit -s unlimited - 8 MB default segfaults)
+CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=16384
 
 # ctlark and ctll come from a git submodule (run `git submodule update --init`
 # once after cloning). The extra <sub>/include/ctlark and <sub>/include/ctll
@@ -47,7 +53,7 @@ DEPENDENCY_FILES := $(TESTS:%.cpp=%.d)
 all: run-tests
 
 $(BINARIES): %: %.cpp $(PCH)
-	$(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
+	@ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
 
 run-tests: $(BINARIES)
 	@for t in $(BINARIES); do printf '== %s\n' "$$t"; ./$$t || exit 1; done
@@ -55,7 +61,7 @@ run-tests: $(BINARIES)
 pch: $(PCH)
 
 $(PCH): include/ctjs.hpp $(wildcard include/ctjs/*.hpp)
-	$(CXX) $(CXXFLAGS) -x c++-header $< -o $@
+	@ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) -x c++-header $< -o $@
 
 -include $(DEPENDENCY_FILES)
 

@@ -91,6 +91,9 @@ template <typename Tok> constexpr bool is_increment() {
 
 // --- pack helpers (props, args, params, declarators, blocks)
 
+template <typename ParamsTree> struct lower_params; // defined below
+template <typename BlockTree> struct lower_block;   // defined below
+
 template <typename PropTree> struct lower_prop;
 template <typename PN, typename K, typename V> struct lower_prop<ctlark::tree<PN, K, V>> {
 	static constexpr auto pick() {
@@ -102,12 +105,36 @@ template <typename PN, typename K, typename V> struct lower_prop<ctlark::tree<PN
 	}
 	using type = decltype(pick());
 };
+// one kid: { shorthand } or { ...spread }
+template <typename PN, typename K> struct lower_prop<ctlark::tree<PN, K>> {
+	static constexpr auto pick() {
+		if constexpr (PN::view() == std::string_view{"prop_shorthand"}) {
+			return ast::prop<ast::ident<typename K::value_type>,
+			                 ast::ident<typename K::value_type>>{};
+		} else { // prop_spread
+			return ast::spread_prop<lower_expr_t<K>>{};
+		}
+	}
+	using type = decltype(pick());
+};
+// three kids: { method(params) { ... } } - sugar for a fn_expr prop
+template <typename PN, typename K, typename P, typename B>
+struct lower_prop<ctlark::tree<PN, K, P, B>> {
+	using type = ast::prop<ast::ident<typename K::value_type>,
+	                       ast::fn_expr<typename lower_params<P>::type,
+	                                    typename lower_block<B>::type, false>>;
+};
 
 template <typename K> struct lower_arg; // spread-aware (defined below)
 template <typename Callee, typename ArgsTree> struct lower_call;
 template <typename Callee, typename AN, typename... As>
 struct lower_call<Callee, ctlark::tree<AN, As...>> {
 	using type = ast::call<Callee, typename lower_arg<As>::type...>;
+};
+template <typename Callee, typename ArgsTree> struct lower_opt_call;
+template <typename Callee, typename AN, typename... As>
+struct lower_opt_call<Callee, ctlark::tree<AN, As...>> {
+	using type = ast::opt_call<Callee, typename lower_arg<As>::type...>;
 };
 
 template <typename P> struct lower_param;
@@ -328,6 +355,12 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			return ast::unary<ast::op_typeof, lower_expr_t<kid<0>>>{};
 		} else if constexpr (n == std::string_view{"await_op"}) {
 			return ast::unary<ast::op_await, lower_expr_t<kid<0>>>{};
+		} else if constexpr (n == std::string_view{"opt_member"}) {
+			return ast::opt_member<lower_expr_t<kid<0>>, typename kid<1>::value_type>{};
+		} else if constexpr (n == std::string_view{"opt_index"}) {
+			return ast::opt_index<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>>{};
+		} else if constexpr (n == std::string_view{"opt_call"}) {
+			return typename lower_opt_call<lower_expr_t<kid<0>>, kid<1>>::type{};
 		} else if constexpr (n == std::string_view{"pre_incdec"}) {
 			return ast::incdec<lower_expr_t<kid<1>>, true, is_increment<kid<0>>()>{};
 		} else if constexpr (n == std::string_view{"post_incdec"}) {

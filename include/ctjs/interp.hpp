@@ -256,6 +256,23 @@ template <typename... Ps> struct eval_<object_lit<Ps...>> {
 	static void put(object_t & o, const env_ptr & env, context & cx, prop<K, V>) {
 		o.set(key_of<K>::get(), ev<V>(env, cx));
 	}
+	// { ...src }: copy own enumerable props; arrays/strings spread as
+	// index keys; other primitives contribute nothing, like the spec
+	template <typename E>
+	static void put(object_t & o, const env_ptr & env, context & cx, spread_prop<E>) {
+		const value src = ev<E>(env, cx);
+		if (src.is_object()) {
+			for (const auto & [k, pv] : src.as_object()->props) { o.set(k, pv); }
+		} else if (src.is_array()) {
+			const array_t & arr = *src.as_array();
+			for (size_t i = 0; i < arr.size(); ++i) { o.set(std::to_string(i), arr[i]); }
+		} else if (src.is_string()) {
+			const std::string & s = src.as_string();
+			for (size_t i = 0; i < s.size(); ++i) {
+				o.set(std::to_string(i), value{std::string(1, s[i])});
+			}
+		}
+	}
 	static value go(const env_ptr & env, context & cx) {
 		object_t o;
 		(put(o, env, cx, Ps{}), ...);
@@ -362,6 +379,79 @@ struct eval_<call<index<Obj, Index>, Args...>> {
 	static value go(const env_ptr & env, context & cx) {
 		value recv = ev<Obj>(env, cx);
 		const value fn = get_index(cx, recv, ev<Index>(env, cx));
+		std::vector<value> args = gather_args<Args...>(env, cx);
+		cx.pending_this = std::move(recv);
+		return call_value(cx, fn, std::move(args));
+	}
+};
+
+// --- optional chaining: a nullish receiver (or callee, for ?.())
+// yields undefined instead of throwing. Short-circuit is PER LINK -
+// a?.b.c still throws when a?.b is undefined (write a?.b?.c), unlike
+// V8's whole-chain skip; documented deviation.
+template <typename Obj, typename NameText> struct eval_<opt_member<Obj, NameText>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value recv = ev<Obj>(env, cx);
+		return recv.is_nullish() ? value{} : get_member(cx, recv, NameText::view());
+	}
+};
+template <typename Obj, typename Index> struct eval_<opt_index<Obj, Index>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value recv = ev<Obj>(env, cx);
+		if (recv.is_nullish()) { return value{}; }
+		return get_index(cx, recv, ev<Index>(env, cx));
+	}
+};
+template <typename Fn, typename... Args> struct eval_<opt_call<Fn, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value fn = ev<Fn>(env, cx);
+		if (fn.is_nullish()) { return value{}; }
+		return call_value(cx, fn, gather_args<Args...>(env, cx));
+	}
+};
+// method flavours keep the receiver as `this`, like their call<>
+// counterparts; with opt_member the receiver may legally be nullish
+template <typename Obj, typename NameText, typename... Args>
+struct eval_<opt_call<member<Obj, NameText>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		value recv = ev<Obj>(env, cx);
+		const value fn = get_member(cx, recv, NameText::view());
+		if (fn.is_nullish()) { return value{}; }
+		std::vector<value> args = gather_args<Args...>(env, cx);
+		cx.pending_this = std::move(recv);
+		return call_value(cx, fn, std::move(args));
+	}
+};
+template <typename Obj, typename NameText, typename... Args>
+struct eval_<opt_call<opt_member<Obj, NameText>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		value recv = ev<Obj>(env, cx);
+		if (recv.is_nullish()) { return value{}; }
+		const value fn = get_member(cx, recv, NameText::view());
+		if (fn.is_nullish()) { return value{}; }
+		std::vector<value> args = gather_args<Args...>(env, cx);
+		cx.pending_this = std::move(recv);
+		return call_value(cx, fn, std::move(args));
+	}
+};
+template <typename Obj, typename Index, typename... Args>
+struct eval_<opt_call<index<Obj, Index>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		value recv = ev<Obj>(env, cx);
+		const value fn = get_index(cx, recv, ev<Index>(env, cx));
+		if (fn.is_nullish()) { return value{}; }
+		std::vector<value> args = gather_args<Args...>(env, cx);
+		cx.pending_this = std::move(recv);
+		return call_value(cx, fn, std::move(args));
+	}
+};
+template <typename Obj, typename Index, typename... Args>
+struct eval_<opt_call<opt_index<Obj, Index>, Args...>> {
+	static value go(const env_ptr & env, context & cx) {
+		value recv = ev<Obj>(env, cx);
+		if (recv.is_nullish()) { return value{}; }
+		const value fn = get_index(cx, recv, ev<Index>(env, cx));
+		if (fn.is_nullish()) { return value{}; }
 		std::vector<value> args = gather_args<Args...>(env, cx);
 		cx.pending_this = std::move(recv);
 		return call_value(cx, fn, std::move(args));

@@ -303,6 +303,54 @@ static void json_parse() {
 	CHECK(out["bad"].to<std::string>() == "SyntaxError");
 }
 
+static void optional_chaining_and_object_sugar() {
+	auto out = ctjs::run<R"(
+		let user = { name: "ada", pet: { name: "rex", speak() { return "woof, " + this.name; } } };
+		let ghost = null;
+
+		let pet_name = user?.pet?.name;
+		let no_pet = ghost?.pet;
+		let no_deep = ghost?.pet?.name;
+		let idx = user?.pet?.["name"];
+		let bark = user.pet?.speak?.();
+		let no_call = ghost?.speak?.();
+		let missing_method = user?.dance?.();
+
+		let x = 1, y = 2;
+		let shorthand = { x, y };
+		let methods = {
+			base: 10,
+			add(n) { return this.base + n; }
+		};
+		let merged = { ...shorthand, z: 3, ...{ y: 20 } };
+		let from_array = { ...["a", "b"] };
+	)">();
+	CHECK(out.ok());
+	CHECK(out["pet_name"].to<std::string>() == "rex");
+	CHECK(out["no_pet"].is_undefined());
+	CHECK(out["no_deep"].is_undefined());
+	CHECK(out["idx"].to<std::string>() == "rex");
+	CHECK(out["bark"].to<std::string>() == "woof, rex");
+	CHECK(out["no_call"].is_undefined());
+	CHECK(out["missing_method"].is_undefined());
+	CHECK(out["shorthand"]["x"].to<int>() == 1);
+	CHECK(out["shorthand"]["y"].to<int>() == 2);
+	CHECK(out["methods"].is_object());
+	CHECK(out["merged"]["x"].to<int>() == 1);
+	CHECK(out["merged"]["y"].to<int>() == 20); // later spread wins
+	CHECK(out["merged"]["z"].to<int>() == 3);
+	CHECK(out["from_array"]["0"].to<std::string>() == "a");
+	CHECK(out["from_array"]["1"].to<std::string>() == "b");
+
+	// method shorthand binds this through a normal method call
+	auto m = ctjs::run<R"(
+		let counter = { n: 5, bump(by) { this.n += by; return this.n; } };
+		let after = counter.bump(3);
+	)">();
+	CHECK(m.ok());
+	CHECK(m["after"].to<int>() == 8);
+}
+
 int main() {
 	basics();
 	closures_and_calls();
@@ -316,6 +364,7 @@ int main() {
 	math_and_builtins();
 	async_and_promises();
 	json_parse();
+	optional_chaining_and_object_sugar();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

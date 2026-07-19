@@ -35,6 +35,7 @@ template <typename Text> struct str_lit { };            // raw, quotes included
 struct true_lit { }; struct false_lit { }; struct null_lit { };
 template <typename... Elems> struct array_lit { };
 template <typename KeyText, typename V> struct prop { }; // key already unquoted
+template <typename E> struct spread_prop { };            // { ...expr }
 template <typename... Props> struct object_lit { };
 template <typename Op, typename L, typename R> struct binary { };
 template <typename Op, typename E> struct unary { };
@@ -45,6 +46,11 @@ template <typename T> struct delete_op { };
 template <typename Fn, typename... Args> struct call { };
 template <typename Obj, typename NameText> struct member { };
 template <typename Obj, typename Index> struct index { };
+// optional chaining: nullish receiver/callee short-circuits PER LINK
+// (a?.b.c still throws when a?.b is undefined - write a?.b?.c)
+template <typename Obj, typename NameText> struct opt_member { };
+template <typename Obj, typename Index> struct opt_index { };
+template <typename Fn, typename... Args> struct opt_call { };
 // Target is ident/member/index; Op is op_none for `=`, else the
 // compound operator (+= etc.)
 template <typename Op, typename Target, typename V> struct assign { };

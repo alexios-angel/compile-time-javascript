@@ -114,8 +114,11 @@ promise is fulfilled or rejected the moment it is created and handlers
 run immediately instead of on a microtask queue (host natives hand
 scripts pre-resolved promises — compile-time-browser's `await
 fetch(url)`; `new Promise(executor)` is deliberately absent since an
-executor implies pending state). Not yet: regex literals, `instanceof`,
-labels, generators, `Date`.
+executor implies pending state); optional chaining short-circuits PER
+LINK — `a?.b.c` still throws when `a?.b` is undefined (write
+`a?.b?.c`), unlike V8's whole-chain skip. Not yet: regex literals,
+`instanceof`, labels, generators, `Date`, computed object keys
+(`{[k]: v}`), getters/setters.
 
 ## API
 

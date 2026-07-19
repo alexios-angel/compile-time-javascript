@@ -142,6 +142,9 @@ lhs: NAME                    -> lhs_name
         | postfix "(" args ")"   -> call
         | postfix "." NAME       -> member
         | postfix "[" expr "]"   -> index
+        | postfix "?." NAME            -> opt_member
+        | postfix "?." "[" expr "]"    -> opt_index
+        | postfix "?." "(" args ")"    -> opt_call
         | lhs INCDEC             -> post_incdec
 ?newable: primary
         | newable "." NAME       -> member
@@ -169,6 +172,9 @@ object_lit: "{" [prop ("," prop)*] "}"
 prop: NAME ":" assign     -> prop_name
     | DQSTRING ":" assign -> prop_str
     | SQSTRING ":" assign -> prop_str2
+    | NAME "(" params ")" block -> prop_method
+    | "..." assign        -> prop_spread
+    | NAME                -> prop_shorthand
 fn_expr: "function" "(" params ")" block
        | "async" "function" "(" params ")" block -> async_fn_expr
 arrow_fn: "(" params ")" "=>" arrow_body

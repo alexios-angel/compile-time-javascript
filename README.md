@@ -96,54 +96,35 @@ ui.call("onClick");   // the host's event loop, driving script handlers
   === "object"`, reference semantics for arrays/objects, `Math.random`
   deterministic-seeded (reproducible runs)
 
-**V8-aligned semantics (v0.2):** `var` is function-scoped and hoists
-(reads before the declaration see `undefined`); `let`/`const` are
-block-scoped with a temporal dead zone (access before initialization
-throws V8's `ReferenceError`); `const` reassignment throws V8's
-`TypeError`; classic `for` with `let` creates per-iteration bindings
-(closures capture each iteration's values); method calls bind `this`
-to the receiver. Verified against node by the generated differential
-suite: `python3 tools/gen-v8diff.py && make tests/v8diff` re-captures
-V8's output for every corpus snippet and byte-compares.
+**V8-aligned semantics (v0.2):**
 
-**Documented deviations:** no ASI — semicolons are required (a missing
-one is a *compile* error, which is rather the point); plain calls see
-`this === undefined` (module semantics; sloppy-mode `globalThis` is
-not modeled); keywords may be used as variable names where the grammar
-is unambiguous (`let let = 1;` parses); strings are bytes (UTF-8
-passes through, `.length` counts bytes); `Math.random` is seeded
-deterministically; **promises are the SETTLED subset** — the engine is
-synchronous, so `async function` / top-level `await` /
-then/catch/finally / `Promise.resolve|reject|all` all exist, but a
-promise is fulfilled or rejected the moment it is created and handlers
-run immediately instead of on a microtask queue (host natives hand
-scripts pre-resolved promises — compile-time-browser's `await
-fetch(url)`; `new Promise(executor)` is deliberately absent since an
-executor implies pending state); optional chaining short-circuits PER
-LINK — `a?.b.c` still throws when `a?.b` is undefined (write
-`a?.b?.c`), unlike V8's whole-chain skip; **generators are EAGER** —
-the body runs to completion on the call, yields buffer up, and the
-returned iterator (a plain `{next()}` object, which `for...of` also
-speaks for hand-rolled iterators) drains the buffer, so infinite
-generators hang and `next(v)` cannot feed values back in;
-`instanceof` is constructor identity (`new` stamps the instance) —
-there is no prototype chain, no `extends`; **regex literals lex
-greedily** (the lexer has no parser context), so a regex body may not
-contain a BARE space, `;` or `,` — write `[ ]`, `[;]`, `[,]` or `\x20`
-— which also keeps `a / b / c` division safe; the regex engine has no
-lookaround, backreferences or named groups, `exec` results carry no
-`.index/.input`, and `replace` takes string templates (`$&`, `$1`…),
-not callbacks; **`class B extends A`** inherits and overrides methods
-and chains `instanceof`, but there is no prototype chain and no
-`super` — a derived constructor runs the base constructor with NO
-arguments (an implicit argless `super()`), and a class with no own
-constructor forwards its arguments to the base; **`Date` is UTC-only**
-— `new Date(ms)`/`new Date()`, the `getUTC*`/`get*` getters (local
-aliases UTC), `getTime`, `getDay`, `toISOString`, and `Date.now()`;
-no date parsing and no setters; `Date.now()` is the one impure global
-besides `console`, so hosts wanting determinism rebind it. Not yet:
-`super`, prototype methods, date string parsing, computed *class*
-member names, static class fields.
+- `var` is function-scoped and hoists (reads before the declaration see `undefined`)
+- `let`/`const` are block-scoped with a temporal dead zone (access before initialization throws V8's `ReferenceError`)
+- `const` reassignment throws V8's `TypeError`
+- classic `for` with `let` creates per-iteration bindings (closures capture each iteration's values)
+- method calls bind `this` to the receiver
+
+Verified against node by the generated differential suite:
+`python3 tools/gen-v8diff.py && make tests/v8diff` re-captures V8's
+output for every corpus snippet and byte-compares.
+
+**Documented deviations:**
+
+- no ASI — semicolons are required (a missing one is a *compile* error, which is rather the point)
+- plain calls see `this === undefined` (module semantics; sloppy-mode `globalThis` is not modeled)
+- keywords may be used as variable names where the grammar is unambiguous (`let let = 1;` parses)
+- strings are bytes (UTF-8 passes through, `.length` counts bytes)
+- `Math.random` is seeded deterministically
+- **promises are the SETTLED subset** — the engine is synchronous, so `async function` / top-level `await` / then/catch/finally / `Promise.resolve|reject|all` all exist, but a promise is fulfilled or rejected the moment it is created and handlers run immediately instead of on a microtask queue (host natives hand scripts pre-resolved promises — compile-time-browser's `await fetch(url)`; `new Promise(executor)` is deliberately absent since an executor implies pending state)
+- optional chaining short-circuits PER LINK — `a?.b.c` still throws when `a?.b` is undefined (write `a?.b?.c`), unlike V8's whole-chain skip
+- **generators are EAGER** — the body runs to completion on the call, yields buffer up, and the returned iterator (a plain `{next()}` object, which `for...of` also speaks for hand-rolled iterators) drains the buffer, so infinite generators hang and `next(v)` cannot feed values back in
+- `instanceof` is constructor identity (`new` stamps the instance) — there is no prototype chain, no `extends`
+- **regex literals lex greedily** (the lexer has no parser context), so a regex body may not contain a BARE space, `;` or `,` — write `[ ]`, `[;]`, `[,]` or `\x20` — which also keeps `a / b / c` division safe; the regex engine has no lookaround, backreferences or named groups, `exec` results carry no `.index/.input`, and `replace` takes string templates (`$&`, `$1`…), not callbacks
+- **`class B extends A`** inherits and overrides methods and chains `instanceof`, but there is no prototype chain and no `super` — a derived constructor runs the base constructor with NO arguments (an implicit argless `super()`), and a class with no own constructor forwards its arguments to the base
+- **`Date` is UTC-only** — `new Date(ms)`/`new Date()`, the `getUTC*`/`get*` getters (local aliases UTC), `getTime`, `getDay`, `toISOString`, and `Date.now()`; no date parsing and no setters; `Date.now()` is the one impure global besides `console`, so hosts wanting determinism rebind it
+
+**Not yet:** `super`, prototype methods, date string parsing, computed
+*class* member names, static class fields.
 
 ## API
 

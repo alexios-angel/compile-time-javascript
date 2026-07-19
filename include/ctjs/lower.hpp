@@ -201,6 +201,12 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 			return ast::array_lit<lower_expr_t<Ks>...>{};
 		} else if constexpr (n == std::string_view{"object_lit"}) {
 			return ast::object_lit<typename lower_prop<Ks>::type...>{};
+		} else if constexpr (n == std::string_view{"comma_op"}) {
+			return ast::comma_op<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>>{};
+		} else if constexpr (n == std::string_view{"in_op"}) {
+			return ast::in_op<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>>{};
+		} else if constexpr (n == std::string_view{"delete_op"}) {
+			return ast::delete_op<lower_expr_t<kid<0>>>{};
 		} else if constexpr (n == std::string_view{"ternary"}) {
 			return ast::ternary<lower_expr_t<kid<0>>, lower_expr_t<kid<1>>,
 			                    lower_expr_t<kid<2>>>{};
@@ -268,6 +274,26 @@ template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>
 
 // --- statements
 
+template <typename Tree> struct lower_clause;
+template <typename CN, typename K0, typename... Ks2>
+struct lower_clause<ctlark::tree<CN, K0, Ks2...>> {
+	static constexpr auto pick() {
+		if constexpr (CN::view() == std::string_view{"case_clause"}) {
+			return ast::case_clause<lower_expr_t<K0>, lower_stmt_t<Ks2>...>{};
+		} else {
+			return ast::default_clause<lower_stmt_t<K0>, lower_stmt_t<Ks2>...>{};
+		}
+	}
+	using type = decltype(pick());
+};
+template <typename CN> struct lower_clause<ctlark::tree<CN>> {
+	using type = ast::default_clause<>;
+};
+template <typename... Ks2> struct lower_switch;
+template <typename D, typename... Cs> struct lower_switch<D, Cs...> {
+	using type = ast::switch_stmt<lower_expr_t<D>, typename lower_clause<Cs>::type...>;
+};
+
 template <typename TN, typename... Ks> struct lower_stmt<ctlark::tree<TN, Ks...>> {
 	template <size_t I> using kid = nth_t<I, Ks...>;
 	static constexpr auto pick() {
@@ -315,6 +341,8 @@ template <typename TN, typename... Ks> struct lower_stmt<ctlark::tree<TN, Ks...>
 			return ast::break_stmt{};
 		} else if constexpr (n == std::string_view{"continue_stmt"}) {
 			return ast::continue_stmt{};
+		} else if constexpr (n == std::string_view{"switch_stmt"}) {
+			return typename lower_switch<Ks...>::type{};
 		} else if constexpr (n == std::string_view{"empty_stmt"}) {
 			return ast::empty_stmt{};
 		} else if constexpr (n == std::string_view{"throw_stmt"}) {

@@ -354,6 +354,64 @@ struct eval_<call<index<Obj, Index>, Args...>> {
 	}
 };
 
+template <typename L, typename R> struct eval_<comma_op<L, R>> {
+	static value go(const env_ptr & env, context & cx) {
+		(void)ev<L>(env, cx);
+		return ev<R>(env, cx);
+	}
+};
+template <typename L, typename R> struct eval_<in_op<L, R>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value key = ev<L>(env, cx);
+		const value obj = ev<R>(env, cx);
+		if (obj.is_object()) {
+			return value{obj.as_object()->find(key.to_string()) != nullptr};
+		}
+		if (obj.is_array()) {
+			const double d = key.to_number();
+			return value{d >= 0 && d < static_cast<double>(obj.as_array()->size()) &&
+			             d == std::floor(d)};
+		}
+		throw_error("TypeError", "Cannot use 'in' operator to search for '" +
+		                             key.to_string() + "' in " + obj.to_string());
+	}
+};
+// delete on a member/index removes the property (true); anything else
+// is true without effect, like sloppy-mode V8 on non-references
+template <typename T> struct eval_<delete_op<T>> {
+	static value go(const env_ptr & env, context & cx) {
+		(void)ev<T>(env, cx);
+		return value{true};
+	}
+};
+template <typename O, typename N> struct eval_<delete_op<member<O, N>>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value recv = ev<O>(env, cx);
+		if (recv.is_object()) {
+			auto & props = recv.as_object()->props;
+			std::erase_if(props, [](const auto & kv) { return kv.first == N::view(); });
+		}
+		return value{true};
+	}
+};
+template <typename O, typename I> struct eval_<delete_op<index<O, I>>> {
+	static value go(const env_ptr & env, context & cx) {
+		const value recv = ev<O>(env, cx);
+		const value k = ev<I>(env, cx);
+		if (recv.is_object()) {
+			auto & props = recv.as_object()->props;
+			const std::string key = k.to_string();
+			std::erase_if(props, [&](const auto & kv) { return kv.first == key; });
+		} else if (recv.is_array()) {
+			const double d = k.to_number();
+			if (d >= 0 && d < static_cast<double>(recv.as_array()->size())) {
+				(*recv.as_array())[static_cast<size_t>(d)] = value{};
+			}
+		}
+		return value{true};
+	}
+};
+
 // assignment-target classification
 template <typename X> struct is_ident_node : std::false_type { };
 template <typename T> struct is_ident_node<ident<T>> : std::true_type { };
@@ -711,6 +769,51 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 	}
 };
 
+// switch: strict-equality dispatch with FALLTHROUGH; break consumes
+// flow::brk, return/continue propagate; default runs when nothing
+// matched (wherever it sits in clause order, entered in source order)
+template <typename Clause> struct clause_match;
+template <typename E, typename... Ss> struct clause_match<case_clause<E, Ss...>> {
+	static bool matches(const env_ptr & env, context & cx, const value & disc) {
+		return strict_equals(ev<E>(env, cx), disc);
+	}
+	static flow run(const env_ptr & env, context & cx, value & ret) {
+		return exec_all<Ss...>(env, cx, ret);
+	}
+	static constexpr bool is_default = false;
+};
+template <typename... Ss> struct clause_match<default_clause<Ss...>> {
+	static bool matches(const env_ptr &, context &, const value &) { return false; }
+	static flow run(const env_ptr & env, context & cx, value & ret) {
+		return exec_all<Ss...>(env, cx, ret);
+	}
+	static constexpr bool is_default = true;
+};
+template <typename D, typename... Clauses> struct exec_<switch_stmt<D, Clauses...>> {
+	static flow go(const env_ptr & env, context & cx, value & ret) {
+		const value disc = ev<D>(env, cx);
+		auto scope = std::make_shared<environment>();
+		scope->parent = env;
+		flow f = flow::normal;
+		bool taken = false;
+		const auto step = [&](auto tag, const bool match_default) {
+			using C = typename decltype(tag)::type;
+			if (f != flow::normal) { return; }
+			if (!taken) {
+				if (match_default ? clause_match<C>::is_default
+				                  : clause_match<C>::matches(scope, cx, disc)) {
+					taken = true;
+				}
+			}
+			if (taken) { f = clause_match<C>::run(scope, cx, ret); }
+		};
+		(step(std::type_identity<Clauses>{}, false), ...);
+		if (!taken) { (step(std::type_identity<Clauses>{}, true), ...); }
+		if (f == flow::brk) { f = flow::normal; }
+		return f;
+	}
+};
+
 template <typename E> struct exec_<return_stmt<E>> {
 	static flow go(const env_ptr & env, context & cx, value & ret) {
 		if constexpr (std::is_void_v<E>) {
@@ -816,6 +919,16 @@ struct hoist_vars<for_stmt<Init, Cond, Step, B>> {
 };
 template <typename N, typename Iter, typename B> struct hoist_vars<forof_stmt<N, Iter, B>> {
 	static void go(environment & fnscope) { hoist_vars<B>::go(fnscope); }
+};
+template <typename Clause> struct clause_vars;
+template <typename E, typename... Ss> struct clause_vars<case_clause<E, Ss...>> {
+	static void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
+};
+template <typename... Ss> struct clause_vars<default_clause<Ss...>> {
+	static void go(environment & fnscope) { (hoist_vars<Ss>::go(fnscope), ...); }
+};
+template <typename D, typename... Cs> struct hoist_vars<switch_stmt<D, Cs...>> {
+	static void go(environment & fnscope) { (clause_vars<Cs>::go(fnscope), ...); }
 };
 template <typename B, typename CN, typename H, typename F>
 struct hoist_vars<try_stmt<B, CN, H, F>> {

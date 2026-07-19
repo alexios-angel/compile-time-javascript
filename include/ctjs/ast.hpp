@@ -38,6 +38,9 @@ template <typename... Props> struct object_lit { };
 template <typename Op, typename L, typename R> struct binary { };
 template <typename Op, typename E> struct unary { };
 template <typename C, typename T, typename F> struct ternary { };
+template <typename L, typename R> struct comma_op { };
+template <typename L, typename R> struct in_op { };
+template <typename T> struct delete_op { };
 template <typename Fn, typename... Args> struct call { };
 template <typename Obj, typename NameText> struct member { };
 template <typename Obj, typename Index> struct index { };
@@ -73,6 +76,9 @@ template <typename E> struct throw_stmt { };
 // CatchName/Handler = void for try/finally; Finally = void when absent
 template <typename Body, typename CatchName, typename Handler, typename Finally>
 struct try_stmt { };
+template <typename E, typename... Ss> struct case_clause { };
+template <typename... Ss> struct default_clause { };
+template <typename D, typename... Clauses> struct switch_stmt { };
 struct empty_stmt { };
 
 } // namespace ctjs::ast

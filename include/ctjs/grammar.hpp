@@ -52,6 +52,7 @@ start: stmt*
      | continue_stmt
      | throw_stmt
      | try_stmt
+     | switch_stmt
      | empty_stmt
      | expr_stmt
 
@@ -82,10 +83,14 @@ throw_stmt: "throw" expr ";"
 try_stmt: "try" block "catch" "(" NAME ")" block                  -> try_catch
         | "try" block "catch" "(" NAME ")" block "finally" block  -> try_catch_fin
         | "try" block "finally" block                             -> try_fin
+switch_stmt: "switch" "(" expr ")" "{" switch_clause* "}"
+switch_clause: "case" expr ":" stmt*  -> case_clause
+             | "default" ":" stmt*     -> default_clause
 empty_stmt: ";"
 expr_stmt: expr ";"
 
 ?expr: assign
+     | expr "," assign -> comma_op
 
 ?assign: nullish
        | nullish "?" assign ":" assign -> ternary
@@ -105,6 +110,7 @@ lhs: NAME                    -> lhs_name
          | equality EQ_OP relational -> cmp_eq
 ?relational: additive
            | relational REL_OP additive -> cmp_rel
+           | relational "in" additive   -> in_op
 ?additive: multiplicative
          | additive "+" multiplicative -> add_op
          | additive "-" multiplicative -> sub_op
@@ -117,6 +123,7 @@ lhs: NAME                    -> lhs_name
       | "-" unary      -> neg_op
       | "+" unary      -> pos_op
       | "typeof" unary -> typeof_op
+      | "delete" unary -> delete_op
       | INCDEC lhs     -> pre_incdec
 ?postfix: primary
         | postfix "(" args ")"   -> call

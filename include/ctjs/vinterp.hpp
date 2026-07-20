@@ -408,11 +408,12 @@ struct vm {
 	value eval_call(const node & n, const env_ptr & env, context & cx) {
 		const node & callee = N(n.a);
 		value fn;
-		std::string cname; // the callee's name, for a helpful "X is not a function"
+		value this_for_call; // the `this` to bind; committed to cx.pending_this AFTER args
+		std::string cname;   // the callee's name, for a helpful "X is not a function"
 		if (callee.kind == nk::super_lit) {
 			// super(...) - call the parent constructor on the current instance
 			fn = cx.current_super;
-			cx.pending_this = cx.current_this;
+			this_for_call = cx.current_this;
 			cname = "super";
 		} else if ((callee.kind == nk::member || callee.kind == nk::opt_member) &&
 		           N(callee.a).kind == nk::super_lit) {
@@ -423,7 +424,7 @@ struct vm {
 			}
 			cname = std::string{callee.text};
 			fn = ctjs::get_member(cx, proto, cname);
-			cx.pending_this = cx.current_this;
+			this_for_call = cx.current_this;
 		} else if (callee.kind == nk::member || callee.kind == nk::index || callee.kind == nk::opt_member) {
 			value recv = eval(callee.a, env, cx);
 			if ((n.kind == nk::opt_call || callee.kind == nk::opt_member) && recv.is_nullish()) { return value{}; }
@@ -431,17 +432,21 @@ struct vm {
 			cname = key;
 			fn = ctjs::get_member(cx, recv, key);
 			if (n.kind == nk::opt_call && fn.is_nullish()) { return value{}; }
-			cx.pending_this = recv;
+			this_for_call = recv;
 		} else {
 			if (callee.kind == nk::ident) { cname = std::string{callee.text}; }
 			fn = eval(n.a, env, cx);
 			if (n.kind == nk::opt_call && fn.is_nullish()) { return value{}; }
-			cx.pending_this = value{};
+			this_for_call = value{};
 		}
+		// Evaluate args BEFORE binding `this`: an argument that is itself a call or
+		// `new` (e.g. obj.method(new Foo())) sets cx.pending_this during its own
+		// evaluation, which would otherwise clobber the receiver we resolved above.
 		std::vector<value> args = eval_args(n.list, n.list_len, env, cx);
 		if (!fn.is_function()) {
 			ctjs::throw_error("TypeError", (cname.empty() ? fn.to_string() : cname) + " is not a function");
 		}
+		cx.pending_this = std::move(this_for_call);
 		return ctjs::call_value(cx, fn, std::move(args));
 	}
 

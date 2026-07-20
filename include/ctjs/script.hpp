@@ -1,10 +1,19 @@
 #ifndef CTJS__SCRIPT__HPP
 #define CTJS__SCRIPT__HPP
 
+// CTJS_NO_GRAMMAR: the lark/Earley grammar (the tens-of-minutes JS table build)
+// and the type-path interpreter are needed ONLY by the compile-time TYPE path
+// (script_t / run / eval / is_valid). A TU that uses only the runtime VALUE
+// path (run_value) defines CTJS_NO_GRAMMAR and skips all of it. (See ctcss/
+// cthtml for the twins.)
+#ifndef CTJS_NO_GRAMMAR
 #include "grammar.hpp"
+#endif
 #include "asi.hpp"
+#ifndef CTJS_NO_GRAMMAR
 #include "lower.hpp"
 #include "interp.hpp"
+#endif
 #include "vinterp.hpp"   // parse-by-value path (ctjs::run_value)
 #ifndef CTJS_IN_A_MODULE
 #include <memory>
@@ -115,6 +124,8 @@ private:
 	std::shared_ptr<void> owner_;
 };
 
+#ifndef CTJS_NO_GRAMMAR // --- the compile-time TYPE path (needs the grammar)
+
 namespace detail {
 
 template <typename Program> struct program_runner;
@@ -209,6 +220,8 @@ inline constexpr double constant = detail::const_of<Src>::value.num;
 template <CTJS_STRING_INPUT Src> run_result run(std::vector<binding> host = {}) {
 	return script_t<Src>::run(std::move(host));
 }
+
+#endif // CTJS_NO_GRAMMAR (compile-time TYPE path)
 
 // Run a script BY VALUE: parse it with the recursive-descent value parser and
 // execute it with the value tree-walking interpreter, both at RUNTIME - no

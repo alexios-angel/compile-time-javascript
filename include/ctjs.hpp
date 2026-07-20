@@ -1,13 +1,21 @@
 #ifndef CTJS__HPP
 #define CTJS__HPP
 
+// CTJS_NO_GRAMMAR (see ctjs/script.hpp): skip the lark/Earley JS grammar and
+// the type-path interpreter - the expensive part of this header, needed only by
+// the compile-time TYPE path. A TU using only run_value() defines it and skips
+// the tens-of-minutes grammar table build entirely.
 #include "ctlark.hpp"
+#ifndef CTJS_NO_GRAMMAR
 #include "ctjs/grammar.hpp"
 #include "ctjs/ast.hpp"
 #include "ctjs/lower.hpp"
+#endif
 #include "ctjs/value.hpp"
 #include "ctjs/builtins.hpp"
+#ifndef CTJS_NO_GRAMMAR
 #include "ctjs/interp.hpp"
+#endif
 #include "ctjs/script.hpp"
 
 // ctjs: JavaScript parsed while your code compiles, executed when it
@@ -43,6 +51,10 @@
 // run_result::call - the seam a compile-time browser hangs DOM APIs on.
 
 namespace ctjs {
+
+// The grammar-backed compile-time TYPE-path surface. The runtime VALUE path
+// (ctjs::run_value, ctjs::value/binding/context) is available either way.
+#ifndef CTJS_NO_GRAMMAR
 
 // does the source parse as ctjs's JavaScript subset? (after ASI normalisation)
 CTLL_EXPORT template <CTJS_STRING_INPUT Src> constexpr bool is_valid =
@@ -81,6 +93,8 @@ ctlark::debug::runtime_result parse_runtime(std::string_view in) {
 }
 
 } // namespace debug
+
+#endif // CTJS_NO_GRAMMAR
 
 } // namespace ctjs
 

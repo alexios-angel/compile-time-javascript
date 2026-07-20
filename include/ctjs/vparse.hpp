@@ -353,6 +353,19 @@ struct parser {
 		return a.add_list(kids);
 	}
 
+	// the constructor of a `new`: a member expression with NO call (the call
+	// after it, if any, supplies the new's arguments; further chains apply to
+	// the constructed object)
+	constexpr int new_callee() {
+		int e = primary();
+		for (;;) {
+			if (is_p(".")) { advance(); node nd{nk::member, cur().s}; nd.a = e; advance(); e = a.add(nd); }
+			else if (is_p("[")) { advance(); node nd{nk::index, ""}; nd.a = e; nd.b = expr(0); expect_p("]"); e = a.add(nd); }
+			else { break; }
+		}
+		return e;
+	}
+
 	constexpr int primary() {
 		const token & c = cur();
 		if (c.kind == tk::num) { node nd{nk::num, c.s}; advance(); return a.add(nd); }
@@ -370,7 +383,13 @@ struct parser {
 			if (c.s == "null") { advance(); return a.add({nk::null_lit, "null"}); }
 			if (c.s == "this") { advance(); return a.add({nk::this_lit, "this"}); }
 			if (c.s == "super") { advance(); return a.add({nk::super_lit, "super"}); }
-			if (c.s == "new") { advance(); node nd{nk::new_expr, ""}; nd.a = postfix(); return a.add(nd); }
+			if (c.s == "new") {
+				advance();
+				node nd{nk::new_expr, ""};
+				nd.a = new_callee();                       // member-expr only (no trailing call)
+				if (is_p("(")) { nd.list = args(nd.list_len); nd.d = 1; }
+				return a.add(nd);                          // postfix() continues for `.m()` on the result
+			}
 			if (c.s == "function") { return func(true); }
 			if (c.s == "async") {
 				if (nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(true); }
@@ -521,6 +540,7 @@ struct parser {
 		while (!is_p("}") && !at_end()) {
 			if (eat_p(";")) { continue; }
 			node m{nk::class_member, ""};
+			m.d = 0;   // bit0 = static, bit1 = computed key (|= needs a 0 base)
 			if (is_kw("static")) { advance(); m.d |= 1; }
 			// get/set accessor
 			if ((is_kw("get") || is_kw("set")) && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";"))) {

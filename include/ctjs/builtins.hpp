@@ -806,6 +806,62 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 			return value::array(std::move(out));
 		});
 	}
+	if (name == "splice") {
+		return bound("splice", [arr](context &, const std::vector<value> & a) {
+			const size_t len = arr->size();
+			const size_t start = a.empty() ? 0 : rel_index(a[0].to_number(), len);
+			size_t del;
+			if (a.size() < 2) {
+				del = len - start; // no deleteCount -> remove through the end
+			} else {
+				const double dc = a[1].to_number();
+				del = (std::isnan(dc) || dc < 0) ? 0 : static_cast<size_t>(dc);
+				if (del > len - start) { del = len - start; }
+			}
+			array_t removed;
+			for (size_t i = 0; i < del; ++i) { removed.push_back((*arr)[start + i]); }
+			arr->erase(arr->begin() + static_cast<std::ptrdiff_t>(start),
+			           arr->begin() + static_cast<std::ptrdiff_t>(start + del));
+			if (a.size() > 2) {
+				arr->insert(arr->begin() + static_cast<std::ptrdiff_t>(start), a.begin() + 2, a.end());
+			}
+			return value::array(std::move(removed));
+		});
+	}
+	if (name == "find" || name == "findIndex") {
+		const bool want_index = (name == "findIndex");
+		return bound(want_index ? "findIndex" : "find", [arr, recv, want_index](context & cx, const std::vector<value> & a) -> value {
+			if (a.empty() || !a[0].is_function()) { return want_index ? value{-1.0} : value{}; }
+			for (size_t i = 0; i < arr->size(); ++i) {
+				if (call_value(cx, a[0], {(*arr)[i], value{static_cast<double>(i)}, recv}).truthy()) {
+					return want_index ? value{static_cast<double>(i)} : (*arr)[i];
+				}
+			}
+			return want_index ? value{-1.0} : value{};
+		});
+	}
+	if (name == "some" || name == "every") {
+		const bool is_every = (name == "every");
+		return bound(is_every ? "every" : "some", [arr, recv, is_every](context & cx, const std::vector<value> & a) -> value {
+			if (a.empty() || !a[0].is_function()) { return value{is_every}; }
+			for (size_t i = 0; i < arr->size(); ++i) {
+				const bool t = call_value(cx, a[0], {(*arr)[i], value{static_cast<double>(i)}, recv}).truthy();
+				if (is_every && !t) { return value{false}; }
+				if (!is_every && t) { return value{true}; }
+			}
+			return value{is_every};
+		});
+	}
+	if (name == "fill") {
+		return bound("fill", [arr](context &, const std::vector<value> & a) {
+			const size_t len = arr->size();
+			const value fv = arg_or_undefined(a, 0);
+			const size_t from = a.size() < 2 ? 0 : rel_index(a[1].to_number(), len);
+			const size_t to = a.size() < 3 || a[2].is_undefined() ? len : rel_index(a[2].to_number(), len);
+			for (size_t i = from; i < to; ++i) { (*arr)[i] = fv; }
+			return value{arr};
+		});
+	}
 	if (name == "indexOf") {
 		return bound("indexOf", [arr](context &, const std::vector<value> & a) {
 			const value target = arg_or_undefined(a, 0);

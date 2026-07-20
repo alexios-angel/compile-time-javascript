@@ -46,6 +46,18 @@ int main() {
 	run("builtins", "console.log('abc'.toUpperCase(), 'Hello'.length, Math.max(3, 7, 2), Math.floor(3.9))",
 	    "ABC 5 7 3\n");
 
+	// await unwraps a settled promise (host native returns one)
+	{
+		std::vector<vp::binding> host;
+		host.push_back({"gimme", ctjs::value::function(
+		    [](ctjs::context &, const std::vector<ctjs::value> & a) {
+			    return ctjs::make_promise(ctjs::value{a.empty() ? 0.0 : a[0].to_number()}, false);
+		    }, "gimme")});
+		vp::vrun_result r = vp::vrun("let x = await gimme(21); console.log(x * 2)", std::move(host));
+		std::string got{r.console()};
+		if (!r.ok || got != "42\n") { std::printf("FAIL await: ok=%d got[%s]\n", r.ok, got.c_str()); ++failures; }
+	}
+
 	if (failures == 0) { std::printf("vinterp suite: all checks passed\n"); }
 	return failures ? 1 : 0;
 }

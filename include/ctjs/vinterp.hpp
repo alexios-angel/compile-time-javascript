@@ -93,9 +93,15 @@ inline std::int32_t to_i32(const value & v) {
 
 struct vm {
 	ast tree;                       // the owned program AST
-	env_ptr globals;
+	env_ptr globals;                // builtins + host bindings
+	env_ptr scope;                  // the program's top-level scope (child of globals);
+	                                // top-level declarations land here so a host can
+	                                // call them back (onFrame, onClick, ...) after run()
 
-	explicit vm(ast t) : tree(std::move(t)) { globals = ctjs::make_globals(); }
+	explicit vm(ast t) : tree(std::move(t)) {
+		globals = ctjs::make_globals();
+		scope = child_env(globals, true);
+	}
 
 	const node & N(int i) const { return tree.nodes[static_cast<std::size_t>(i)]; }
 	int child(int list, int k) const { return tree.pool[static_cast<std::size_t>(list + k)]; }
@@ -109,10 +115,9 @@ struct vm {
 
 	// ---- run the whole program --------------------------------------------
 	value run(context & cx) {
-		env_ptr top = child_env(globals, true);
-		hoist(tree.root, top, cx);
+		hoist(tree.root, scope, cx);
 		value ret;
-		exec(tree.root, top, cx, ret);
+		exec(tree.root, scope, cx, ret);
 		return cx.last;
 	}
 
@@ -273,7 +278,17 @@ struct vm {
 		if (op == "+") { return value{v.to_number()}; }
 		if (op == "~") { return value{static_cast<double>(~to_i32(v))}; }
 		if (op == "void") { return value{}; }
-		if (op == "await") { return v; }   // settled-promise subset: value is already resolved
+		if (op == "await") {
+			// settled-promise subset: unwrap a fulfilled promise's value, or
+			// re-throw a rejected one; a non-promise awaits to itself
+			if (ctjs::is_promise(v)) {
+				value st = ctjs::get_member(cx, v, "__state");
+				value inner = ctjs::get_member(cx, v, "__value");
+				if (st.to_string() == "rejected") { throw js_throw{inner}; }
+				return inner;
+			}
+			return v;
+		}
 		return value{};
 	}
 
@@ -739,7 +754,7 @@ struct vrun_result {
 	value error;
 	std::string_view console() const { return cx->console; }
 	value get(std::string_view name) const {
-		if (const value * v = machine->globals->find(name)) { return *v; }
+		if (const value * v = machine->scope->find(name)) { return *v; }
 		return value{};
 	}
 };

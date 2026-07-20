@@ -5,6 +5,7 @@
 #include "asi.hpp"
 #include "lower.hpp"
 #include "interp.hpp"
+#include "vinterp.hpp"   // parse-by-value path (ctjs::run_value)
 #ifndef CTJS_IN_A_MODULE
 #include <memory>
 #include <string>
@@ -102,11 +103,16 @@ public:
 		error_ = std::move(err);
 	}
 
+	// keep an opaque owner alive for the lifetime of this result - the value
+	// interpreter's vm, whose function closures the globals still reference
+	void keep_alive(std::shared_ptr<void> owner) { owner_ = std::move(owner); }
+
 private:
 	rc<context> cx_;
 	env_ptr globals_;
 	bool failed_ = false;
 	value error_;
+	std::shared_ptr<void> owner_;
 };
 
 namespace detail {
@@ -202,6 +208,28 @@ inline constexpr double constant = detail::const_of<Src>::value.num;
 // one-shot convenience: parse at compile time, run now
 template <CTJS_STRING_INPUT Src> run_result run(std::vector<binding> host = {}) {
 	return script_t<Src>::run(std::move(host));
+}
+
+// Run a script BY VALUE: parse it with the recursive-descent value parser and
+// execute it with the value tree-walking interpreter, both at RUNTIME - no
+// Earley parse, no per-script template instantiation. The `src` is an ordinary
+// runtime string (e.g. an embedded asset), so a large program costs the host
+// nothing at compile time. Returns a run_result whose API (ok/console/call/[])
+// is identical to the type-based path, because the value interpreter reuses the
+// same value/environment/context machinery; the backing vm is kept alive so the
+// script's functions stay callable (event handlers, onFrame, ...).
+inline run_result run_value(std::string_view src, std::vector<binding> host = {}) {
+	auto machine = std::make_shared<vp::vm>(vp::parse(src));
+	for (binding & b : host) { machine->globals->declare(b.name, std::move(b.v)); }
+	auto cx = rc<context>::make();
+	run_result out{cx, machine->scope};
+	try {
+		machine->run(*cx);
+	} catch (js_throw & t) {
+		out.mark_failed(std::move(t.thrown));
+	}
+	out.keep_alive(machine);
+	return out;
 }
 
 } // namespace ctjs

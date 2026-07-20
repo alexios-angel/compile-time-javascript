@@ -78,6 +78,14 @@ public:
 	bool ok() const { return !failed_; }
 	const value & exception() const { return error_; }
 	std::string exception_message() const { return error_to_string(error_); }
+	// the error's captured call-stack trace ("Msg\n  at f\n  at g"), or just the
+	// message when no trace was attached (call_value builds the trace)
+	std::string exception_stack() const {
+		if (error_.is_object()) {
+			if (const value * s = error_.as_object()->find("stack")) { return s->to_string(); }
+		}
+		return error_to_string(error_);
+	}
 
 	// everything console.log printed, in order
 	std::string_view console() const { return cx_->console; }

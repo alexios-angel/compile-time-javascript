@@ -409,7 +409,22 @@ struct vm {
 		const node & callee = N(n.a);
 		value fn;
 		std::string cname; // the callee's name, for a helpful "X is not a function"
-		if (callee.kind == nk::member || callee.kind == nk::index || callee.kind == nk::opt_member) {
+		if (callee.kind == nk::super_lit) {
+			// super(...) - call the parent constructor on the current instance
+			fn = cx.current_super;
+			cx.pending_this = cx.current_this;
+			cname = "super";
+		} else if ((callee.kind == nk::member || callee.kind == nk::opt_member) &&
+		           N(callee.a).kind == nk::super_lit) {
+			// super.method(...) - resolve on the parent prototype, run on `this`
+			value proto;
+			if (cx.current_super.is_function() && cx.current_super.as_function()->props) {
+				if (const value * p = cx.current_super.as_function()->props->find("prototype")) { proto = *p; }
+			}
+			cname = std::string{callee.text};
+			fn = ctjs::get_member(cx, proto, cname);
+			cx.pending_this = cx.current_this;
+		} else if (callee.kind == nk::member || callee.kind == nk::index || callee.kind == nk::opt_member) {
 			value recv = eval(callee.a, env, cx);
 			if ((n.kind == nk::opt_call || callee.kind == nk::opt_member) && recv.is_nullish()) { return value{}; }
 			std::string key = (callee.kind == nk::index) ? eval(callee.b, env, cx).to_string() : std::string{callee.text};
@@ -584,8 +599,9 @@ struct vm {
 				else { proto->set(std::string{m.text}, std::move(fnv)); }
 			} else if (m.c == 0) {   // field
 				if (!is_static) { fields.push_back(mi); }
+			} else if (m.c == 2 && !is_static) {   // instance getter/setter
+				ctjs::attach_accessor(*proto, m.text, (m.d & 4) ? 's' : 'g', make_fn(m.b, env, cx));
 			}
-			// getters/setters (m.c==2) omitted in this phase
 		}
 		// constructor function
 		vm * self = this;
@@ -596,15 +612,27 @@ struct vm {
 		value superv = super;
 		ctjs::native_fn ctor = [self, cn, closure, protov, fset, superv](context & c2, const std::vector<value> & args) -> value {
 			value thisv = c2.current_this;
-			if (thisv.is_object()) { thisv.as_object()->proto = protov.as_object(); }
+			// NB: the instance prototype is set by eval_new to the ACTUAL class's
+			// prototype; we must NOT reset it here, or a super(...) call (which
+			// runs the parent ctor on the same instance) would clobber it.
+			(void)protov;
 			// initialise instance fields
 			for (int fi : fset) {
 				const node & f = self->N(fi);
 				value fv = (f.b >= 0) ? self->eval(f.b, closure, c2) : value{};
 				if (thisv.is_object()) { thisv.as_object()->set(std::string{f.text}, std::move(fv)); }
 			}
-			if (cn >= 0) { (void)self->call_user(cn, closure, args, c2, false, thisv); }
-			else if (superv.is_function()) { c2.pending_this = thisv; (void)ctjs::call_value(c2, superv, args); }
+			if (cn >= 0) {
+				// the ctor body may call super(...) - make the parent ctor reachable
+				value saved_super = c2.current_super;
+				c2.current_super = superv;
+				(void)self->call_user(cn, closure, args, c2, false, thisv);
+				c2.current_super = saved_super;
+			} else if (superv.is_function()) {
+				// implicit constructor: forward args to the parent
+				c2.pending_this = thisv;
+				(void)ctjs::call_value(c2, superv, args);
+			}
 			return thisv;
 		};
 		value ctorv = value::function(std::move(ctor), std::string{c.text});
@@ -617,6 +645,7 @@ struct vm {
 			if (!(m.d & 1)) { continue; }
 			if (m.c == 1) { ctorv.as_function()->props->set(std::string{m.text}, make_fn(m.b, env, cx)); }
 			else if (m.c == 0) { ctorv.as_function()->props->set(std::string{m.text}, m.b >= 0 ? eval(m.b, env, cx) : value{}); }
+			else if (m.c == 2) { ctjs::attach_accessor(*ctorv.as_function()->props, m.text, (m.d & 4) ? 's' : 'g', make_fn(m.b, env, cx)); }
 		}
 		return ctorv;
 	}

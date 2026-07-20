@@ -513,9 +513,11 @@ struct context {
 	value last;                             // last expression-statement value
 	value pending_this;
 	value current_this;
+	value current_super; // the parent constructor while a subclass ctor/method runs
 	std::vector<value> * gen_sink = nullptr;
 	std::string flow_label;
 	std::vector<std::string> pending_labels;
+	std::vector<std::string> stack; // live call stack (function names) for traces
 	int depth = 0;
 	int max_depth = 256;
 

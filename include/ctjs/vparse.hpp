@@ -542,11 +542,14 @@ struct parser {
 		while (!is_p("}") && !at_end()) {
 			if (eat_p(";")) { continue; }
 			node m{nk::class_member, ""};
-			m.d = 0;   // bit0 = static, bit1 = computed key (|= needs a 0 base)
+			m.d = 0;   // bit0 = static, bit1 = computed key, bit2 = accessor is a SETTER
 			if (is_kw("static")) { advance(); m.d |= 1; }
-			// get/set accessor
+			// get/set accessor: remember the kind, but the PROPERTY NAME follows
+			bool is_getter = false, is_setter = false;
 			if ((is_kw("get") || is_kw("set")) && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";"))) {
-				m.text = cur().s == "get" ? std::string_view{"get"} : std::string_view{"set"}; m.c = 2; advance();
+				is_getter = cur().s == "get";
+				is_setter = cur().s == "set";
+				advance();
 			}
 			const bool masync = is_kw("async");
 			eat_kw("async"); eat_p("*");
@@ -554,13 +557,15 @@ struct parser {
 			std::string_view mname;
 			if (is_p("[")) { advance(); m.a = expr(0); expect_p("]"); m.d |= 2; /*computed*/ }
 			else { mname = cur().s; advance(); }
-			if (m.text != "get" && m.text != "set") { m.text = mname; }
-			if (is_p("(")) {                          // method
+			m.text = mname;                            // always the property name
+			if (is_p("(")) {                          // method or accessor
 				int len = 0; int pl = params(len);
 				int body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
 				if (masync) { fn.c = 1; }             // async method -> promise-wrapped return
-				m.b = a.add(fn); if (m.c != 2) { m.c = 1; }
+				m.b = a.add(fn);
+				if (is_getter || is_setter) { m.c = 2; if (is_setter) { m.d |= 4; } } // accessor
+				else { m.c = 1; }                     // plain method
 			} else {                                   // field
 				if (eat_p("=")) { m.b = expr(2); }
 				m.c = 0; semi();

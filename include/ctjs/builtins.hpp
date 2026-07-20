@@ -35,14 +35,31 @@ inline constexpr value call_value(context & cx, const value & fn, std::vector<va
 	value saved_this = std::move(cx.current_this);
 	cx.current_this = std::exchange(cx.pending_this, value{});
 	++cx.depth;
+	const std::string & fname = fn.as_function()->name;
+	cx.stack.push_back(fname.empty() ? std::string{"<anonymous>"} : fname);
 	value out;
 	try {
 		out = fn.as_function()->fn(cx, args);
+	} catch (js_throw & t) {
+		// attach a call-stack trace once, at the deepest frame that sees the
+		// throw, so an uncaught error shows WHERE it came from
+		if (t.thrown.is_object() && t.thrown.as_object()->find("__traced") == nullptr) {
+			std::string tr = error_to_string(t.thrown);
+			for (auto it = cx.stack.rbegin(); it != cx.stack.rend(); ++it) { tr += "\n    at " + *it; }
+			t.thrown.as_object()->set("stack", value{tr});
+			t.thrown.as_object()->set("__traced", value{true});
+		}
+		cx.stack.pop_back();
+		--cx.depth;
+		cx.current_this = std::move(saved_this);
+		throw;
 	} catch (...) {
+		cx.stack.pop_back();
 		--cx.depth;
 		cx.current_this = std::move(saved_this);
 		throw;
 	}
+	cx.stack.pop_back();
 	cx.current_this = std::move(saved_this);
 	--cx.depth;
 	return out;

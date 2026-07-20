@@ -2,6 +2,7 @@
 #define CTJS__SCRIPT__HPP
 
 #include "grammar.hpp"
+#include "asi.hpp"
 #include "lower.hpp"
 #include "interp.hpp"
 #ifndef CTJS_IN_A_MODULE
@@ -130,7 +131,7 @@ template <typename... Ss> struct program_runner<ast::program<Ss...>> {
 // Date via <chrono>, random, a throw, a host binding) is simply not a
 // constant expression there; run it at runtime with `.run()` instead.
 template <CTJS_STRING_INPUT Src> constexpr value eval() {
-	using tree = decltype(ctlark::parse<detail::js_grammar, Src, detail::js_start>());
+	using tree = decltype(ctlark::parse<detail::js_grammar, detail::asi_src<Src>, detail::js_start>());
 	using p0 = typename detail::lower_program<tree>::type;
 	using program = detail::rewrite_t<p0, typename detail::collect_fns<p0>::type>;
 	auto cx = rc<context>::make();
@@ -141,10 +142,10 @@ template <CTJS_STRING_INPUT Src> constexpr value eval() {
 
 template <CTJS_STRING_INPUT Src> struct script_t {
 	static constexpr bool valid =
-	    ctlark::is_valid<detail::js_grammar, Src, detail::js_start>;
+	    ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start>;
 
 	static run_result run(std::vector<binding> host = {}) {
-		static_assert(ctlark::is_valid<detail::js_grammar, Src, detail::js_start>,
+		static_assert(ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start>,
 		              "ctjs: the script is not valid JavaScript (within the supported "
 		              "subset) - print ctjs::error_message<Src>() for the location and "
 		              "the expected tokens");
@@ -153,7 +154,7 @@ template <CTJS_STRING_INPUT Src> struct script_t {
 		for (binding & b : host) { globals->declare(b.name, std::move(b.v)); }
 		run_result out{cx, globals};
 		if constexpr (valid) {
-			using tree = decltype(ctlark::parse<detail::js_grammar, Src, detail::js_start>());
+			using tree = decltype(ctlark::parse<detail::js_grammar, detail::asi_src<Src>, detail::js_start>());
 			using p0 = typename detail::lower_program<tree>::type;
 			// whole-program pass: constant-evaluate calls to named functions
 			using program = detail::rewrite_t<p0, typename detail::collect_fns<p0>::type>;
@@ -183,7 +184,7 @@ template <ctll::fixed_string Src> inline constexpr script_t<Src> script{};
 // non-constant expression; `constant` requires a numeric constant.
 namespace detail {
 template <ctll::fixed_string Src> struct const_of {
-	using tree = decltype(ctlark::parse<js_grammar, Src, js_start>());
+	using tree = decltype(ctlark::parse<js_grammar, asi_src<Src>, js_start>());
 	using program = typename lower_program<tree>::type;
 	static constexpr folded value = program_constant<program>::value;
 };
@@ -191,7 +192,7 @@ template <ctll::fixed_string Src> struct const_of {
 
 template <ctll::fixed_string Src>
 inline constexpr bool is_constant =
-    ctlark::is_valid<detail::js_grammar, Src, detail::js_start> &&
+    ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start> &&
     detail::const_of<Src>::value.ok();
 
 template <ctll::fixed_string Src>

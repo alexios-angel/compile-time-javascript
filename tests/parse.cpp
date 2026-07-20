@@ -36,8 +36,26 @@ static_assert(ctjs::is_valid<"// line\nlet x = 1; /* block\nmulti */ let y = 2;"
 static_assert(ctjs::is_valid<"q = a / b / c;">); // division, not a comment
 static_assert(ctjs::is_valid<"">);
 
+// --- Automatic Semicolon Insertion: real-world code omits semicolons, and a
+// constexpr ASI pass (asi.hpp) normalises the source before the grammar sees
+// it, so these all parse.
+static_assert(ctjs::is_valid<"let x = 1">);                 // trailing statement
+static_assert(ctjs::is_valid<"let x = 1\nlet y = 2">);      // line terminator
+static_assert(ctjs::is_valid<"const o = {a:1}\nconst p = 2">);
+static_assert(ctjs::is_valid<"function f(){ return 1 }">);  // ';' before block '}'
+static_assert(ctjs::is_valid<"class C { x = 1\n m(){ return this.x } }">);
+static_assert(ctjs::is_valid<"if (a) { b() } else { c() }">); // else stays attached
+static_assert(ctjs::is_valid<"let g = () => { this.x = 1 }">); // arrow block body
+static_assert(ctjs::is_valid<"const o = {\n a: 1,\n b: 2\n}\nf()">);
+static_assert(ctjs::is_valid<"function f(){ return\n 1\n }">); // restricted: return;
+static_assert(ctjs::is_valid<"let a = b\n(c)">);            // spec: call, no insertion
+// object literals, arrays, calls and params accept a trailing comma
+static_assert(ctjs::is_valid<"let a = [1, 2,];">);
+static_assert(ctjs::is_valid<"let o = {a: 1, b: 2,};">);
+static_assert(ctjs::is_valid<"f(1, 2,);">);
+static_assert(ctjs::is_valid<"function g(a, b,) {}">);
+
 // --- what does not
-static_assert(!ctjs::is_valid<"let x = 1">);        // no ASI: semicolon required
 static_assert(!ctjs::is_valid<"f() = 1;">);         // not an assignment target
 static_assert(!ctjs::is_valid<"let x = ;">);
 static_assert(!ctjs::is_valid<"if a { b(); }">);    // parens required
@@ -89,15 +107,15 @@ static_assert(!ctjs::is_constant<R"('a' + 'b';)">);         // strings not folde
 
 // --- the script surface
 static_assert(ctjs::script<"let x = 1;">.valid);
-static_assert(!ctjs::script_t<ctll::fixed_string{"let x = 1"}>::valid);
+static_assert(ctjs::script<"let x = 1">.valid);                       // ASI
+static_assert(!ctjs::script_t<ctll::fixed_string{"let x = "}>::valid); // missing initializer
 
 // --- diagnostics: location and expected tokens, at compile time
 static_assert(ctjs::error_info<"let x = 1;">().ok());
 static_assert(ctjs::error_message<"let x = 1;">() == ""sv);
-constexpr auto missing_semi = ctjs::error_info<"let x = 1">();
-static_assert(missing_semi.kind != ctlark::error_kind::none);
-static_assert(missing_semi.position == 9);
-static_assert(!ctjs::error_message<"let x = 1">().empty());
+constexpr auto bad_init = ctjs::error_info<"let x = ;">();           // genuinely invalid
+static_assert(bad_init.kind != ctlark::error_kind::none);
+static_assert(!ctjs::error_message<"let x = ;">().empty());
 static_assert(!ctjs::debug::dump_tokens<"let x = 1;">().empty());
 static_assert(ctjs::debug::dump_grammar().find("terminal NAME") != std::string_view::npos);
 

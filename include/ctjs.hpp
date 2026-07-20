@@ -44,20 +44,20 @@
 
 namespace ctjs {
 
-// does the source parse as ctjs's JavaScript subset?
+// does the source parse as ctjs's JavaScript subset? (after ASI normalisation)
 CTLL_EXPORT template <CTJS_STRING_INPUT Src> constexpr bool is_valid =
-	ctlark::is_valid<detail::js_grammar, Src, detail::js_start>;
+	ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start>;
 
 // what failed and where, when it does not: kind, byte offset, line,
 // column and the expected terminals (kind none = the syntax is fine)
 CTLL_EXPORT template <CTJS_STRING_INPUT Src> constexpr ctlark::error_info_t error_info() noexcept {
-	return ctlark::error_info<detail::js_grammar, Src, detail::js_start>();
+	return ctlark::error_info<detail::js_grammar, detail::asi_src<Src>, detail::js_start>();
 }
 
 // the rendered diagnostic - location, snippet with a caret, expected
 // terminals - as a static string ("" when the syntax is fine)
 CTLL_EXPORT template <CTJS_STRING_INPUT Src> constexpr std::string_view error_message() noexcept {
-	return ctlark::error_message<detail::js_grammar, Src, detail::js_start>();
+	return ctlark::error_message<detail::js_grammar, detail::asi_src<Src>, detail::js_start>();
 }
 
 // the ctlark debugging toolbox with the JavaScript grammar baked in

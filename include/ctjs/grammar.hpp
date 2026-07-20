@@ -23,7 +23,11 @@
 //
 // Assignment targets are a dedicated lhs rule (NAME, member, index),
 // so "f() = 1" is a SYNTAX error, not a runtime surprise. Semicolons
-// are required (no ASI, by design). Reserved words lex as IDENT-
+// are grammar-required HERE, but the source is run through asi.hpp's
+// Automatic-Semicolon-Insertion pass before it reaches this grammar, so
+// real-world semicolon-optional code parses (the grammar stays strict;
+// normalisation happens upstream). Trailing commas in call args / array
+// & object literals / params are accepted. Reserved words lex as IDENT-
 // excluding keywords, so `let let = 1` is a syntax error while
 // `p.catch(f)` (keyword as a property name) is fine - see the README.
 
@@ -71,7 +75,7 @@ dprop: NAME            -> dprop_shorthand
 fn_decl: "function" IDENT "(" params ")" block
        | "async" "function" IDENT "(" params ")" block -> async_fn_decl
        | "function" "*" IDENT "(" params ")" block     -> gen_fn_decl
-params: [param ("," param)*]
+params: [param ("," param)* [","]]
 param: IDENT               -> param_plain
      | IDENT "=" assign    -> param_default
      | "..." IDENT         -> param_rest
@@ -168,7 +172,7 @@ lhs: IDENT                   -> lhs_name
 ?newable: primary
         | newable "." NAME       -> member
         | newable "[" expr "]"   -> index
-args: [arg ("," arg)*]
+args: [arg ("," arg)* [","]]
 ?arg: assign
     | "..." assign -> spread_arg
 ?primary: IDENT
@@ -189,8 +193,8 @@ args: [arg ("," arg)*]
         | "(" expr ")" -> paren
 template_lit: TEMPLATE_FULL
             | TEMPLATE_HEAD assign (TEMPLATE_MID assign)* TEMPLATE_TAIL
-array_lit: "[" [arg ("," arg)*] "]"
-object_lit: "{" [prop ("," prop)*] "}"
+array_lit: "[" [arg ("," arg)* [","]] "]"
+object_lit: "{" [prop ("," prop)* [","]] "}"
 prop: NAME ":" assign     -> prop_name
     | DQSTRING ":" assign -> prop_str
     | SQSTRING ":" assign -> prop_str2

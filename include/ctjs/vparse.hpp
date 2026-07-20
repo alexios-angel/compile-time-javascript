@@ -392,7 +392,7 @@ struct parser {
 			}
 			if (c.s == "function") { return func(true); }
 			if (c.s == "async") {
-				if (nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(true); }
+				if (nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(true, true); }
 				// async arrow: fall through to arrow handling below
 			}
 			// keyword used as a bare identifier (property contexts) - be lenient
@@ -492,8 +492,9 @@ struct parser {
 		return a.add(nd);
 	}
 
-	// function expression/declaration; `expr` true => expression context
-	constexpr int func(bool is_expr) {
+	// function expression/declaration; `expr` true => expression context;
+	// `is_async` records `async` so the interpreter wraps the return in a promise
+	constexpr int func(bool is_expr, bool is_async = false) {
 		eat_kw("function");
 		eat_p("*");
 		std::string_view name;
@@ -502,6 +503,7 @@ struct parser {
 		int body = block();
 		node nd{is_expr ? nk::func_expr : nk::func_decl, name};
 		nd.list = pl; nd.list_len = len; nd.a = body;
+		if (is_async) { nd.c = 1; }
 		return a.add(nd);
 	}
 
@@ -546,6 +548,7 @@ struct parser {
 			if ((is_kw("get") || is_kw("set")) && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";"))) {
 				m.text = cur().s == "get" ? std::string_view{"get"} : std::string_view{"set"}; m.c = 2; advance();
 			}
+			const bool masync = is_kw("async");
 			eat_kw("async"); eat_p("*");
 			// member name
 			std::string_view mname;
@@ -556,6 +559,7 @@ struct parser {
 				int len = 0; int pl = params(len);
 				int body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
+				if (masync) { fn.c = 1; }             // async method -> promise-wrapped return
 				m.b = a.add(fn); if (m.c != 2) { m.c = 1; }
 			} else {                                   // field
 				if (eat_p("=")) { m.b = expr(2); }
@@ -578,7 +582,7 @@ struct parser {
 			std::string_view k = c.s;
 			if (k == "let" || k == "const" || k == "var") { return var_decl(); }
 			if (k == "function") { return func(false); }
-			if (k == "async" && nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(false); }
+			if (k == "async" && nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(false, true); }
 			if (k == "class") { return class_decl(false); }
 			if (k == "if") { return if_stmt(); }
 			if (k == "for") { return for_stmt(); }

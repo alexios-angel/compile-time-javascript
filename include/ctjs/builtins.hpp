@@ -2017,6 +2017,44 @@ inline constexpr env_ptr make_globals() {
 	                            },
 	                            "isArray"));
 	g->declare("Array", value::object(std::move(array_ns)));
+
+	// RegExp: makes regex literals' .test/.exec work (eval_regex builds via
+	// this global), and `new RegExp(src, flags)` / RegExp(existing)
+	g->declare("RegExp", value::function(
+	                         [](context &, const std::vector<value> & a) -> value {
+		                         std::string src, flags;
+		                         if (!a.empty() && is_regex(a[0])) {
+			                         const rc<object_t> o = a[0].as_object();
+			                         if (const value * s = o->find("source")) { src = s->to_string(); }
+			                         if (const value * f = o->find("flags")) { flags = f->to_string(); }
+		                         } else if (!a.empty() && !a[0].is_undefined()) {
+			                         src = a[0].to_string();
+		                         }
+		                         if (a.size() > 1 && !a[1].is_undefined()) { flags = a[1].to_string(); }
+		                         return make_regex(src, flags);
+	                         },
+	                         "RegExp"));
+
+	// the Error family: `new Error(msg)` / `throw new TypeError(msg)`, with the
+	// { name, message } shape catch/instanceof and console printing expect
+	const auto err_ctor = [](const char * nm) {
+		return [nm](context & cx, const std::vector<value> & a) -> value {
+			const std::string msg = a.empty() ? std::string{} : a[0].to_string();
+			if (cx.current_this.is_object()) {
+				cx.current_this.as_object()->set("name", value{std::string{nm}});
+				cx.current_this.as_object()->set("message", value{msg});
+				cx.current_this.as_object()->set("stack", value{std::string{nm} + ": " + msg});
+				return cx.current_this;
+			}
+			value e = make_error(nm, msg);
+			e.as_object()->set("stack", value{std::string{nm} + ": " + msg});
+			return e;
+		};
+	};
+	for (const char * en : {"Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError",
+	                        "EvalError", "URIError"}) {
+		g->declare(en, value::function(err_ctor(en), en));
+	}
 	return g;
 }
 

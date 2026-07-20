@@ -408,19 +408,25 @@ struct vm {
 	value eval_call(const node & n, const env_ptr & env, context & cx) {
 		const node & callee = N(n.a);
 		value fn;
+		std::string cname; // the callee's name, for a helpful "X is not a function"
 		if (callee.kind == nk::member || callee.kind == nk::index || callee.kind == nk::opt_member) {
 			value recv = eval(callee.a, env, cx);
 			if ((n.kind == nk::opt_call || callee.kind == nk::opt_member) && recv.is_nullish()) { return value{}; }
 			std::string key = (callee.kind == nk::index) ? eval(callee.b, env, cx).to_string() : std::string{callee.text};
+			cname = key;
 			fn = ctjs::get_member(cx, recv, key);
 			if (n.kind == nk::opt_call && fn.is_nullish()) { return value{}; }
 			cx.pending_this = recv;
 		} else {
+			if (callee.kind == nk::ident) { cname = std::string{callee.text}; }
 			fn = eval(n.a, env, cx);
 			if (n.kind == nk::opt_call && fn.is_nullish()) { return value{}; }
 			cx.pending_this = value{};
 		}
 		std::vector<value> args = eval_args(n.list, n.list_len, env, cx);
+		if (!fn.is_function()) {
+			ctjs::throw_error("TypeError", (cname.empty() ? fn.to_string() : cname) + " is not a function");
+		}
 		return ctjs::call_value(cx, fn, std::move(args));
 	}
 
@@ -514,6 +520,23 @@ struct vm {
 			local->declare("arguments", value::array(std::move(ar)));
 		}
 		const node & body = N(fn.a);
+		// `async` functions/methods/arrows (fn.c == 1) return a settled promise:
+		// the completion value is wrapped (unless it already is one), and a throw
+		// becomes a rejected promise - so `asyncFn().then(...)` works
+		if (fn.c == 1) {
+			try {
+				value ret;
+				if (body.kind != nk::block) {
+					ret = eval(fn.a, local, cx);
+				} else {
+					hoist(fn.a, local, cx);
+					if (exec(fn.a, local, cx, ret) != flow::ret) { ret = value{}; }
+				}
+				return ctjs::is_promise(ret) ? ret : ctjs::make_promise(ret, false);
+			} catch (ctjs::js_throw & t) {
+				return ctjs::make_promise(t.thrown, true);
+			}
+		}
 		if (body.kind != nk::block) { return eval(fn.a, local, cx); }   // arrow expression body
 		hoist(fn.a, local, cx);
 		value ret;

@@ -36,8 +36,22 @@ namespace ctjs {
 
 class value;
 struct context;
+struct object_t;
+struct function_t;
+struct environment;
 
 using array_t = std::vector<value>;
+
+// Cycle-collector opt-in for the heap types (definitions of gc_trace/gc_clear are
+// further down, once the types are complete). Declared HERE - before any
+// rc<T>::make is instantiated - so `if constexpr (gc::participates<T>)` in
+// rc::make always sees the true specialization and installs the collector hooks.
+namespace gc {
+template <> inline constexpr bool participates<object_t> = true;
+template <> inline constexpr bool participates<array_t> = true;
+template <> inline constexpr bool participates<function_t> = true;
+template <> inline constexpr bool participates<environment> = true;
+} // namespace gc
 
 // insertion-ordered property map, like a JS object. `proto` is the
 // [[Prototype]] link: get_member/set_member walk it, so class methods
@@ -60,6 +74,16 @@ struct function_t {
 	// statics riding on the function value (Date.now, class statics);
 	// null for the overwhelming majority that carry none
 	rc<object_t> props;
+	// RAW, non-owning headers mirroring the closure environment and lexical `this`
+	// that the type-erased `fn` lambda captures STRONGLY. The collector traces
+	// these so closure cycles (the dominant leak - a closure captured back onto an
+	// object it reaches) become collectable. A raw gc::header* is used rather than
+	// an rc member because environment/value are not complete here (value ->
+	// function_t -> environment -> value is a completion cycle) and because the
+	// single strong reference already lives in the lambda: this pointer just
+	// mirrors that one edge for tracing. Set by make_fn; null for natives.
+	gc::header * env_hdr = nullptr;
+	gc::header * this_hdr = nullptr;
 };
 
 struct undefined_t {
@@ -504,6 +528,67 @@ struct environment {
 	}
 };
 using env_ptr = rc<environment>;
+
+// --- cycle-collector participation (gc.hpp). Each collectable heap type opts in
+// (participates<T> = true) and provides gc_trace (enumerate outgoing rc edges)
+// and gc_clear (null every rc edge, for the collector's free phase). Everything
+// is RUNTIME ONLY - the collector never runs during constant evaluation. These
+// visit ONLY real, visible rc references; a reference sealed inside a native
+// cfunction's captures is simply not visited, which keeps the collector
+// CONSERVATIVE (it may miss such a cycle - a leak - but never frees a live
+// object). User closures ARE visible: make_fn mirrors the lambda's captured
+// environment + lexical `this` onto function_t (env_hdr/this_hdr), so
+// closure<->object cycles collect too.
+// These live in namespace `ctjs` (NOT ctjs::gc) so the type-erased thunks in
+// gc.hpp reach them by argument-dependent lookup on the argument type (object_t
+// et al. are in ctjs).
+// the collector header for whatever heap object a value holds (null for a
+// primitive). Used both to trace a value edge and to mirror a lambda capture.
+inline gc::header * value_header(const value & v) {
+	if (v.is_object()) { return v.as_object().gc_header(); }
+	if (v.is_array()) { return v.as_array().gc_header(); }
+	if (v.is_function()) { return v.as_function().gc_header(); }
+	return nullptr;
+}
+
+inline void gc_visit_value(const value & v, void (*visit)(gc::header *)) {
+	if (gc::header * h = value_header(v)) { visit(h); }
+}
+
+inline void gc_trace(object_t & o, void (*v)(gc::header *)) {
+	for (auto & [k, val] : o.props) { gc_visit_value(val, v); }
+	if (gc::header * h = o.proto.gc_header()) { v(h); }
+}
+inline void gc_clear(object_t & o) {
+	o.props.clear();
+	o.proto = nullptr;
+}
+
+inline void gc_trace(array_t & a, void (*v)(gc::header *)) {
+	for (value & val : a) { gc_visit_value(val, v); }
+}
+inline void gc_clear(array_t & a) { a.clear(); }
+
+inline void gc_trace(function_t & f, void (*v)(gc::header *)) {
+	if (gc::header * h = f.props.gc_header()) { v(h); } // statics / .prototype
+	if (f.env_hdr != nullptr) { v(f.env_hdr); }        // captured closure environment
+	if (f.this_hdr != nullptr) { v(f.this_hdr); }      // captured lexical `this`
+}
+inline void gc_clear(function_t & f) {
+	f.props = nullptr;
+	f.env_hdr = nullptr;
+	f.this_hdr = nullptr;
+	f.fn = native_fn{}; // releases the env + lexical this captured inside the cfunction
+}
+
+inline void gc_trace(environment & e, void (*v)(gc::header *)) {
+	if (gc::header * h = e.parent.gc_header()) { v(h); }
+	for (auto & [k, val] : e.vars) { gc_visit_value(val, v); }
+}
+inline void gc_clear(environment & e) {
+	e.parent = nullptr;
+	e.vars.clear();
+}
 
 // --- the execution context: console capture, recursion guard
 

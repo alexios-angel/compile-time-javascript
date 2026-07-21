@@ -519,12 +519,18 @@ struct vm {
 		vm * self = this;
 		ctjs::native_fn callable =
 		    [self, fn_node, closure, is_arrow, lexical_this](context & c, const std::vector<value> & args) -> value {
-			return self->call_user(fn_node, closure, args, c, is_arrow, lexical_this);
-		};
+			    return self->call_user(fn_node, closure, args, c, is_arrow, lexical_this);
+		    };
 		value f = value::function(std::move(callable), std::string{fn.text});
+		function_t * ft = f.as_function().get();
 		// every function gets a fresh `.prototype` object so `new` works
-		if (!f.as_function()->props) { f.as_function()->props = rc<object_t>::make(); }
-		f.as_function()->props->set("prototype", value{rc<object_t>::make()});
+		if (!ft->props) { ft->props = rc<object_t>::make(); }
+		ft->props->set("prototype", value{rc<object_t>::make()});
+		// mirror the lambda's strong captures (closure env + lexical this) so the
+		// cycle collector can trace closure cycles. Raw, non-owning - the strong
+		// references stay in the lambda; these just expose the two edges.
+		ft->env_hdr = closure.gc_header();
+		ft->this_hdr = value_header(lexical_this);
 		return f;
 	}
 

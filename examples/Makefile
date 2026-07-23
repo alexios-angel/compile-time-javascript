@@ -1,30 +1,26 @@
-CXX ?= c++
-
-CXX_IS_CLANG := $(shell $(CXX) --version 2>/dev/null | grep -qi clang && echo yes)
-ifeq ($(CXX_IS_CLANG),yes)
-CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=2048
-else
-CONSTEXPR_FLAGS := -fconstexpr-ops-limit=3000000000 -fconstexpr-loop-limit=10000000 -fconstexpr-depth=1024
+# THE compiler: the stack's std::embed clang (see compile-time-browser
+# tools/clang-std-embed or the embed repo's release); plain clang++ as
+# a fallback for standalone checkouts. gcc paths are gone (clang-only).
+ifeq ($(origin CXX),default)
+CTB_CLANG := $(wildcard ../../../tools/clang-std-embed/bin/clang++)
+CXX := $(if $(CTB_CLANG),$(CTB_CLANG),clang++)
 endif
+
+CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024
 SUBMODULE_INCLUDES := \
 	-I../external/compile-time-lark/include \
 	-I../external/compile-time-lark/include/ctlark \
 	-I../external/compile-time-lark/include/ctll
 
-CXXFLAGS := -std=c++20 -I../include $(SUBMODULE_INCLUDES) $(CONSTEXPR_FLAGS) -O2 -Wall -Wextra -pedantic
+CXXFLAGS := -std=c++23 -I../include $(SUBMODULE_INCLUDES) $(CONSTEXPR_FLAGS) -O2 -pedantic -Wall -Wextra -Werror -Wconversion
 
 SOURCES := $(wildcard *.cpp)
 TARGETS := $(SOURCES:%.cpp=%)
 
-# reuse (or build) the grammar PCH - the one-time slow step; gcc picks
-# up ../include/ctjs.hpp.gch automatically, clang needs -include-pch
-ifeq ($(CXX_IS_CLANG),yes)
+# reuse (or build) the umbrella PCH - compiles in seconds now that the
+# grammar bake is gone with the type path
 PCH := ../ctjs.pch
 PCH_USE = -include-pch $(PCH)
-else
-PCH := ../include/ctjs.hpp.gch
-PCH_USE =
-endif
 
 all: $(TARGETS)
 

@@ -4,7 +4,6 @@ export module ctjs;
 import std;
 
 #define CTJS_IN_A_MODULE
-#define CTLARK_IN_A_MODULE
 #define CTLL_IN_A_MODULE
 
 using std::int16_t;

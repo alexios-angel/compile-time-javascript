@@ -187,7 +187,7 @@ enum class nk : std::uint8_t {
 	if_stmt, for_stmt, forof_stmt, while_stmt, do_stmt,
 	return_stmt, break_stmt, continue_stmt, throw_stmt, labeled,
 	try_stmt, catch_clause, switch_stmt, case_clause,
-	func_decl, class_decl, class_member, param
+	func_decl, class_decl, class_member, param, yield_expr
 };
 
 struct node {
@@ -312,6 +312,16 @@ struct parser {
 			if (o == "++" || o == "--") {
 				advance(); node nd{nk::update, o}; nd.a = unary(); nd.b = 1; /*prefix*/ return a.add(nd);
 			}
+		}
+		if (cur().kind == tk::kw && cur().s == "yield") {
+			// yield [expr] - only meaningful inside a generator body; the
+			// interpreter enforces that at run time. yield* delegates in the
+			// eager engine by yielding the operand value itself.
+			advance();
+			eat_p("*");
+			node y{nk::yield_expr, ""};
+			if (!is_p(";") && !is_p(")") && !is_p("}") && !is_p(",") && !is_p("]") && !at_end()) { y.a = expr(2); }
+			return a.add(y);
 		}
 		if (cur().kind == tk::kw) {
 			std::string_view o = cur().s;
@@ -472,10 +482,25 @@ struct parser {
 			if (is_p("...")) { advance(); node sp{nk::spread, ""}; sp.a = expr(2); props.push_back(a.add(sp)); }
 			else {
 				node pr{nk::prop, ""};
-				// key
+				pr.d = 0;   // bit0 = computed key, bit2 = accessor is a SETTER
+				// key ("quoted" and 1-numeric keys ride the computed path -
+				// evaluating the literal cooks quotes/escapes into the name)
 				if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; /*computed*/ }
+				else if (cur().kind == tk::str) { node k{nk::str, cur().s}; advance(); pr.a = a.add(k); pr.d = 1; }
+				else if (cur().kind == tk::num) { node k{nk::num, cur().s}; advance(); pr.a = a.add(k); pr.d = 1; }
 				else { pr.text = cur().s; advance(); }
-				if (is_p("(")) {                        // method shorthand
+				if ((pr.text == "get" || pr.text == "set") &&
+				    !is_p("(") && !is_p(":") && !is_p(",") && !is_p("}")) {
+					// accessor:  get name() {...} / set name(v) {...}  (the
+					// name may itself be computed) - mirrors the class path
+					const bool is_setter = pr.text == "set";
+					if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; pr.text = ""; }
+					else { pr.text = cur().s; advance(); }
+					std::int32_t len = 0; std::int32_t pl = params(len);
+					std::int32_t body = block();
+					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
+					pr.b = a.add(fn); pr.c = 3; /*accessor*/ if (is_setter) { pr.d |= 4; }
+				} else if (is_p("(")) {                 // method shorthand
 					std::int32_t len = 0; std::int32_t pl = params(len);
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
@@ -498,14 +523,15 @@ struct parser {
 	// `is_async` records `async` so the interpreter wraps the return in a promise
 	constexpr std::int32_t func(bool is_expr, bool is_async = false) {
 		eat_kw("function");
-		eat_p("*");
+		const bool is_gen = eat_p("*");
 		std::string_view name;
 		if (cur().kind == tk::ident) { name = cur().s; advance(); }
 		std::int32_t len = 0; std::int32_t pl = params(len);
 		std::int32_t body = block();
 		node nd{is_expr ? nk::func_expr : nk::func_decl, name};
 		nd.list = pl; nd.list_len = len; nd.a = body;
-		if (is_async) { nd.c = 1; }
+		// c: bit0 = async, bit1 = generator
+		if (is_async || is_gen) { nd.c = (is_async ? 1 : 0) | (is_gen ? 2 : 0); }
 		return a.add(nd);
 	}
 
@@ -558,6 +584,8 @@ struct parser {
 			// member name
 			std::string_view mname;
 			if (is_p("[")) { advance(); m.a = expr(0); expect_p("]"); m.d |= 2; /*computed*/ }
+			else if (cur().kind == tk::str) { node k{nk::str, cur().s}; advance(); m.a = a.add(k); m.d |= 2; }
+			else if (cur().kind == tk::num) { node k{nk::num, cur().s}; advance(); m.a = a.add(k); m.d |= 2; }
 			else { mname = cur().s; advance(); }
 			m.text = mname;                            // always the property name
 			if (is_p("(")) {                          // method or accessor

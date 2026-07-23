@@ -15,15 +15,9 @@ CXX := $(if $(CTB_CLANG),$(CTB_CLANG),clang++)
 endif
 CXX_IS_CLANG := yes
 
-# Earley at compile time needs more constexpr budget than the defaults;
-# trunk clang also needs the deeper bracket limit AND a big stack
-# (recipes run ulimit -s unlimited - 8 MB default segfaults). clang 23
-# additionally warns -Wstack-exhausted deep in ctll::parser during the
-# grammar bake; measured (2026-07-23, std-embed clang 23dd34f): the bake
-# COMPLETES cleanly past the warning (clang chains stack segments), and
-# the same warning fires on pre-rewrite trees too - conservative, not a
-# regression, so it is demoted from -Werror below.
-CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=16384 -Wno-error=stack-exhausted
+# the constexpr value parser folding whole scripts in static_asserts
+# wants a raised step budget; nothing else is special anymore
+CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024
 
 # ctlark and ctll come from a git submodule (run `git submodule update --init`
 # once after cloning). The extra <sub>/include/ctlark and <sub>/include/ctll
@@ -37,9 +31,8 @@ SUBMODULE_INCLUDES := \
 
 override CXXFLAGS := $(CXXFLAGS) -std=c++$(CXX_STANDARD) -Iinclude $(SUBMODULE_INCLUDES) $(CONSTEXPR_FLAGS) -O2 -pedantic -Wall -Wextra -Werror -Wconversion
 
-# precompiled header: parsing the JavaScript grammar text and compiling
-# its Earley tables happens ONCE here (several minutes - this is the
-# big one-time cost) instead of once per translation unit
+# precompiled header: the umbrella compiles once (seconds - the
+# grammar bake died with the type path)
 ifeq ($(CXX_IS_CLANG),yes)
 PCH := ctjs.pch
 PCH_USE = -include-pch $(PCH)
@@ -58,7 +51,7 @@ DEPENDENCY_FILES := $(TESTS:%.cpp=%.d)
 all: run-tests
 
 $(BINARIES): %: %.cpp $(PCH)
-	@ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
+	@$(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
 
 run-tests: $(BINARIES)
 	@for t in $(BINARIES); do printf '== %s\n' "$$t"; ./$$t || exit 1; done
@@ -66,7 +59,7 @@ run-tests: $(BINARIES)
 pch: $(PCH)
 
 $(PCH): include/ctjs.hpp $(wildcard include/ctjs/*.hpp)
-	@ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) -x c++-header $< -o $@
+	@$(CXX) $(CXXFLAGS) -x c++-header $< -o $@
 
 -include $(DEPENDENCY_FILES)
 

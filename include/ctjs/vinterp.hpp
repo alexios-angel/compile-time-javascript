@@ -95,6 +95,8 @@ inline std::int32_t to_i32(const value & v) {
 struct vm {
 	ast tree;                       // the owned program AST
 	env_ptr globals;                // builtins + host bindings
+	std::string_view pending_label_{};   // break/continue label in flight
+	std::string_view label_for_next_{};  // set by nk::labeled for the wrapped loop
 	env_ptr scope;                  // the program's top-level scope (child of globals);
 	                                // top-level declarations land here so a host can
 	                                // call them back (onFrame, onClick, ...) after run()
@@ -123,11 +125,47 @@ struct vm {
 	}
 
 	// hoist function declarations (so `foo()` before `function foo(){}` works)
+	// and pre-declare every `var` in the function as undefined (function-scoped
+	// hoisting: `typeof x` before `var x` reads undefined, never throws)
 	void hoist(std::int32_t blk, const env_ptr & env, context & cx) {
 		const node & b = N(blk);
 		for (std::int32_t k = 0; k < b.list_len; ++k) {
 			std::int32_t si = child(b.list, k);
 			if (N(si).kind == nk::func_decl) { env->declare(N(si).text, make_fn(si, env, cx)); }
+		}
+		hoist_vars(blk, env);
+	}
+
+	// recursive `var` pre-declare: walks statements INTO nested blocks and
+	// control flow but never into nested function bodies (their own scope)
+	void hoist_vars(std::int32_t si, const env_ptr & env) {
+		if (si < 0) { return; }
+		const node & s = N(si);
+		switch (s.kind) {
+		case nk::var_decl:
+			if (s.text == "var") {
+				for (std::int32_t k = 0; k < s.list_len; ++k) {
+					const node & d2 = N(child(s.list, k));
+					if (env->local(d2.text) == nullptr) { env->declare(d2.text, value{}); }
+				}
+			}
+			return;
+		case nk::program:
+		case nk::block:
+			for (std::int32_t k = 0; k < s.list_len; ++k) { hoist_vars(child(s.list, k), env); }
+			return;
+		case nk::if_stmt: hoist_vars(s.b, env); hoist_vars(s.c, env); return;
+		case nk::for_stmt: hoist_vars(s.a, env); hoist_vars(s.d, env); return;
+		case nk::forof_stmt: hoist_vars(s.c, env); return;
+		case nk::while_stmt: hoist_vars(s.b, env); return;
+		case nk::do_stmt: hoist_vars(s.a, env); return;
+		case nk::labeled: hoist_vars(s.a, env); return;
+		case nk::try_stmt:
+			hoist_vars(s.a, env);
+			if (s.b >= 0) { hoist_vars(N(s.b).a, env); }
+			hoist_vars(s.c, env);
+			return;
+		default: return;
 		}
 	}
 
@@ -147,6 +185,7 @@ struct vm {
 			bool tdz = false;
 			value * slot = env->find_checked(n.text, tdz);
 			if (slot) { return *slot; }
+			if (tdz) { ctjs::throw_error("ReferenceError", "Cannot access '" + std::string{n.text} + "' before initialization"); }
 			ctjs::throw_error("ReferenceError", std::string{n.text} + " is not defined");
 		}
 		case nk::array: return eval_array(n, env, cx);
@@ -176,6 +215,15 @@ struct vm {
 		case nk::opt_call: return eval_call(n, env, cx);
 		case nk::new_expr: return eval_new(n, env, cx);
 		case nk::seq: { eval(n.a, env, cx); return eval(n.b, env, cx); }
+		case nk::yield_expr: {
+			// eager generators: the body runs to completion at call time,
+			// yields buffer into the caller-installed sink. Outside a
+			// generator body the sink is blinded - spec says SyntaxError.
+			if (cx.gen_sink == nullptr) { ctjs::throw_error("SyntaxError", "yield outside a generator"); }
+			value yv = (n.a >= 0) ? eval(n.a, env, cx) : value{};
+			cx.gen_sink->push_back(std::move(yv));
+			return value{};
+		}
 		default: return value{};
 		}
 	}
@@ -237,9 +285,17 @@ struct vm {
 			if (p.kind == nk::spread) {
 				value s = eval(p.a, env, cx);
 				if (s.is_object()) { for (auto & [k2, v2] : s.as_object()->props) { o->set(k2, v2); } }
+				else if (s.is_array()) {
+					const auto & arr = *s.as_array();
+					for (std::size_t j = 0; j < arr.size(); ++j) { o->set(d::number_to_string(static_cast<double>(j)), arr[j]); }
+				}
 				continue;
 			}
-			std::string key = (p.d == 1) ? eval(p.a, env, cx).to_string() : std::string{p.text};
+			std::string key = (p.d & 1) ? eval(p.a, env, cx).to_string() : std::string{p.text};
+			if (p.c == 3) {                                      // get/set accessor
+				ctjs::attach_accessor(*o, key, (p.d & 4) ? 's' : 'g', make_fn(p.b, env, cx));
+				continue;
+			}
 			value v;
 			if (p.c == 1) { v = make_fn(p.b, env, cx); }         // method
 			else if (p.c == 2) {                                 // shorthand { x }
@@ -256,6 +312,7 @@ struct vm {
 		if (op == "typeof") {
 			if (N(n.a).kind == nk::ident) {
 				bool tdz = false; value * s = env->find_checked(N(n.a).text, tdz);
+				if (tdz) { ctjs::throw_error("ReferenceError", "Cannot access '" + std::string{N(n.a).text} + "' before initialization"); }
 				if (!s) { return value{std::string{"undefined"}}; }
 				return value{std::string{s->typeof_string()}};
 			}
@@ -406,6 +463,31 @@ struct vm {
 		return out;
 	}
 
+	// class methods carry their HOME superclass: the body of a method
+	// defined on `class B extends A` resolves super.* against A no matter
+	// when or on what receiver the method is invoked (home-object
+	// semantics). Plain classes skip the wrapper entirely.
+	value make_method(std::int32_t body, const env_ptr & env, context & cx, const value & superv) {
+		value inner = make_fn(body, env, cx);
+		if (!superv.is_function()) { return inner; }
+		return value::function(
+		    [inner, superv](context & c2, const std::vector<value> & args) -> value {
+			    value saved = c2.current_super;
+			    c2.current_super = superv;
+			    c2.pending_this = c2.current_this; // pass the receiver through
+			    value out;
+			    try {
+				    out = ctjs::call_value(c2, inner, args);
+			    } catch (...) {
+				    c2.current_super = saved;
+				    throw;
+			    }
+			    c2.current_super = saved;
+			    return out;
+		    },
+		    std::string{});
+	}
+
 	value eval_call(const node & n, const env_ptr & env, context & cx) {
 		const node & callee = N(n.a);
 		value fn;
@@ -429,9 +511,16 @@ struct vm {
 		} else if (callee.kind == nk::member || callee.kind == nk::index || callee.kind == nk::opt_member) {
 			value recv = eval(callee.a, env, cx);
 			if ((n.kind == nk::opt_call || callee.kind == nk::opt_member) && recv.is_nullish()) { return value{}; }
-			std::string key = (callee.kind == nk::index) ? eval(callee.b, env, cx).to_string() : std::string{callee.text};
-			cname = key;
-			fn = ctjs::get_member(cx, recv, key);
+			if (callee.kind == nk::index) {
+				// xs[0]() - a numeric key selects the ELEMENT, so route
+				// through get_index, not the name-based member lookup
+				value kv = eval(callee.b, env, cx);
+				cname = kv.to_string();
+				fn = get_index(recv, kv, cx);
+			} else {
+				cname = std::string{callee.text};
+				fn = ctjs::get_member(cx, recv, cname);
+			}
 			if (n.kind == nk::opt_call && fn.is_nullish()) { return value{}; }
 			this_for_call = recv;
 		} else {
@@ -471,7 +560,21 @@ struct vm {
 		std::size_t i = 1, end = raw.size() - 1;   // strip backticks
 		while (i < end) {
 			char c = raw[i];
-			if (c == '\\' && i + 1 < end) { out += raw[i + 1]; i += 2; continue; }
+			if (c == '\\' && i + 1 < end) {
+				const char e = raw[i + 1];
+				switch (e) {
+				case 'n': out += '\n'; break;
+				case 't': out += '\t'; break;
+				case 'r': out += '\r'; break;
+				case 'b': out += '\b'; break;
+				case 'f': out += '\f'; break;
+				case 'v': out += '\v'; break;
+				case '0': out += '\0'; break;
+				default: out += e; break;   // \` \$ \\ and friends
+				}
+				i += 2;
+				continue;
+			}
 			if (c == '$' && i + 1 < end && raw[i + 1] == '{') {
 				std::size_t j = i + 2; std::int32_t depth = 1;
 				while (j < end && depth) { if (raw[j] == '{') { ++depth; } else if (raw[j] == '}') { --depth; } if (depth) { ++j; } }
@@ -535,6 +638,28 @@ struct vm {
 		return f;
 	}
 
+	// EAGER generator result: the body already ran, yields are buffered;
+	// next() drains them, honoring the iterator protocol for...of speaks
+	static value make_generator_object(std::vector<value> items, value ret) {
+		auto buffered = std::make_shared<std::vector<value>>(std::move(items));
+		auto pos = std::make_shared<std::size_t>(0);
+		auto o = rc<object_t>::make();
+		o->set("next", value::function(
+		                   [buffered, pos, ret](context &, const std::vector<value> &) -> value {
+			                   auto step = rc<object_t>::make();
+			                   if (*pos < buffered->size()) {
+				                   step->set("value", (*buffered)[(*pos)++]);
+				                   step->set("done", value{false});
+			                   } else {
+				                   step->set("value", ret);
+				                   step->set("done", value{true});
+			                   }
+			                   return value{step};
+		                   },
+		                   "next"));
+		return value{o};
+	}
+
 	value call_user(std::int32_t fn_node, const env_ptr & closure, const std::vector<value> & args,
 	                context & cx, bool is_arrow, const value & lexical_this) {
 		const node & fn = N(fn_node);
@@ -547,6 +672,26 @@ struct vm {
 			local->declare("arguments", value::array(std::move(ar)));
 		}
 		const node & body = N(fn.a);
+		// yield discipline: a generator (fn.c bit1) installs its buffer; any
+		// other function blinds the sink so a nested plain function cannot
+		// leak yields into an outer generator.
+		const bool is_gen = fn.c >= 0 && (fn.c & 2);
+		std::vector<value> gen_buffer;
+		struct sink_guard {
+			context & c; std::vector<value> * saved;
+			constexpr sink_guard(context & ctx, std::vector<value> * install) : c(ctx), saved(ctx.gen_sink) { ctx.gen_sink = install; }
+			constexpr ~sink_guard() { c.gen_sink = saved; }
+		} sg{cx, is_gen ? &gen_buffer : nullptr};
+		if (is_gen) {
+			value gret;
+			if (body.kind != nk::block) {
+				gret = eval(fn.a, local, cx);
+			} else {
+				hoist(fn.a, local, cx);
+				if (exec(fn.a, local, cx, gret) != flow::ret) { gret = value{}; }
+			}
+			return make_generator_object(std::move(gen_buffer), std::move(gret));
+		}
 		// `async` functions/methods/arrows (fn.c == 1) return a settled promise:
 		// the completion value is wrapped (unless it already is one), and a throw
 		// becomes a rejected promise - so `asyncFn().then(...)` works
@@ -605,14 +750,15 @@ struct vm {
 			const node & m = N(mi);
 			bool is_static = (m.d & 1);
 			if (m.c == 1) {   // method
-				if (m.text == "constructor") { ctor_node = m.b; continue; }
-				value fnv = make_fn(m.b, env, cx);
-				if (is_static) { /* attached after ctor built */ }
-				else { proto->set(std::string{m.text}, std::move(fnv)); }
+				if (!(m.d & 2) && m.text == "constructor") { ctor_node = m.b; continue; }
+				if (is_static) { /* attached after ctor built */ continue; }
+				std::string mkey = (m.d & 2) ? eval(m.a, env, cx).to_string() : std::string{m.text};
+				proto->set(std::move(mkey), make_method(m.b, env, cx, super));
 			} else if (m.c == 0) {   // field
 				if (!is_static) { fields.push_back(mi); }
 			} else if (m.c == 2 && !is_static) {   // instance getter/setter
-				ctjs::attach_accessor(*proto, m.text, (m.d & 4) ? 's' : 'g', make_fn(m.b, env, cx));
+				std::string mkey = (m.d & 2) ? eval(m.a, env, cx).to_string() : std::string{m.text};
+				ctjs::attach_accessor(*proto, mkey, (m.d & 4) ? 's' : 'g', make_method(m.b, env, cx, super));
 			}
 		}
 		// constructor function
@@ -650,20 +796,33 @@ struct vm {
 		value ctorv = value::function(std::move(ctor), std::string{c.text});
 		if (!ctorv.as_function()->props) { ctorv.as_function()->props = rc<object_t>::make(); }
 		ctorv.as_function()->props->set("prototype", protov);
+		if (super.is_function() && super.as_function()->props) {
+			// statics inherit: Circle.kinds() finds Shape.kinds via the chain
+			ctorv.as_function()->props->proto = super.as_function()->props;
+		}
 		// static members
 		for (std::int32_t k = 0; k < c.list_len; ++k) {
 			std::int32_t mi = child(c.list, k);
 			const node & m = N(mi);
 			if (!(m.d & 1)) { continue; }
-			if (m.c == 1) { ctorv.as_function()->props->set(std::string{m.text}, make_fn(m.b, env, cx)); }
-			else if (m.c == 0) { ctorv.as_function()->props->set(std::string{m.text}, m.b >= 0 ? eval(m.b, env, cx) : value{}); }
-			else if (m.c == 2) { ctjs::attach_accessor(*ctorv.as_function()->props, m.text, (m.d & 4) ? 's' : 'g', make_fn(m.b, env, cx)); }
+			std::string mkey = (m.d & 2) ? eval(m.a, env, cx).to_string() : std::string{m.text};
+			if (m.c == 1) { ctorv.as_function()->props->set(std::move(mkey), make_method(m.b, env, cx, super)); }
+			else if (m.c == 0) { ctorv.as_function()->props->set(std::move(mkey), m.b >= 0 ? eval(m.b, env, cx) : value{}); }
+			else if (m.c == 2) { ctjs::attach_accessor(*ctorv.as_function()->props, mkey, (m.d & 4) ? 's' : 'g', make_method(m.b, env, cx, super)); }
 		}
 		return ctorv;
 	}
 
 	// ---- statements --------------------------------------------------------
 	flow exec_block(const node & b, const env_ptr & env, context & cx, value & ret) {
+		// let/const enter their temporal dead zone at block entry: a read
+		// before the declaration executes throws, shadowing respected
+		for (std::int32_t k = 0; k < b.list_len; ++k) {
+			const node & s = N(child(b.list, k));
+			if (s.kind == nk::var_decl && s.text != "var") {
+				for (std::int32_t j = 0; j < s.list_len; ++j) { env->tdz.push_back(std::string{N(child(s.list, j)).text}); }
+			}
+		}
 		for (std::int32_t k = 0; k < b.list_len; ++k) {
 			flow f = exec(child(b.list, k), env, cx, ret);
 			if (f != flow::normal) { return f; }
@@ -682,7 +841,8 @@ struct vm {
 			for (std::int32_t k = 0; k < n.list_len; ++k) {
 				const node & dcl = N(child(n.list, k));
 				value v = (dcl.a >= 0) ? eval(dcl.a, env, cx) : value{};
-				env->declare(dcl.text, std::move(v));
+				if (n.text == "var") { env->hoist_target().declare(dcl.text, std::move(v)); }
+				else { env->declare(dcl.text, std::move(v)); }
 				if (n.text == "const") { env->consts.push_back(std::string{dcl.text}); }
 			}
 			return flow::normal;
@@ -693,40 +853,73 @@ struct vm {
 			if (eval(n.a, env, cx).truthy()) { return exec(n.b, env, cx, ret); }
 			else if (n.c >= 0) { return exec(n.c, env, cx, ret); }
 			return flow::normal;
-		case nk::while_stmt:
+		case nk::while_stmt: {
+			const std::string_view my_label = label_for_next_; label_for_next_ = {};
 			while (eval(n.a, env, cx).truthy()) {
 				flow f = exec(n.b, env, cx, ret);
-				if (f == flow::brk) { break; }
+				if (f == flow::brk) { if (pending_label_.empty()) { break; } return f; }
 				if (f == flow::ret) { return f; }
+				if (f == flow::cont && !pending_label_.empty()) {
+					if (pending_label_ != my_label) { return f; }
+					pending_label_ = {};
+				}
 			}
 			return flow::normal;
-		case nk::do_stmt:
+		}
+		case nk::do_stmt: {
+			const std::string_view my_label = label_for_next_; label_for_next_ = {};
 			do {
 				flow f = exec(n.a, env, cx, ret);
-				if (f == flow::brk) { break; }
+				if (f == flow::brk) { if (pending_label_.empty()) { break; } return f; }
 				if (f == flow::ret) { return f; }
+				if (f == flow::cont && !pending_label_.empty()) {
+					if (pending_label_ != my_label) { return f; }
+					pending_label_ = {};
+				}
 			} while (eval(n.b, env, cx).truthy());
 			return flow::normal;
+		}
 		case nk::for_stmt: return exec_for(n, env, cx, ret);
 		case nk::forof_stmt: return exec_forof(n, env, cx, ret);
 		case nk::return_stmt: ret = (n.a >= 0) ? eval(n.a, env, cx) : value{}; return flow::ret;
-		case nk::break_stmt: return flow::brk;
-		case nk::continue_stmt: return flow::cont;
+		case nk::break_stmt: pending_label_ = n.text; return flow::brk;
+		case nk::continue_stmt: pending_label_ = n.text; return flow::cont;
 		case nk::throw_stmt: throw js_throw{eval(n.a, env, cx)};
 		case nk::try_stmt: return exec_try(n, env, cx, ret);
 		case nk::switch_stmt: return exec_switch(n, env, cx, ret);
-		case nk::labeled: return exec(n.a, env, cx, ret);   // labels ignored (best-effort)
+		case nk::labeled: {
+			label_for_next_ = n.text;
+			flow f = exec(n.a, env, cx, ret);
+			label_for_next_ = {};
+			if (f == flow::brk && pending_label_ == n.text) { pending_label_ = {}; return flow::normal; }
+			return f;
+		}
 		default: cx.last = eval(i, env, cx); return flow::normal;
 		}
 	}
 
 	flow exec_for(const node & n, const env_ptr & env, context & cx, value & ret) {
+		const std::string_view my_label = label_for_next_; label_for_next_ = {};
 		env_ptr fe = child_env(env);
 		if (n.a >= 0) { value tmp; exec(n.a, fe, cx, tmp); }
+		// `for (let ...)` gets PER-ITERATION bindings: each pass runs against
+		// a fresh copy of the loop variables, and the step mutates the NEXT
+		// copy - closures made in the body see that iteration's values (v8)
+		const bool per_iter = n.a >= 0 && N(n.a).kind == nk::var_decl && N(n.a).text == "let";
 		while (n.b < 0 || eval(n.b, fe, cx).truthy()) {
 			flow f = exec(n.d, fe, cx, ret);
-			if (f == flow::brk) { break; }
+			if (f == flow::brk) { if (pending_label_.empty()) { break; } return f; }
 			if (f == flow::ret) { return f; }
+			if (f == flow::cont && !pending_label_.empty()) {
+				if (pending_label_ != my_label) { return f; }
+				pending_label_ = {};
+			}
+			if (per_iter) {
+				env_ptr next = child_env(env);
+				for (auto & [k2, v2] : fe->vars) { next->declare(k2, v2); }
+				next->consts = fe->consts;
+				fe = next;
+			}
 			if (n.c >= 0) { eval(n.c, fe, cx); }
 		}
 		return flow::normal;
@@ -738,17 +931,38 @@ struct vm {
 		if (n.text == "of") {
 			if (iter.is_array()) { items = *iter.as_array(); }
 			else if (iter.is_string()) { for (char ch : iter.as_string()) { items.push_back(value{std::string(1, ch)}); } }
+			else if (iter.is_object()) {
+				// iterator protocol: generator objects and hand-rolled
+				// { next() } iterators alike (buffers are finite - eager engine)
+				value nextf = ctjs::get_member(cx, iter, "next");
+				if (nextf.is_function()) {
+					for (;;) {
+						cx.pending_this = iter;
+						value step = ctjs::call_value(cx, nextf, {});
+						if (!step.is_object()) { break; }
+						const value * done = step.as_object()->find("done");
+						if (done != nullptr && done->truthy()) { break; }
+						const value * v = step.as_object()->find("value");
+						items.push_back(v != nullptr ? *v : value{});
+					}
+				}
+			}
 		} else {   // for-in: keys
 			if (iter.is_object()) { for (auto & [k, v] : iter.as_object()->props) { (void)v; items.push_back(value{k}); } }
 			else if (iter.is_array()) { for (std::size_t j = 0; j < iter.as_array()->size(); ++j) { items.push_back(value{d::number_to_string(static_cast<double>(j))}); } }
 		}
 		const node & decl = N(n.a);
+		const std::string_view my_label = label_for_next_; label_for_next_ = {};
 		for (value & it : items) {
 			env_ptr be = child_env(env);
 			be->declare(decl.text, it);
 			flow f = exec(n.c, be, cx, ret);
-			if (f == flow::brk) { break; }
+			if (f == flow::brk) { if (pending_label_.empty()) { break; } return f; }
 			if (f == flow::ret) { return f; }
+			if (f == flow::cont && !pending_label_.empty()) {
+				if (pending_label_ != my_label) { return f; }
+				pending_label_ = {};
+			}
 		}
 		return flow::normal;
 	}
@@ -787,7 +1001,7 @@ struct vm {
 			const node & cl = N(child(n.list, k));
 			for (std::int32_t j = 0; j < cl.list_len; ++j) {
 				flow f = exec(child(cl.list, j), se, cx, ret);
-				if (f == flow::brk) { return flow::normal; }
+				if (f == flow::brk) { if (pending_label_.empty()) { return flow::normal; } return f; }
 				if (f == flow::ret) { return f; }
 			}
 		}
@@ -800,7 +1014,10 @@ inline value vm::eval_subexpr(std::string_view expr, const env_ptr & env, contex
 	// that borrows this environment/context. Function values it creates close
 	// over that vm; for template interpolation (typically simple reads) that
 	// is fine within the interpolation's lifetime.
-	auto sub = std::make_shared<vm>(parse(std::string{expr} + ";"));
+	// the AST holds string_views INTO the parsed source - keep it alive
+	// for the whole walk (a temporary here is use-after-free)
+	const std::string src = std::string{expr} + ";";
+	auto sub = std::make_shared<vm>(parse(src));
 	const node & prog = sub->N(sub->tree.root);
 	if (prog.list_len == 0) { return value{}; }
 	const node & st = sub->N(sub->child(prog.list, 0));

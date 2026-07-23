@@ -42,9 +42,9 @@ cmake_dependent_option(CTJS_BUILD_PACKAGE_RPM
   "CTJS_BUILD_PACKAGE;CTJS_RPMBUILD_FOUND" OFF)
 
 option(CTJS_MODULE "build C++ module (experimental)" OFF)
-# the ctlark grammar layer runs an Earley parse in the constant
-# evaluator; the interface carries the raised limits so consumers do
-# not have to know the flags
+# the value parser folds whole scripts in the constant evaluator; the
+# interface carries the raised limits so consumers do not have to know
+# the flags
 option(CTJS_CONSTEXPR_LIMITS "Raise constexpr evaluation limits on the interface" ON)
 option(CTJS_PCH "Precompile ctjs.hpp for tests and examples" ON)
 
@@ -69,13 +69,14 @@ endif()
 
 set(CTJS_HEADERS
 	include/ctjs.hpp
-	include/ctjs/ast.hpp
 	include/ctjs/builtins.hpp
-	include/ctjs/grammar.hpp
-	include/ctjs/interp.hpp
-	include/ctjs/lower.hpp
+	include/ctjs/cfunction.hpp
+	include/ctjs/gc.hpp
+	include/ctjs/rc.hpp
 	include/ctjs/script.hpp
-	include/ctjs/value.hpp)
+	include/ctjs/value.hpp
+	include/ctjs/vinterp.hpp
+	include/ctjs/vparse.hpp)
 file(GLOB_RECURSE CTJS_CTLARK_HEADERS CONFIGURE_DEPENDS
 	external/compile-time-lark/include/*.hpp)
 
@@ -116,7 +117,7 @@ else()
 	  $<INSTALL_INTERFACE:include>)
 
 	if (NOT CTJS_CXX_STANDARD)
-	  set(CTJS_CXX_STANDARD 20)
+	  set(CTJS_CXX_STANDARD 23)
 	endif()
 
 	target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_${CTJS_CXX_STANDARD})
@@ -163,9 +164,9 @@ install(
     "${PROJECT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME})
 
-# One shared PCH for every test and example target: baking the grammar
-# tables is a long constexpr evaluation, so it must happen ONCE - the
-# anchor target owns the PCH and everything else REUSE_FROMs it.
+# One shared PCH for every test and example target - compiles in
+# seconds now (the grammar bake died with the type path); the anchor
+# target owns the PCH and everything else REUSE_FROMs it.
 if(CTJS_PCH AND (CTJS_BUILD_TESTS OR CTJS_BUILD_EXAMPLES)
    AND CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
   file(WRITE "${CMAKE_BINARY_DIR}/ctjs-pch-anchor.cpp"

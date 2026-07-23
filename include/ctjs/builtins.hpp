@@ -1299,7 +1299,17 @@ inline constexpr value get_member(context & cx, const value & recv, std::string_
 		// statics ride on props; walk its chain for `class extends` statics
 		for (object_t * o = f->props ? f->props.get() : nullptr; o != nullptr;
 		     o = o->proto.get()) {
-			if (const value * v = o->find(name)) { return *v; }
+			if (const value * v = o->find(name)) {
+				if (is_accessor(*v)) {
+					const value * g = v->as_object()->find("get");
+					if (g != nullptr && g->is_function()) {
+						cx.pending_this = recv;
+						return call_value(cx, *g, {});
+					}
+					return value{};
+				}
+				return *v;
+			}
 		}
 		if (name == "name") { return value{f->name}; }
 	}
@@ -1852,6 +1862,9 @@ inline constexpr env_ptr make_globals() {
 		    },
 		    "Date");
 		date_fn.as_function()->props = rc<object_t>::make();
+		// a real .prototype: new-created instances proto-link to it, which
+		// is what makes `d instanceof Date` hold
+		date_fn.as_function()->props->set("prototype", value{rc<object_t>::make()});
 		date_fn.as_function()->props->set(
 		    "now", value::function(
 		               [](context &, const std::vector<value> &) {

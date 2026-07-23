@@ -1,21 +1,10 @@
 #ifndef CTJS__SCRIPT__HPP
 #define CTJS__SCRIPT__HPP
 
-// CTJS_NO_GRAMMAR: the lark/Earley grammar (the tens-of-minutes JS table build)
-// and the type-path interpreter are needed ONLY by the compile-time TYPE path
-// (script_t / run / eval / is_valid). A TU that uses only the runtime VALUE
-// path (run_value) defines CTJS_NO_GRAMMAR and skips all of it. (See ctcss/
-// cthtml for the twins.)
-#ifndef CTJS_NO_GRAMMAR
-#include "grammar.hpp"
-#endif
-#include "asi.hpp"
-#ifndef CTJS_NO_GRAMMAR
-#include "lower.hpp"
-#include "interp.hpp"
-#endif
-#include "vinterp.hpp"   // parse-by-value path (ctjs::run_value)
+#include "../ctll/fixed_string.hpp" // the NTTP string carrier for script<Src>
+#include "vinterp.hpp"              // the value parser + interpreter
 #ifndef CTJS_IN_A_MODULE
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -24,9 +13,10 @@
 #include <vector>
 #endif
 
-// The public surface. A script is parsed at COMPILE time - the source
-// is a template argument, a syntax error is a compile error naming the
-// diagnostic query to run - and executes at RUNTIME:
+// The public surface. A script can be handed over as a template
+// argument (script<Src> - its validity is checked during compilation by
+// the constexpr value parser) or as an ordinary runtime string
+// (run_value); both execute at RUNTIME through the same interpreter:
 //
 //   constexpr auto & src = ctjs::script<R"(
 //       let total = 0;
@@ -133,104 +123,54 @@ private:
 	std::shared_ptr<void> owner_;
 };
 
-#ifndef CTJS_NO_GRAMMAR // --- the compile-time TYPE path (needs the grammar)
+// --- the NTTP surface, value-backed ---------------------------------
+// The source rides as a ctll::fixed_string template argument; validity
+// is proven during compilation by the CONSTEXPR value parser, and run()
+// executes through the same run_value machinery as a runtime string.
 
 namespace detail {
 
-template <typename Program> struct program_runner;
-template <typename... Ss> struct program_runner<ast::program<Ss...>> {
-	static constexpr void go(const env_ptr & env, context & cx) {
-		hoist_functions<Ss...>(env, cx);
-		value ret;
-		(void)exec_all<Ss...>(env, cx, ret);
-	}
-};
-
-} // namespace detail
-
-// Evaluate a script AT COMPILE TIME. Because the interpreter is
-// constexpr, `ctjs::eval<Src>()` runs the whole program during constant
-// evaluation and hands back its completion value - usable in a
-// static_assert:
-//   static_assert(ctjs::eval<"let a = 2, b = 3; a * b + 1;">().to<std::int32_t>() == 7);
-// A script that reaches a non-constexpr operation (Math via <cmath>,
-// Date via <chrono>, random, a throw, a host binding) is simply not a
-// constant expression there; run it at runtime with `.run()` instead.
-template <CTJS_STRING_INPUT Src> constexpr value eval() {
-	using tree = decltype(ctlark::parse<detail::js_grammar, detail::asi_src<Src>, detail::js_start>());
-	using p0 = typename detail::lower_program<tree>::type;
-	using program = detail::rewrite_t<p0, typename detail::collect_fns<p0>::type>;
-	auto cx = rc<context>::make();
-	env_ptr globals = make_globals();
-	detail::program_runner<program>::go(globals, *cx);
-	return cx->last;
-}
-
-template <CTJS_STRING_INPUT Src> struct script_t {
-	static constexpr bool valid =
-	    ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start>;
-
-	static run_result run(std::vector<binding> host = {}) {
-		static_assert(ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start>,
-		              "ctjs: the script is not valid JavaScript (within the supported "
-		              "subset) - print ctjs::error_message<Src>() for the location and "
-		              "the expected tokens");
-		auto cx = rc<context>::make();
-		env_ptr globals = make_globals();
-		for (binding & b : host) { globals->declare(b.name, std::move(b.v)); }
-		run_result out{cx, globals};
-		if constexpr (valid) {
-			using tree = decltype(ctlark::parse<detail::js_grammar, detail::asi_src<Src>, detail::js_start>());
-			using p0 = typename detail::lower_program<tree>::type;
-			// whole-program pass: constant-evaluate calls to named functions
-			using program = detail::rewrite_t<p0, typename detail::collect_fns<p0>::type>;
-			try {
-				detail::program_runner<program>::go(globals, *cx);
-			} catch (js_throw & t) {
-				out.mark_failed(std::move(t.thrown));
-			}
+// ctll::fixed_string stores wide code units; materialize the script's
+// bytes once per Src as a static char array
+template <ctll::fixed_string Src> struct src_bytes {
+	static constexpr auto compute() noexcept {
+		std::array<char, Src.size() + 1> out{};
+		for (std::size_t i = 0; i < Src.size(); ++i) {
+			out[i] = static_cast<char>(Src.content[i]);
 		}
 		return out;
 	}
+	static constexpr std::array<char, Src.size() + 1> storage = compute();
+	static constexpr std::string_view view() noexcept {
+		return std::string_view{storage.data(), Src.size()};
+	}
 };
 
-#if CTLL_CNTTP_COMPILER_CHECK
-template <ctll::fixed_string Src> inline constexpr script_t<Src> script{};
-
-// --- compile-time constant evaluation (the folder, fold.hpp).
-//
-// A script that is a single constant expression statement is evaluated
-// AT COMPILE TIME, so its value is a `constexpr` usable in a
-// static_assert - no interpreter runs:
-//   static_assert(ctjs::is_constant<"2 ** 10 + 24;">);
-//   static_assert(ctjs::constant<"2 ** 10 + 24;"> == 1048.0);
-// (This is the same fold that, inside any larger script, collapses
-// constant subexpressions and dead ternary/`&&`/`||`/`??` branches
-// before the interpreter runs.) `is_constant` is false for a
-// non-constant expression; `constant` requires a numeric constant.
-namespace detail {
-template <ctll::fixed_string Src> struct const_of {
-	using tree = decltype(ctlark::parse<js_grammar, asi_src<Src>, js_start>());
-	using program = typename lower_program<tree>::type;
-	static constexpr folded value = program_constant<program>::value;
-};
 } // namespace detail
 
-template <ctll::fixed_string Src>
-inline constexpr bool is_constant =
-    ctlark::is_valid<detail::js_grammar, detail::asi_src<Src>, detail::js_start> &&
-    detail::const_of<Src>::value.ok();
+// does the source parse as ctjs's JavaScript subset?
+CTLL_EXPORT template <ctll::fixed_string Src>
+inline constexpr bool is_valid = vp::is_valid(detail::src_bytes<Src>::view());
 
-template <ctll::fixed_string Src>
-inline constexpr double constant = detail::const_of<Src>::value.num;
-#endif
+CTLL_EXPORT template <ctll::fixed_string Src> struct script_t {
+	// queryable without error (v8diff skips parse gaps through it)
+	static constexpr bool valid = is_valid<Src>;
 
-// one-shot convenience: parse at compile time, run now
-template <CTJS_STRING_INPUT Src> run_result run(std::vector<binding> host = {}) {
+	static run_result run(std::vector<binding> host = {}) {
+		static_assert(is_valid<Src>,
+		              "ctjs: the script is not valid JavaScript (within the "
+		              "supported subset) - run vp::parse on the source at "
+		              "runtime for the offending token");
+		return run_value(detail::src_bytes<Src>::view(), std::move(host));
+	}
+};
+
+CTLL_EXPORT template <ctll::fixed_string Src> inline constexpr script_t<Src> script{};
+
+// one-shot convenience: validity proven at compile time, run now
+CTLL_EXPORT template <ctll::fixed_string Src> run_result run(std::vector<binding> host = {}) {
 	return script_t<Src>::run(std::move(host));
 }
-
-#endif // CTJS_NO_GRAMMAR (compile-time TYPE path)
 
 // Run a script BY VALUE: parse it with the recursive-descent value parser and
 // execute it with the value tree-walking interpreter, both at RUNTIME - no

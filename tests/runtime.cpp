@@ -1,23 +1,24 @@
-// The runtime suite: scripts are PARSED AT COMPILE TIME (each
-// ctjs::script<...> below went through the grammar during this file's
-// compilation) and executed here, with their behavior checked against
-// what node does. Run the binary; a non-zero exit is a failure.
+// The runtime suite: every script below is VALIDITY-CHECKED AT COMPILE
+// TIME (the constexpr value parser runs during this file's compilation;
+// a syntax error fails the build) and executed here, with behavior
+// checked against what node does. Run the binary; non-zero exit = failure.
 #include <ctjs.hpp>
 #include <cstdio>
 #include <string>
 
-// --- the interpreter is constexpr: whole programs evaluate AT COMPILE
-// TIME. These static_asserts run the interpreter during this file's
-// compilation - variables, loops, recursion, strings, objects, arrays
-// and closures, all evaluated with no runtime at all.
-static_assert(ctjs::eval<"2 + 3 * 4;">().to<int>() == 14);
-static_assert(ctjs::eval<"let a = 2, b = 3; a * b + 1;">().to<int>() == 7);
-static_assert(ctjs::eval<"let s = 0; for (let i = 1; i <= 10; i++) { s += i; } s;">().to<int>() == 55);
-static_assert(ctjs::eval<"function fact(n){ return n <= 1 ? 1 : n * fact(n - 1); } fact(5);">().to<int>() == 120);
-static_assert(ctjs::eval<"'a' + 'b' + 'c';">().to<std::string>() == "abc");
-static_assert(ctjs::eval<"let o = { x: 41 }; o.x + 1;">().to<int>() == 42);
-static_assert(ctjs::eval<"let xs = [1, 2, 3, 4]; let t = 0; for (const v of xs) { t += v; } t;">().to<int>() == 10);
-static_assert(ctjs::eval<"let add = (a, b) => a + b; add(20, 22);">().to<int>() == 42);
+// --- the parser is constexpr: every program is proven syntactically
+// valid AT COMPILE TIME (the value parser runs in these static_asserts;
+// the programs themselves execute in eval_agreement() below).
+static_assert(ctjs::is_valid<"2 + 3 * 4;">);
+static_assert(ctjs::is_valid<"let a = 2, b = 3; a * b + 1;">);
+static_assert(ctjs::is_valid<"let s = 0; for (let i = 1; i <= 10; i++) { s += i; } s;">);
+static_assert(ctjs::is_valid<"function fact(n){ return n <= 1 ? 1 : n * fact(n - 1); } fact(5);">);
+static_assert(ctjs::is_valid<"'a' + 'b' + 'c';">);
+static_assert(ctjs::is_valid<"let o = { x: 41 }; o.x + 1;">);
+static_assert(ctjs::is_valid<"let xs = [1, 2, 3, 4]; let t = 0; for (const v of xs) { t += v; } t;">);
+static_assert(ctjs::is_valid<"let add = (a, b) => a + b; add(20, 22);">);
+static_assert(!ctjs::is_valid<"let o = { a: };">); // structural breaks still fail
+static_assert(ctjs::is_valid<"let letter = of + async;">); // contextual keywords as names
 
 static int failures = 0;
 #define CHECK(cond) \
@@ -619,6 +620,8 @@ static void classes_prototypes_super_statics() {
 }
 
 static void constant_folding() {
+	// (behavioral since the fold.hpp constant folder retired with the
+	// type path: short-circuit/ternary semantics keep ran untouched)
 	auto out = ctjs::run<R"(
 		let a = 2 + 3 * 4;               // -> 14 at compile time
 		let b = (10 - 2) ** 2;           // -> 64
@@ -734,14 +737,17 @@ static void named_function_folding() {
 	CHECK(out2["live"].to<int>() == 20);
 }
 
-static void constexpr_interpreter() {
-	// the SAME constexpr eval, called at runtime, agrees with itself and
-	// with run() - one interpreter, two evaluation times
-	CHECK(ctjs::eval<"let s = 0; for (let i = 1; i <= 100; i++) { s += i; } s;">().to<int>() == 5050);
-	CHECK(ctjs::eval<"function fib(n){ return n < 2 ? n : fib(n-1) + fib(n-2); } fib(15);">().to<int>() == 610);
-	CHECK(ctjs::eval<"let o = {}; o.a = 1; o.b = 2; o.a + o.b;">().to<int>() == 3);
-	CHECK(ctjs::eval<"'result: ' + (6 * 7);">().to<std::string>() == "result: 42");
-	// and run() gives the same globals
+static void eval_agreement() {
+	// the programs the old compile-time interpreter proved; the value
+	// interpreter must agree on every result
+	CHECK(ctjs::run<"let r = 2 + 3 * 4;">()["r"].to<int>() == 14);
+	CHECK(ctjs::run<"let a = 2, b = 3; let r = a * b + 1;">()["r"].to<int>() == 7);
+	CHECK(ctjs::run<"let s = 0; for (let i = 1; i <= 100; i++) { s += i; }">()["s"].to<int>() == 5050);
+	CHECK(ctjs::run<"function fib(n){ return n < 2 ? n : fib(n-1) + fib(n-2); } let r = fib(15);">()["r"].to<int>() == 610);
+	CHECK(ctjs::run<"let o = {}; o.a = 1; o.b = 2; let r = o.a + o.b;">()["r"].to<int>() == 3);
+	CHECK(ctjs::run<"let r = 'result: ' + (6 * 7);">()["r"].to<std::string>() == "result: 42");
+	CHECK(ctjs::run<"let xs = [1, 2, 3, 4]; let t = 0; for (const v of xs) { t += v; }">()["t"].to<int>() == 10);
+	CHECK(ctjs::run<"let add = (a, b) => a + b; let r = add(20, 22);">()["r"].to<int>() == 42);
 	auto out = ctjs::run<"let answer = 6 * 7;">();
 	CHECK(out["answer"].to<int>() == 42);
 }
@@ -767,7 +773,7 @@ int main() {
 	string_folding();
 	function_folding();
 	named_function_folding();
-	constexpr_interpreter();
+	eval_agreement();
 	if (failures == 0) {
 		std::printf("runtime suite: all checks passed\n");
 	}

@@ -1,7 +1,8 @@
-> **Attribution:** this library is built on the CTLL compile-time LL(1)
-> parser from [CTRE](https://github.com/hanickadot/compile-time-regular-expressions)
+> **Attribution:** this library uses `ctll::fixed_string` from
+> [CTRE](https://github.com/hanickadot/compile-time-regular-expressions)
 > by Hana Dusíková, via the [notre](https://github.com/alexios-angel/notre)
-> fork, and follows the architecture of its siblings
+> fork and the [compile-time-lark](https://github.com/alexios-angel/compile-time-lark)
+> submodule, and follows the architecture of its siblings
 > [compile-time-html](https://github.com/alexios-angel/compile-time-html),
 > [compile-time-python](https://github.com/alexios-angel/compile-time-python) and
 > [compile-time-json](https://github.com/alexios-angel/compile-time-json).
@@ -10,14 +11,13 @@
 # ctjs — compile-time JavaScript
 
 JavaScript **parsed while your code compiles, executed when it runs**.
-The script is a template argument: a typo, a missing semicolon or a
-bad assignment target is a *compile error* with a caret diagnostic,
-and the parse tree becomes a *type*. The interpreter is specialized
-over that type, so the C++ optimizer compiles every script into code
-generated for exactly that script — at runtime there is no parser, no
-bytecode, no dispatch loop. What runs is real JavaScript semantics:
-IEEE doubles, closures, reference-semantics arrays and objects,
-`try`/`catch`, coercions and all.
+The script can ride as a template argument: its syntax is proven during
+compilation by a `constexpr` value parser, so a structural mistake in
+`ctjs::script<...>` fails the build. The *same* parser accepts ordinary
+runtime strings — an embedded asset, a network payload — and both paths
+execute through one tree-walking interpreter with real JavaScript
+semantics: IEEE doubles, closures, reference-semantics arrays and
+objects, prototypes, classes, `try`/`catch`, coercions and all.
 
 ```c++
 #include <ctjs.hpp>
@@ -35,8 +35,7 @@ out["squares"][2].to<int>();           // 9
 out.call("fib", 20).to<int>();         // 6765 - call script functions from C++
 
 static_assert(ctjs::is_valid<"let x = 1;">);
-static_assert(!ctjs::is_valid<"let x = 1">);   // no ASI: semicolons required
-static_assert(!ctjs::is_valid<"f() = 1;">);    // not an assignment target
+static_assert(!ctjs::is_valid<"let o = { a: };">);   // structural breaks fail
 ```
 
 Hosts inject native functions as script globals, and call script
@@ -56,167 +55,117 @@ auto ui = ctjs::run<R"(
 ui.call("onClick");   // the host's event loop, driving script handlers
 ```
 
-## Run it at compile time
-
-The interpreter itself is `constexpr` — so an entire script can execute
-during **constant evaluation**, with its result handed back as a
-compile-time value:
+Runtime strings go through `ctjs::run_value` — the identical machinery,
+no template argument:
 
 ```c++
-static_assert(ctjs::eval<"2 + 3 * 4;">().to<int>() == 14);
-static_assert(ctjs::eval<"let s = 0; for (let i = 1; i <= 10; i++) s += i; s;">().to<int>() == 55);
-static_assert(ctjs::eval<"function fact(n){ return n<=1 ? 1 : n*fact(n-1); } fact(5);">().to<int>() == 120);
-static_assert(ctjs::eval<"'a' + 'b' + 'c';">().to<std::string>() == "abc");
+std::string src = load_script();               // decided at runtime
+auto out = ctjs::run_value(src, {/* bindings */});
 ```
 
-Variables, loops, recursion, strings, objects, arrays and closures all
-evaluate with **no runtime at all**. It is the *same* interpreter that
-runs at runtime (`std::shared_ptr`/`std::function` were replaced with a
-constexpr refcounted pointer and a constexpr callable so the value model
-is usable in constant evaluation) — `ctjs::eval<Src>()` at compile time,
-`ctjs::script<Src>.run()` at runtime.
+## Validity is lenient by design
 
-**As constexpr as possible, with a clean fallback:** a script that
-reaches something that genuinely cannot run at compile time — `Math`
-(via `<cmath>`), `Date` (via `<chrono>`), `Math.random`, a `throw`, a
-fractional-number `toString`, or a host binding — simply isn't a
-constant expression there, so you run it at runtime instead. Everything
-else is free to fold away.
-
-## Constant folding — evaluated at compile time
-
-A script does not have to be wholly static, but **anything that can be
-computed ahead of time is** — during lowering (all `constexpr`), a
-partial-evaluation pass collapses constant subexpressions and prunes
-dead `?:` / `&&` / `||` / `??` branches *before the interpreter runs*.
-A single constant expression is available as a `constexpr`:
+The parser mirrors what the interpreter can run, not a style guide.
+Recoverable slips parse; structural breaks do not:
 
 ```c++
-static_assert(ctjs::is_constant<"2 ** 10 + 24;">);
-static_assert(ctjs::constant<"2 ** 10 + 24;"> == 1048.0);  // computed at compile time
-static_assert(!ctjs::is_constant<"x + 1;">);               // x is dynamic
+static_assert(ctjs::is_valid<"let x = 1">);       // trailing semicolon recoverable
+static_assert(ctjs::is_valid<"let let = 1;">);    // keywords as names where unambiguous
+static_assert(!ctjs::is_valid<"if (a { b(); }">); // lost a paren
+static_assert(!ctjs::is_valid<"while (">);        // truncated
+static_assert(!ctjs::is_valid<"f(1, 2">);         // unclosed call
+
+static_assert(ctjs::script<"let x = 1;">.valid);  // queryable on the NTTP form
 ```
 
-Inside a larger script it folds in place: `1 + 2 + 3 + x` becomes
-`6 + x`, `true ? a : sideEffect()` becomes `a`, `false && boom()`
-becomes `false` — the runtime only does the genuinely dynamic work. It
-also folds pure **string** expressions byte-for-byte: `"a" + "b" + "c"`
-becomes `"abc"`, and JS string coercion of the constants it can
-reproduce exactly — `"id-" + 42` becomes `"id-42"`, `7 + "up"` becomes
-`"7up"`, `"x" + true + null` becomes `"xtruenull"`.
+A runtime string that fails to parse still runs its parsed prefix; the
+NTTP form (`script<Src>.run()`) `static_assert`s validity at the point
+of use so an invalid literal cannot slip into an executable.
 
-It even evaluates a pure **function** applied to constants. An
-immediately-invoked arrow or function expression folds by substituting
-the arguments and re-folding — `(x => x * x)(5)` becomes `25`. So do
-calls to **named** functions: a whole-program pass collects top-level
-`function name(...) { return <expr>; }` definitions and folds every call
-made with constant arguments, recursively —
-
-```js
-function sq(x)   { return x * x; }
-function cube(x) { return x * sq(x); }                    // calls sq
-function fact(n) { return n <= 1 ? 1 : n * fact(n - 1); } // recursion
-
-let a = cube(3);   // -> 27 at compile time (the inner sq folds too)
-let b = fact(6);   // -> 720
-let c = sq(k);     // NOT folded: k is dynamic — runs against the real def
-```
-
-Recursion is bounded by a depth budget (so a branching recursion like
-`fib` with a large constant argument bails to the interpreter rather than
-exploding the compile), and any call whose body touches something dynamic
-simply doesn't reduce — soundness without a separate purity analysis.
-
-The fold is deliberately **sound over speed**: it reproduces the
-interpreter bit-for-bit, so it folds integer literals, booleans, `null`
-and strings (not fractional/exponent literals, whose runtime
-`Number::toString` it will not second-guess) with the
-IEEE-deterministic operators.
-
-## What is supported (v0.1)
+## What is supported (v0.2)
 
 * **values**: numbers (IEEE-754 doubles, hex/decimal/exponent
-  literals), strings (`'`/`"`, escapes incl. `\u`/`\x`), booleans,
-  `null`, `undefined`, arrays, objects, first-class functions
+  literals), strings (`'`/`"`, escapes incl. `\u`/`\x`), template
+  literals with `${}` interpolation, booleans, `null`, `undefined`,
+  arrays, objects, first-class functions, regex literals
 
 * **expressions**: the full operator ladder — assignment (`=`, `+=`,
-  ... `**=`), ternary, `??`, `||`/`&&` (short-circuit), `==`/`!=` and
-  `===`/`!==` (spec coercion rules), relational, `+` (concat rules),
-  `-` `*` `/` `%` `**`, unary `!` `-` `+` `typeof`, `++`/`--` (pre and
-  post), calls, `obj.prop`, `obj[expr]`, array/object literals,
-  grouping
+  ... `**=`, `||=`/`&&=`/`??=`), ternary, `??`, `||`/`&&`
+  (short-circuit), `==`/`!=` and `===`/`!==` (spec coercion rules),
+  relational + `instanceof` + `in`, `+` (concat rules), `-` `*` `/`
+  `%` `**`, unary `!` `-` `+` `~` `typeof` `delete` `void`, `++`/`--`
+  (pre and post), optional chaining (`?.`, `?.[]`, `?.()`), spread in
+  calls/arrays/objects, calls, `obj.prop`, `obj[expr]`, grouping
 
 * **functions**: declarations (hoisted within their scope),
-  expressions, arrow functions (expression- and block-bodied), REAL
-  closures over lexical environment chains, recursion (soft
-  `RangeError` at depth 256), first-class use as values/arguments
+  expressions, arrow functions (expression- and block-bodied), default
+  and rest parameters, REAL closures over lexical environment chains,
+  recursion (soft `RangeError` at depth 256), `async` (settled
+  promises), generators (eager — see deviations)
+
+* **classes**: methods on a shared prototype, `extends` with
+  `super()` / `super.method()` (home-object semantics — a method
+  resolves `super.*` against its defining class no matter when it is
+  invoked), getters/setters, static members with inheritance through
+  the chain, instance and static fields, computed member names
 
 * **statements**: `let`/`const`/`var` (multi-declarator), blocks with
   lexical scope, `if`/`else`, `while`, `do`/`while`, classic `for`,
-  `for...of` (arrays and strings, per-iteration binding),
-  `break`/`continue`, `return`, `throw`, `try`/`catch`/`finally`
+  `for...of` (arrays, strings, generator objects and hand-rolled
+  `{next()}` iterators), `for...in`, labeled loops with
+  `break`/`continue` to a label, `return`, `throw`,
+  `try`/`catch`/`finally`, `switch`
 
 * **runtime library**: `console.log` (captured, node-style
-  formatting), `Math` (floor/ceil/round/trunc/abs/sqrt/sign/pow/
-  min/max/random/PI/E), `JSON.stringify`, `parseInt`, `parseFloat`,
-  `isNaN`, `isFinite`, `String`, `Number`, `Boolean`,
-  `Array.isArray`; array methods (push/pop/shift/unshift/slice/
-  indexOf/includes/join/reverse/concat/map/filter/forEach/reduce,
-  `.length`), string methods (slice/indexOf/includes/startsWith/
-  endsWith/toUpperCase/toLowerCase/trim/split/charAt/charCodeAt/
-  repeat/replace/replaceAll/padStart/padEnd, `.length`), number
-  methods (toString/toFixed)
+  formatting), `Math`, `JSON.stringify`/`parse`, `parseInt`,
+  `parseFloat`, `isNaN`, `isFinite`, `String`, `Number`, `Boolean`,
+  `Object` (keys/values/entries/assign/create/getPrototypeOf/
+  setPrototypeOf/fromEntries), `Array.isArray`/`from`/`of`, `Date`
+  (UTC subset), `Promise` (settled subset), the array/string/number
+  methods (map/filter/reduce/slice/splice/find/sort/... ,
+  split/replace/match/repeat/padStart/... , toString/toFixed), regex
+  `test`/`exec`
 
-* **semantics**: JS truthiness, ToNumber/ToString coercion, the
-  ECMA-262 `Number::toString` algorithm (`0.1 + 0.2` prints
-  `0.30000000000000004`, `1e21` prints `1e+21`), `NaN`, `typeof null
-  === "object"`, reference semantics for arrays/objects, `Math.random`
-  deterministic-seeded (reproducible runs)
+* **semantics (V8-aligned, verified against node)**: `var` is
+  function-scoped and hoists (reads before the declaration see
+  `undefined`); `let`/`const` have a temporal dead zone (access before
+  initialization throws V8's `ReferenceError`); `const` reassignment
+  throws V8's `TypeError`; classic `for` + `let` creates per-iteration
+  bindings (closures capture each iteration's values, the step runs in
+  the next copy); method calls bind `this` to the receiver; JS
+  truthiness and ToNumber/ToString coercions; the ECMA-262
+  `Number::toString` algorithm (`0.1 + 0.2` prints
+  `0.30000000000000004`); spec error shapes with node's messages
 
-**V8-aligned semantics (v0.2):**
-
-- `var` is function-scoped and hoists (reads before the declaration see `undefined`)
-- `let`/`const` are block-scoped with a temporal dead zone (access before initialization throws V8's `ReferenceError`)
-- `const` reassignment throws V8's `TypeError`
-- classic `for` with `let` creates per-iteration bindings (closures capture each iteration's values)
-- method calls bind `this` to the receiver
-
-Verified against node by the generated differential suite:
-`python3 tools/gen-v8diff.py && make tests/v8diff` re-captures V8's
-output for every corpus snippet and byte-compares.
+The differential suite re-captures V8's output for every corpus
+snippet and byte-compares: `python3 tools/gen-v8diff.py && make`.
 
 **Documented deviations:**
 
-- no ASI — semicolons are required (a missing one is a *compile* error, which is rather the point)
 - plain calls see `this === undefined` (module semantics; sloppy-mode `globalThis` is not modeled)
-- reserved words cannot be used as identifiers (`let let = 1;` is a syntax error), but they remain legal as property names (`p.catch(f)`, `{ class: 1 }`) — the contextual words `of`/`async`/`get`/`set`/`static` stay usable as identifiers
 - strings are bytes (UTF-8 passes through, `.length` counts bytes)
 - `Math.random` is seeded deterministically
-- **promises are the SETTLED subset** — the engine is synchronous, so `async function` / top-level `await` / then/catch/finally / `Promise.resolve|reject|all` all exist, but a promise is fulfilled or rejected the moment it is created and handlers run immediately instead of on a microtask queue (host natives hand scripts pre-resolved promises — compile-time-browser's `await fetch(url)`; `new Promise(executor)` is deliberately absent since an executor implies pending state)
-- optional chaining short-circuits PER LINK — `a?.b.c` still throws when `a?.b` is undefined (write `a?.b?.c`), unlike V8's whole-chain skip
-- **generators are EAGER** — the body runs to completion on the call, yields buffer up, and the returned iterator (a plain `{next()}` object, which `for...of` also speaks for hand-rolled iterators) drains the buffer, so infinite generators hang and `next(v)` cannot feed values back in
-- objects have a real `[[Prototype]]` chain (`Object.create`/`getPrototypeOf`/`setPrototypeOf`, `__proto__`, `Fn.prototype`); `instanceof` walks it
-- **regex literals lex greedily** (the lexer has no parser context), so a regex body may not contain a BARE space, `;` or `,` — write `[ ]`, `[;]`, `[,]` or `\x20` — which also keeps `a / b / c` division safe; the regex engine has no lookaround, backreferences or named groups, `exec` results carry no `.index/.input`, and `replace` takes string templates (`$&`, `$1`…), not callbacks
-- classes desugar to prototypes: methods live once on a shared prototype, `class B extends A` links the chain, and `super()` / `super.method()` work; `static` members and fields (`static x = 1`), instance fields (`count = 0`) and computed member names (`[expr]() {}`) are supported. A derived class with no own constructor forwards its arguments to the base
-- **`Date` is UTC-only** — `new Date(ms)`/`new Date()`/`new Date(str)`, `Date.parse` (the ISO-8601 subset `toISOString` emits, plus date-only forms), the `getUTC*`/`get*` getters (local aliases UTC), `getTime`, `getDay`, `toISOString`; no setters; `Date.now()` is the one impure global besides `console`, so hosts wanting determinism rebind it
-
-**Not yet:** non-UTC time zones, `Symbol`/iterators-by-`Symbol.iterator`,
-`Proxy`/`Reflect`, tagged template literals, labelled-block `break` to a
-non-loop, property descriptors (`Object.defineProperty`, real
-`freeze`).
+- **promises are the SETTLED subset** — the engine is synchronous, so `async function` / `await` / then/catch/finally / `Promise.resolve|reject|all` all exist, but a promise is fulfilled or rejected the moment it is created and handlers run immediately instead of on a microtask queue (`new Promise(executor)` is deliberately absent since an executor implies pending state)
+- **generators are EAGER** — the body runs to completion on the call, yields buffer up, and the returned iterator drains the buffer; infinite generators hang, `next(v)` cannot feed values back in, and `yield*` yields the operand value itself; `yield` outside a generator throws `SyntaxError` at call time
+- optional chaining short-circuits PER LINK — `a?.b.c` still throws when `a?.b` is undefined (write `a?.b?.c`)
+- the regex engine has no lookaround, backreferences or named groups; `exec` results carry no `.index`/`.input`; `replace` takes string templates (`$&`, `$1`…), not callbacks
+- **`Date` is UTC-only** — no setters, local-time getters alias UTC; `Date.now()` is the one impure global besides `console`, so hosts wanting determinism rebind it
+- **parse gaps** (accepted, tracked by the differential suite): the comma operator inside expressions, and array/object destructuring patterns
 
 ## API
 
 ```c++
-// syntax as a static property (never a compile error):
+// syntax as a value (never a compile error):
 template <ctll::fixed_string Src> constexpr bool ctjs::is_valid;
-ctjs::error_info<Src>();     // stage/kind, byte offset, line, column
-ctjs::error_message<Src>();  // rendered caret diagnostic, at compile time
+ctjs::script<Src>.valid;            // same fact on the reusable form
+ctjs::vp::is_valid(std::string_view);   // the runtime spelling
+ctjs::vp::parse(std::string_view);      // the AST, with error + offset on failure
 
 // parse at compile time, run now:
 ctjs::run<Src>() -> ctjs::run_result;
 ctjs::run<Src>({ctjs::binding{"name", value}, ...});   // host globals
 ctjs::script<Src>.run(...);                            // same, reusable form
+ctjs::run_value(src_string, ...);                      // runtime strings
 
 // the result:
 out.ok();                  // false if an exception escaped
@@ -236,25 +185,6 @@ taking `(const std::vector<value>&)` or `(context&, const
 std::vector<value>&)` when it needs to call script closures back via
 `ctjs::call_value`.
 
-## Debugging
-
-A script that will not parse fails the build with a `static_assert`
-naming the query to run; the queries work at compile time:
-
-```c++
-constexpr auto info = ctjs::error_info<"let x = 1">();
-// info.kind, info.position (9), info.line, info.column
-
-constexpr auto why = ctjs::error_message<"let x = 1">();
-// the rendered diagnostic: location, snippet with a caret, expected terminals
-```
-
-`ctjs::debug` bundles the [ctlark debugging
-toolbox](../compile-time-lark#debugging) with the JavaScript grammar
-baked in: `traced_parse<Src>()`, `parse_runtime(text)` (runtime
-strings against the compile-time tables — handy for grammar work),
-`dump_tokens<Src>()` and `dump_grammar()`.
-
 Runtime failures are values, not crashes: an uncaught `throw` lands in
 `out.exception()`, and the library throws the spec error shapes
 (`TypeError: Cannot read properties of null (reading 'x')`,
@@ -263,51 +193,44 @@ size exceeded`).
 
 ## How it works
 
-The grammar layer is
-[ctlark](https://github.com/alexios-angel/compile-time-lark)
-(compile-time Lark). [`grammar.hpp`](include/ctjs/grammar.hpp) is a
-token-level *lark grammar string* with a precedence ladder of
-`?`-inlined rules, so operator binding lives in the grammar and the
-parse tree IS the expression structure; operator families are single
-terminals (`EQ_OP`, `ASSIGN_OP`, ...) kept apart by longest-match,
-which keeps the Earley tables a fraction of the naive size. Keywords
-are string literals: contextual lexing plus longest-match keeps `let`
-a keyword exactly where one can appear while `letter` stays a NAME.
+[`vparse.hpp`](include/ctjs/vparse.hpp) is a fully `constexpr`
+hand-written recursive-descent parser: a context-aware lexer (it knows
+when `/` is division and when it opens a regex literal) feeding a
+Pratt-style expression climber, producing a flat `node` pool indexed
+by `std::int32_t` — `string_view`s into the source, no allocation per
+node kind. Because it is a value function, the SAME code checks an
+NTTP script inside a `static_assert` and a network payload at runtime.
 
-[`lower.hpp`](include/ctjs/lower.hpp) maps the parse tree to a
-type-level AST ([`ast.hpp`](include/ctjs/ast.hpp)) by rule name.
-[`interp.hpp`](include/ctjs/interp.hpp) specializes `eval_`/`exec_`
-over those types — instantiation happens per script node, so the
-inliner sees straight-line code for each script — over a dynamic
-runtime ([`value.hpp`](include/ctjs/value.hpp),
+[`vinterp.hpp`](include/ctjs/vinterp.hpp) walks that pool over a
+dynamic runtime ([`value.hpp`](include/ctjs/value.hpp),
 [`builtins.hpp`](include/ctjs/builtins.hpp)): a variant value, shared
-environment chains for closures, C++ exceptions carrying thrown JS
+environment chains for closures (with a cycle collector,
+[`gc.hpp`](include/ctjs/gc.hpp)), C++ exceptions carrying thrown JS
 values, and array/string methods materialized as receiver-bound native
 functions (`arr.push` is itself a value).
 
-**The one-time cost:** compiling the grammar's Earley tables is a
-heavy constexpr evaluation (several minutes, a few GB). It belongs in
-the **precompiled header** — `make pch` (the builds here do it
-automatically) bakes `ctjs.hpp` once, and every translation unit after
-starts from the result, paying only its own scripts' parses. Budget-
-raising constexpr flags are set by the Makefile and the CMake
-interface (`CTJS_CONSTEXPR_LIMITS`):
+[`script.hpp`](include/ctjs/script.hpp) is the thin NTTP bridge:
+`ctll::fixed_string` carries the source as a template argument (its
+wide code units are re-materialized as bytes), `is_valid`/`script<>`
+prove syntax during compilation, and `run<Src>()` executes through the
+same `run_value` machinery as any runtime string.
 
-```
-clang:  -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=2048
-gcc:    -fconstexpr-ops-limit=3000000000 -fconstexpr-loop-limit=10000000 -fconstexpr-depth=1024
-```
+(History: the original type-level path — a ctlark Earley grammar
+producing the parse tree as a TYPE, lowered to a type-level AST with a
+per-script-specialized interpreter — was removed in 2026-07 after the
+value parser reproduced its behavior; the differential suite carried
+the equivalence proof. The 10-minute grammar PCH bake died with it:
+builds take seconds now.)
 
 ctlark and ctll come in as a git submodule
 (`external/compile-time-lark` — clone with `--recurse-submodules` or
-run `git submodule update --init`); never edit under `external/`. The
-build adds the submodule's include directories so the headers'
-relative `"../ctlark.hpp"`-style includes resolve, and the CMake
-install flattens everything back to `include/{ctjs,ctlark,ctll}`.
+run `git submodule update --init`); only `ctll::fixed_string` and the
+`CTLL_EXPORT` utility header are consumed. Never edit under
+`external/`.
 
 ## Building and integrating
 
-Header-only, C++20. Pick whichever fits your project:
+Header-only, C++23. Pick whichever fits your project:
 
 **CMake, as a subdirectory or via FetchContent:**
 
@@ -328,7 +251,13 @@ examples build only when ctjs is the top-level project
 (`CTJS_BUILD_TESTS`, `CTJS_BUILD_EXAMPLES`). CPack can produce TGZ/ZIP
 archives (plus DEB/RPM where the tooling exists), and
 `-DCTJS_MODULE=ON` builds `ctjs.cppm` as a named C++ module
-(experimental).
+(experimental). Constant evaluation of whole scripts wants a raised
+step budget; the Makefile and the CMake interface
+(`CTJS_CONSTEXPR_LIMITS`) set it:
+
+```
+clang: -fconstexpr-steps=500000000 -fconstexpr-depth=1024
+```
 
 **No build system:** add `include/` plus the submodule's
 `external/compile-time-lark/include` (and its `ctlark`/`ctll`
@@ -342,8 +271,7 @@ execute their checks:
 
 ```bash
 git submodule update --init            # ctlark + ctll (once, after cloning)
-make                                   # builds the PCH once, compiles + RUNS the suites
-make CXX=clang++
+make                                   # compiles + RUNS the suites (seconds)
 # or through CMake/CTest:
 cmake -B build && cmake --build build && ctest --test-dir build
 ```
@@ -354,17 +282,17 @@ seam).
 
 ## Roadmap
 
-ctjs is the second brick of a compile-time web stack, after
-[compile-time-html](https://github.com/alexios-angel/compile-time-html):
-**compile-time-css** comes next, and they meet in
-**compile-time-browser** — HTML, CSS and JS parsed at compile time and
-lowered into an SDL3 application, as if the page had been hand-written
-as native code. ctjs's host-binding seam (`ctjs::binding`,
-`run_result::call`) is exactly where the browser's DOM API will plug
-in.
+ctjs is a brick of a compile-time web stack, alongside
+[compile-time-html](https://github.com/alexios-angel/compile-time-html)
+and [compile-time-css](https://github.com/alexios-angel/compile-time-css);
+they meet in
+[compile-time-browser](https://github.com/alexios-angel/compile-time-browser)
+— HTML, CSS and JS parsed at compile time and lowered into an SDL3
+application, as if the page had been hand-written as native code.
+ctjs's host-binding seam (`ctjs::binding`, `run_result::call`) is
+exactly where the browser's DOM API plugs in.
 
 ## License
 
 Apache License 2.0 with LLVM Exceptions (see [LICENSE](LICENSE)).
-The CTLL parser is Hana Dusíková's work, via notre; see
-[NOTICE](NOTICE).
+CTLL is Hana Dusíková's work, via notre; see [NOTICE](NOTICE).

@@ -23,21 +23,17 @@ This repository began as a clone of its sibling compile-time-html
 of compile-time-xml - and keeps that git history; the build and
 packaging scaffolding follows the sibling projects compile-time-json
 and compile-time-json5 (https://github.com/alexios-angel/). The
-JavaScript grammar, the type-level AST and lowering, the runtime value
-model and interpreter, and the ctjs API are original to this
-repository.
+constexpr JavaScript parser, the runtime value model and interpreter,
+and the ctjs API are original to this repository.
 
 Attribution for the parser architecture and the CTLL engine belongs to
 Hana Dusikova; this file preserves it as required by Section 4(c) of
 the Apache License 2.0.
 
-The grammar layer is ctlark
-(https://github.com/alexios-angel/compile-time-lark), a git submodule
-under external/: the JavaScript grammar is written in the Lark grammar
-language, designed by Erez Shinan and the lark-parser project
-(https://github.com/lark-parser/lark, MIT license); see ctlark's
-NOTICE for the full lineage, including the Tablewright-generated
-grammar-of-grammars table.
+ctlark (https://github.com/alexios-angel/compile-time-lark) remains a
+git submodule under external/, though only ctll::fixed_string and the
+CTLL_EXPORT utility header are consumed since the type-level grammar
+path was removed (2026-07); see ctlark's NOTICE for its full lineage.
 
 The JavaScript language semantics implemented here follow ECMA-262
 (the ECMAScript Language Specification, Ecma International).

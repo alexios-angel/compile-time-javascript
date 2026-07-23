@@ -1797,7 +1797,9 @@ inline constexpr value make_date_object(double ms) {
 		                          char buf[40];
 		                          std::snprintf(buf, sizeof(buf),
 		                                        "%04lld-%02u-%02uT%02u:%02u:%02u.%03uZ",
-		                                        static_cast<std::int64_t>(part(0)),
+		                                        // %lld contracts on long long, and int64_t is
+		                                        // long on LP64 - cast to the format's type
+		                                        static_cast<long long>(part(0)),
 		                                        static_cast<std::uint32_t>(part(1)) + 1,
 		                                        static_cast<std::uint32_t>(part(2)),
 		                                        static_cast<std::uint32_t>(part(3)),

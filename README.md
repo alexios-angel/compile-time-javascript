@@ -138,7 +138,8 @@ of use so an invalid literal cannot slip into an executable.
   `0.30000000000000004`); spec error shapes with node's messages
 
 The differential suite re-captures V8's output for every corpus
-snippet and byte-compares: `python3 tools/gen-v8diff.py && make`.
+snippet and byte-compares: `python3 tools/gen-v8diff.py`, then rebuild
+and rerun the tests.
 
 **Documented deviations:**
 
@@ -252,8 +253,7 @@ examples build only when ctjs is the top-level project
 archives (plus DEB/RPM where the tooling exists), and
 `-DCTJS_MODULE=ON` builds `ctjs.cppm` as a named C++ module
 (experimental). Constant evaluation of whole scripts wants a raised
-step budget; the Makefile and the CMake interface
-(`CTJS_CONSTEXPR_LIMITS`) set it:
+step budget; the CMake interface (`CTJS_CONSTEXPR_LIMITS`) sets it:
 
 ```
 clang: -fconstexpr-steps=500000000 -fconstexpr-depth=1024
@@ -263,7 +263,7 @@ clang: -fconstexpr-steps=500000000 -fconstexpr-depth=1024
 `external/compile-time-lark/include` (and its `ctlark`/`ctll`
 subdirectories) to your include path, or copy the amalgamated
 [`single-header/ctjs.hpp`](single-header/ctjs.hpp)
-(regenerate with `make single-header`, which needs the
+(regenerate with `cmake --build build --target single-header`, which needs the
 [quom](https://pypi.org/project/quom/) tool).
 
 Run the tests — scripts parse during compilation, then the binaries
@@ -271,9 +271,9 @@ execute their checks:
 
 ```bash
 git submodule update --init            # ctlark + ctll (once, after cloning)
-make                                   # compiles + RUNS the suites (seconds)
-# or through CMake/CTest:
-cmake -B build && cmake --build build && ctest --test-dir build
+cmake --preset default                 # Ninja + Release (--preset clang for clang++)
+cmake --build --preset default         # compiles + RUNS via ctest below (seconds)
+ctest --preset default
 ```
 
 Runnable demos live in [`examples/`](examples/): `hello` (the hero

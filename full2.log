@@ -1,0 +1,6 @@
+tests/parse.cpp:46:15: error: static assertion failed due to requirement '!ctjs::is_valid<ctll::fixed_string<10>{{99, 108, 97, 115, 115, 32, 67, 32, 123, 125}, 10, true}>'
+   46 | static_assert(!ctjs::is_valid<"class C {}">);       // not in v0.1
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 error generated.
+make: *** [Makefile:56: tests/parse] Error 1
+make  14.69s user 0.13s system 93% cpu 15.934 total

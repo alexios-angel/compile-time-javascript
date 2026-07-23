@@ -1,0 +1,602 @@
+make: Warning: File 'tests/v8diff.cpp' has modification time 0.12 s in the future
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:339:18: error: static assertion failed due to requirement 'n == std::basic_string_view<char, std::char_traits<char>>{"arrow_fn"}': ctjs: unknown expression node
+  339 |                         static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: in instantiation of template class 'ctjs::detail::lower_call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>>' requested here
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: (skipping 4 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'c', 'o', 'n', 's', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'a'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'a', 's', 's', 'i', 'g', 'n', '_', 'o', 'p'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'a'>>>, ctlark::token<ctlark::text<'A', 'S', 'S', 'I', 'G', 'N', '_', 'O', 'P'>, ctlark::text<'='>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'2'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<47UL - 1>{{99, 111, 110, 115, 116, 32, 97, 32, 61, 32, ...}, 46, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:28:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<47UL - 1>{{99, 111, 110, 115, 116, 32, 97, 32, 61, 32, ...}, 46, true}>' requested here
+   28 |         run_case<R"v8(const a = 1;
+      |         ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: error: implicit instantiation of undefined template 'ctjs::detail::lower_expr<void>'
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:344:33: note: in instantiation of template type alias 'lower_expr_t' requested here
+  344 |                                 return ast::fn_expr<params, lower_expr_t<kid<1>>, true>{};
+      |                                                             ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: (skipping 5 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'c', 'o', 'n', 's', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'a'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'a', 's', 's', 'i', 'g', 'n', '_', 'o', 'p'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'a'>>>, ctlark::token<ctlark::text<'A', 'S', 'S', 'I', 'G', 'N', '_', 'O', 'P'>, ctlark::text<'='>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'2'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'D', 'Q', 'S', 'T', 'R', 'I', 'N', 'G'>, ctlark::text<'"', 'u', 'n', 'r', 'e', 'a', 'c', 'h', 'e', 'd', '"'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<47UL - 1>{{99, 111, 110, 115, 116, 32, 97, 32, 61, 32, ...}, 46, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:28:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<47UL - 1>{{99, 111, 110, 115, 116, 32, 97, 32, 61, 32, ...}, 46, true}>' requested here
+   28 |         run_case<R"v8(const a = 1;
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:31:33: note: template is declared here
+   31 | template <typename Node> struct lower_expr;
+      |                                 ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:11:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:5: error: implicit instantiation of undefined template 'ctjs::detail::program_runner<int>'
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                 ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<47UL - 1>{{99, 111, 110, 115, 116, 32, 97, 32, 61, 32, ...}, 46, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:28:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<47UL - 1>{{99, 111, 110, 115, 116, 32, 97, 32, 61, 32, ...}, 46, true}>' requested here
+   28 |         run_case<R"v8(const a = 1;
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:113:36: note: template is declared here
+  113 | template <typename Program> struct program_runner;
+      |                                    ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:339:18: error: static assertion failed due to requirement 'n == std::basic_string_view<char, std::char_traits<char>>{"arrow_fn"}': ctjs: unknown expression node
+  339 |                         static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: in instantiation of template class 'ctjs::detail::lower_call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>' requested here
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: (skipping 4 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'c', 'o', 'n', 's', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::tree<ctlark::text<'o', 'b', 'j', 'e', 'c', 't', '_', 'l', 'i', 't'>, ctlark::tree<ctlark::text<'p', 'r', 'o', 'p', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'a', 's', 's', 'i', 'g', 'n', '_', 'o', 'p'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'm', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>, ctlark::token<ctlark::text<'A', 'S', 'S', 'I', 'G', 'N', '_', 'O', 'P'>, ctlark::text<'='>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'2'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:33:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>' requested here
+   33 |         run_case<R"v8(const o = {x: 1};
+      |         ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:131:35: error: implicit instantiation of undefined template 'ctjs::detail::lower_param<ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>>'
+  131 |         using type = ast::plist<typename lower_param<Ps>::type...>;
+      |                                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:237:24: note: in instantiation of template class 'ctjs::detail::lower_params<ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>' requested here
+  237 |         using type = typename lower_params<Head>::type; // params tree
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:340:28: note: in instantiation of template class 'ctjs::detail::arrow_params<ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>' requested here
+  340 |                         using params = typename arrow_params<kid<0>>::type;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: (skipping 6 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'c', 'o', 'n', 's', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::tree<ctlark::text<'o', 'b', 'j', 'e', 'c', 't', '_', 'l', 'i', 't'>, ctlark::tree<ctlark::text<'p', 'r', 'o', 'p', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'a', 's', 's', 'i', 'g', 'n', '_', 'o', 'p'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'm', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>, ctlark::token<ctlark::text<'A', 'S', 'S', 'I', 'G', 'N', '_', 'O', 'P'>, ctlark::text<'='>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'2'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:33:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>' requested here
+   33 |         run_case<R"v8(const o = {x: 1};
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:113:30: note: template is declared here
+  113 | template <typename P> struct lower_param;
+      |                              ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: error: implicit instantiation of undefined template 'ctjs::detail::lower_expr<void>'
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:344:33: note: in instantiation of template type alias 'lower_expr_t' requested here
+  344 |                                 return ast::fn_expr<params, lower_expr_t<kid<1>>, true>{};
+      |                                                             ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: (skipping 5 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'c', 'o', 'n', 's', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::tree<ctlark::text<'o', 'b', 'j', 'e', 'c', 't', '_', 'l', 'i', 't'>, ctlark::tree<ctlark::text<'p', 'r', 'o', 'p', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'a', 's', 's', 'i', 'g', 'n', '_', 'o', 'p'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'm', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>, ctlark::token<ctlark::text<'A', 'S', 'S', 'I', 'G', 'N', '_', 'O', 'P'>, ctlark::text<'='>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'2'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'o'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:33:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>' requested here
+   33 |         run_case<R"v8(const o = {x: 1};
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:31:33: note: template is declared here
+   31 | template <typename Node> struct lower_expr;
+      |                                 ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:11:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:5: error: implicit instantiation of undefined template 'ctjs::detail::program_runner<int>'
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                 ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:33:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<46UL - 1>{{99, 111, 110, 115, 116, 32, 111, 32, 61, 32, ...}, 45, true}>' requested here
+   33 |         run_case<R"v8(const o = {x: 1};
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:113:36: note: template is declared here
+  113 | template <typename Program> struct program_runner;
+      |                                    ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:339:18: error: static assertion failed due to requirement 'n == std::basic_string_view<char, std::char_traits<char>>{"arrow_fn"}': ctjs: unknown expression node
+  339 |                         static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: in instantiation of template class 'ctjs::detail::lower_call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>' requested here
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: (skipping 4 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>, ctlark::tree<ctlark::text<'v', 'a', 'r', 'k', 'w', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<44UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 43, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:38:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<44UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 43, true}>' requested here
+   38 |         run_case<R"v8(console.log(x);
+      |         ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: error: implicit instantiation of undefined template 'ctjs::detail::lower_expr<void>'
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:344:33: note: in instantiation of template type alias 'lower_expr_t' requested here
+  344 |                                 return ast::fn_expr<params, lower_expr_t<kid<1>>, true>{};
+      |                                                             ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: (skipping 5 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>, ctlark::tree<ctlark::text<'v', 'a', 'r', 'k', 'w', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'x'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<44UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 43, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:38:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<44UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 43, true}>' requested here
+   38 |         run_case<R"v8(console.log(x);
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:31:33: note: template is declared here
+   31 | template <typename Node> struct lower_expr;
+      |                                 ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:11:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:5: error: implicit instantiation of undefined template 'ctjs::detail::program_runner<int>'
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                 ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<44UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 43, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:38:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<44UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 43, true}>' requested here
+   38 |         run_case<R"v8(console.log(x);
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:113:36: note: template is declared here
+  113 | template <typename Program> struct program_runner;
+      |                                    ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:339:18: error: static assertion failed due to requirement 'n == std::basic_string_view<char, std::char_traits<char>>{"arrow_fn"}': ctjs: unknown expression node
+  339 |                         static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: in instantiation of template class 'ctjs::detail::lower_call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>>' requested here
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: (skipping 4 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'i', 'f', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'t', 'r', 'u', 'e', '_', 'l', 'i', 't'>>, ctlark::tree<ctlark::text<'b', 'l', 'o', 'c', 'k'>, ctlark::tree<ctlark::text<'v', 'a', 'r', 'k', 'w', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'5'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<42UL - 1>{{105, 102, 32, 40, 116, 114, 117, 101, 41, 32, ...}, 41, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:44:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<42UL - 1>{{105, 102, 32, 40, 116, 114, 117, 101, 41, 32, ...}, 41, true}>' requested here
+   44 |         run_case<R"v8(if (true) { var y = 5; }
+      |         ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: error: implicit instantiation of undefined template 'ctjs::detail::lower_expr<void>'
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:344:33: note: in instantiation of template type alias 'lower_expr_t' requested here
+  344 |                                 return ast::fn_expr<params, lower_expr_t<kid<1>>, true>{};
+      |                                                             ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: (skipping 5 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'i', 'f', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'t', 'r', 'u', 'e', '_', 'l', 'i', 't'>>, ctlark::tree<ctlark::text<'b', 'l', 'o', 'c', 'k'>, ctlark::tree<ctlark::text<'v', 'a', 'r', 'k', 'w', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'5'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'y'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<42UL - 1>{{105, 102, 32, 40, 116, 114, 117, 101, 41, 32, ...}, 41, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:44:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<42UL - 1>{{105, 102, 32, 40, 116, 114, 117, 101, 41, 32, ...}, 41, true}>' requested here
+   44 |         run_case<R"v8(if (true) { var y = 5; }
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:31:33: note: template is declared here
+   31 | template <typename Node> struct lower_expr;
+      |                                 ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:11:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:5: error: implicit instantiation of undefined template 'ctjs::detail::program_runner<int>'
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                 ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<42UL - 1>{{105, 102, 32, 40, 116, 114, 117, 101, 41, 32, ...}, 41, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:44:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<42UL - 1>{{105, 102, 32, 40, 116, 114, 117, 101, 41, 32, ...}, 41, true}>' requested here
+   44 |         run_case<R"v8(if (true) { var y = 5; }
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:113:36: note: template is declared here
+  113 | template <typename Program> struct program_runner;
+      |                                    ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:339:18: error: static assertion failed due to requirement 'n == std::basic_string_view<char, std::char_traits<char>>{"arrow_fn"}': ctjs: unknown expression node
+  339 |                         static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: in instantiation of template class 'ctjs::detail::lower_call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>>>>' requested here
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: (skipping 4 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'f', 'o', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'f', 'o', 'r', 'i', 'n', 'i', 't', '_', 'v', 'a', 'r'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'0'>>>>, ctlark::tree<ctlark::text<'f', 'o', 'r', '_', 'c', 'o', 'n', 'd'>, ctlark::tree<ctlark::text<'c', 'm', 'p', '_', 'r', 'e', 'l'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>, ctlark::token<ctlark::text<'R', 'E', 'L', '_', 'O', 'P'>, ctlark::text<'<'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'3'>>>>, ctlark::tree<ctlark::text<'f', 'o', 'r', '_', 's', 't', 'e', 'p'>, ctlark::tree<ctlark::text<'p', 'o', 's', 't', '_', 'i', 'n', 'c', 'd', 'e', 'c'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::token<ctlark::text<'I', 'N', 'C', 'D', 'E', 'C'>, ctlark::text<'+', '+'>>>>, ctlark::tree<ctlark::text<'b', 'l', 'o', 'c', 'k'>, ctlark::tree<ctlark::text<'v', 'a', 'r', 'k', 'w', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<63UL - 1>{{102, 111, 114, 32, 40, 118, 97, 114, 32, 105, ...}, 62, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:48:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<63UL - 1>{{102, 111, 114, 32, 40, 118, 97, 114, 32, 105, ...}, 62, true}>' requested here
+   48 |         run_case<R"v8(for (var i = 0; i < 3; i++) { var w = i; }
+      |         ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: error: implicit instantiation of undefined template 'ctjs::detail::lower_expr<void>'
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:344:33: note: in instantiation of template type alias 'lower_expr_t' requested here
+  344 |                                 return ast::fn_expr<params, lower_expr_t<kid<1>>, true>{};
+      |                                                             ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: (skipping 5 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'f', 'o', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'f', 'o', 'r', 'i', 'n', 'i', 't', '_', 'v', 'a', 'r'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'0'>>>>, ctlark::tree<ctlark::text<'f', 'o', 'r', '_', 'c', 'o', 'n', 'd'>, ctlark::tree<ctlark::text<'c', 'm', 'p', '_', 'r', 'e', 'l'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>, ctlark::token<ctlark::text<'R', 'E', 'L', '_', 'O', 'P'>, ctlark::text<'<'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'3'>>>>, ctlark::tree<ctlark::text<'f', 'o', 'r', '_', 's', 't', 'e', 'p'>, ctlark::tree<ctlark::text<'p', 'o', 's', 't', '_', 'i', 'n', 'c', 'd', 'e', 'c'>, ctlark::tree<ctlark::text<'l', 'h', 's', '_', 'n', 'a', 'm', 'e'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::token<ctlark::text<'I', 'N', 'C', 'D', 'E', 'C'>, ctlark::text<'+', '+'>>>>, ctlark::tree<ctlark::text<'b', 'l', 'o', 'c', 'k'>, ctlark::tree<ctlark::text<'v', 'a', 'r', 'k', 'w', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>>>>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'i'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'w'>>>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<63UL - 1>{{102, 111, 114, 32, 40, 118, 97, 114, 32, 105, ...}, 62, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:48:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<63UL - 1>{{102, 111, 114, 32, 40, 118, 97, 114, 32, 105, ...}, 62, true}>' requested here
+   48 |         run_case<R"v8(for (var i = 0; i < 3; i++) { var w = i; }
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:31:33: note: template is declared here
+   31 | template <typename Node> struct lower_expr;
+      |                                 ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:11:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:5: error: implicit instantiation of undefined template 'ctjs::detail::program_runner<int>'
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                 ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<63UL - 1>{{102, 111, 114, 32, 40, 118, 97, 114, 32, 105, ...}, 62, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:48:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<63UL - 1>{{102, 111, 114, 32, 40, 118, 97, 114, 32, 105, ...}, 62, true}>' requested here
+   48 |         run_case<R"v8(for (var i = 0; i < 3; i++) { var w = i; }
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:113:36: note: template is declared here
+  113 | template <typename Program> struct program_runner;
+      |                                    ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:339:18: error: static assertion failed due to requirement 'n == std::basic_string_view<char, std::char_traits<char>>{"arrow_fn"}': ctjs: unknown expression node
+  339 |                         static_assert(n == std::string_view{"arrow_fn"}, "ctjs: unknown expression node");
+      |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: in instantiation of template class 'ctjs::detail::lower_call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>>' requested here
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: (skipping 4 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>>>, ctlark::tree<ctlark::text<'l', 'e', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<28UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 27, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:52:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<28UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 27, true}>' requested here
+   52 |         run_case<R"v8(console.log(z);
+      |         ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:7:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: error: implicit instantiation of undefined template 'ctjs::detail::lower_expr<void>'
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:344:33: note: in instantiation of template type alias 'lower_expr_t' requested here
+  344 |                                 return ast::fn_expr<params, lower_expr_t<kid<1>>, true>{};
+      |                                                             ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:348:24: note: in instantiation of member function 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>::pick' requested here
+  348 |         using type = decltype(pick());
+      |                               ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:37:26: note: in instantiation of template class 'ctjs::detail::lower_expr<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>' requested here
+   37 | template <typename Node> using lower_expr_t = typename lower_expr<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:356:15: note: in instantiation of template type alias 'lower_expr_t' requested here
+  356 |         using type = lower_expr_t<K>;
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:110:42: note: in instantiation of template class 'ctjs::detail::lower_arg<ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>' requested here
+  110 |         using type = ast::call<Callee, typename lower_arg<As>::type...>;
+      |                                                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:334:20: note: (skipping 5 contexts in backtrace; use -ftemplate-backtrace-limit=0 to see all)
+  334 |                         return typename lower_call<lower_expr_t<kid<0>>, kid<1>>::type{};
+      |                                         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:38:26: note: in instantiation of template class 'ctjs::detail::lower_stmt<ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>>>>' requested here
+   38 | template <typename Node> using lower_stmt_t = typename lower_stmt<Node>::type;
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:496:28: note: in instantiation of template type alias 'lower_stmt_t' requested here
+  496 |         using type = ast::program<lower_stmt_t<Ss>...>;
+      |                                   ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:139:29: note: in instantiation of template class 'ctjs::detail::lower_program<ctlark::tree<ctlark::text<'s', 't', 'a', 'r', 't'>, ctlark::tree<ctlark::text<'e', 'x', 'p', 'r', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'c', 'a', 'l', 'l'>, ctlark::tree<ctlark::text<'m', 'e', 'm', 'b', 'e', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'l', 'o', 'g'>>>, ctlark::tree<ctlark::text<'a', 'r', 'g', 's'>, ctlark::tree<ctlark::text<'a', 'r', 'g'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>>>>>, ctlark::tree<ctlark::text<'l', 'e', 't', '_', 's', 't', 'm', 't'>, ctlark::tree<ctlark::text<'d', 'e', 'c', 'l', 'a', 'r', 'a', 't', 'o', 'r'>, ctlark::token<ctlark::text<'N', 'A', 'M', 'E'>, ctlark::text<'z'>>, ctlark::token<ctlark::text<'N', 'U', 'M', 'B', 'E', 'R'>, ctlark::text<'1'>>>>>>' requested here
+  139 |                         using program = typename detail::lower_program<tree>::type;
+      |                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<28UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 27, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:52:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<28UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 27, true}>' requested here
+   52 |         run_case<R"v8(console.log(z);
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/lower.hpp:31:33: note: template is declared here
+   31 | template <typename Node> struct lower_expr;
+      |                                 ^
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:11:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:5: error: implicit instantiation of undefined template 'ctjs::detail::program_runner<int>'
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                 ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<28UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 27, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:52:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<28UL - 1>{{99, 111, 110, 115, 111, 108, 101, 46, 108, 111, ...}, 27, true}>' requested here
+   52 |         run_case<R"v8(console.log(z);
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:113:36: note: template is declared here
+  113 | template <typename Program> struct program_runner;
+      |                                    ^
+fatal error: too many errors emitted, stopping now [-ferror-limit=]
+20 errors generated.
+make: *** [Makefile:56: tests/v8diff] Error 1
+make tests/v8diff  160.66s user 10.50s system 95% cpu 2:59.13 total

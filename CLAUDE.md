@@ -9,15 +9,14 @@ closures, prototypes, cycle-collected). Namespace `ctjs`. Work on
 
 (History: the type-level path — ctlark Earley grammar, parse tree as a
 TYPE, per-script-specialized interpreter, 10-min PCH bake — was
-removed 2026-07. Builds take seconds now; `make -j` is safe again.)
+removed 2026-07. Builds take seconds now and parallelize freely.)
 
 ## Build & test
 Every `tests/*.cpp` is an EXECUTABLE: NTTP scripts parse during
 compilation, then it runs its checks (non-zero exit = failure).
 ```bash
-make                # clang-only; builds the small PCH, compiles + RUNS suites
-make clean
-cmake -B build && cmake --build build && ctest --test-dir build
+cmake --preset default && cmake --build --preset default && ctest --preset default
+# (CMake + Ninja is THE build - the Makefiles are gone; --preset clang for clang++)
 python3 tools/gen-v8diff.py   # re-capture node's output for the corpus
 ```
 Flags: `-O2 -pedantic -Wall -Wextra -Werror -Wconversion` — stay
@@ -82,7 +81,7 @@ warning-clean. Raised budget: `-fconstexpr-steps=500000000`.
   --init` once; bump = checkout in submodule + commit gitlink. Build
   adds `<sub>/include` + `/ctlark` + `/ctll` to -I (quoted-include
   fallback).
-- **single-header** — `make single-header` (needs `quom`); prepends
-  LICENSE.
+- **single-header** — `cmake --build build --target single-header`
+  (needs `quom`); prepends LICENSE.
 - **Attribution** — CTLL is Hana Dusíková's (via `notre`, from CTRE).
   Preserve `NOTICE` and `LICENSE` (Apache-2.0 w/ LLVM Exceptions).

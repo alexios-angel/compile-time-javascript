@@ -1,0 +1,68 @@
+In file included from tests/v8diff.cpp:1:
+In file included from include/ctjs.hpp:10:
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:1081:8: error: implicit instantiation of undefined template 'ctjs::detail::decl_name<ctjs::ast::destr_array<ctjs::ast::array_lit<ctjs::ast::num_lit<ctlark::text<'1', '0'>>, ctjs::ast::num_lit<ctlark::text<'2', '0'>>>, ctlark::text<'a', '1'>, ctlark::text<'b', '1'>, ctlark::text<'c', '1'>>>'
+ 1081 |                 (one(decl_name<Ds>::view()), ...);
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:1148:19: note: in instantiation of member function 'ctjs::detail::hoist_vars<ctjs::ast::var_stmt<ctjs::ast::destr_array<ctjs::ast::array_lit<ctjs::ast::num_lit<ctlark::text<'1', '0'>>, ctjs::ast::num_lit<ctlark::text<'2', '0'>>>, ctlark::text<'a', '1'>, ctlark::text<'b', '1'>, ctlark::text<'c', '1'>>>>::go' requested here
+ 1148 |         (hoist_vars<Ss>::go(fnscope), ...);
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:116:3: note: in instantiation of function template specialization 'ctjs::detail::hoist_functions<ctjs::ast::var_stmt<ctjs::ast::destr_array<ctjs::ast::array_lit<ctjs::ast::num_lit<ctlark::text<'1', '0'>>, ctjs::ast::num_lit<ctlark::text<'2', '0'>>>, ctlark::text<'a', '1'>, ctlark::text<'b', '1'>, ctlark::text<'c', '1'>>>, ctjs::ast::expr_stmt<ctjs::ast::call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctjs::ast::ident<ctlark::text<'a', '1'>>, ctjs::ast::ident<ctlark::text<'b', '1'>>, ctjs::ast::ident<ctlark::text<'c', '1'>>>>>' requested here
+  116 |                 hoist_functions<Ss...>(env, cx);
+      |                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:38: note: in instantiation of member function 'ctjs::detail::program_runner<ctjs::ast::program<ctjs::ast::var_stmt<ctjs::ast::destr_array<ctjs::ast::array_lit<ctjs::ast::num_lit<ctlark::text<'1', '0'>>, ctjs::ast::num_lit<ctlark::text<'2', '0'>>>, ctlark::text<'a', '1'>, ctlark::text<'b', '1'>, ctlark::text<'c', '1'>>>, ctjs::ast::expr_stmt<ctjs::ast::call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctjs::ast::ident<ctlark::text<'a', '1'>>, ctjs::ast::ident<ctlark::text<'b', '1'>>, ctjs::ast::ident<ctlark::text<'c', '1'>>>>>>::go' requested here
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<55UL - 1>{{118, 97, 114, 32, 91, 97, 49, 44, 32, 98, ...}, 54, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:207:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<55UL - 1>{{118, 97, 114, 32, 91, 97, 49, 44, 32, 98, ...}, 54, true}>' requested here
+  207 |         run_case<R"v8(var [a1, b1, c1] = [10, 20];
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:654:30: note: template is declared here
+  654 | template <typename D> struct decl_name;
+      |                              ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:1081:8: error: implicit instantiation of undefined template 'ctjs::detail::decl_name<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'w'>>, ctjs::ast::num_lit<ctlark::text<'9'>>>>, ctjs::ast::dprop<ctlark::text<'w'>, ctlark::text<'w'>>>>'
+ 1081 |                 (one(decl_name<Ds>::view()), ...);
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:1148:19: note: in instantiation of member function 'ctjs::detail::hoist_vars<ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'w'>>, ctjs::ast::num_lit<ctlark::text<'9'>>>>, ctjs::ast::dprop<ctlark::text<'w'>, ctlark::text<'w'>>>>>::go' requested here
+ 1148 |         (hoist_vars<Ss>::go(fnscope), ...);
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:116:3: note: in instantiation of function template specialization 'ctjs::detail::hoist_functions<ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'x'>>, ctjs::ast::num_lit<ctlark::text<'1'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'y'>>, ctjs::ast::num_lit<ctlark::text<'2'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'z'>>, ctjs::ast::num_lit<ctlark::text<'3'>>>>, ctjs::ast::dprop<ctlark::text<'x'>, ctlark::text<'d', 'x'>>, ctjs::ast::dprop<ctlark::text<'y'>, ctlark::text<'d', 'y'>>>>, ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'w'>>, ctjs::ast::num_lit<ctlark::text<'9'>>>>, ctjs::ast::dprop<ctlark::text<'w'>, ctlark::text<'w'>>>>, ctjs::ast::expr_stmt<ctjs::ast::call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctjs::ast::ident<ctlark::text<'d', 'x'>>, ctjs::ast::ident<ctlark::text<'d', 'y'>>, ctjs::ast::ident<ctlark::text<'w'>>>>>' requested here
+  116 |                 hoist_functions<Ss...>(env, cx);
+      |                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:38: note: in instantiation of member function 'ctjs::detail::program_runner<ctjs::ast::program<ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'x'>>, ctjs::ast::num_lit<ctlark::text<'1'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'y'>>, ctjs::ast::num_lit<ctlark::text<'2'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'z'>>, ctjs::ast::num_lit<ctlark::text<'3'>>>>, ctjs::ast::dprop<ctlark::text<'x'>, ctlark::text<'d', 'x'>>, ctjs::ast::dprop<ctlark::text<'y'>, ctlark::text<'d', 'y'>>>>, ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'w'>>, ctjs::ast::num_lit<ctlark::text<'9'>>>>, ctjs::ast::dprop<ctlark::text<'w'>, ctlark::text<'w'>>>>, ctjs::ast::expr_stmt<ctjs::ast::call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctjs::ast::ident<ctlark::text<'d', 'x'>>, ctjs::ast::ident<ctlark::text<'d', 'y'>>, ctjs::ast::ident<ctlark::text<'w'>>>>>>::go' requested here
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<84UL - 1>{{118, 97, 114, 32, 123, 120, 58, 32, 100, 120, ...}, 83, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:211:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<84UL - 1>{{118, 97, 114, 32, 123, 120, 58, 32, 100, 120, ...}, 83, true}>' requested here
+  211 |         run_case<R"v8(var {x: dx, y: dy} = {x: 1, y: 2, z: 3};
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:654:30: note: template is declared here
+  654 | template <typename D> struct decl_name;
+      |                              ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:1081:8: error: implicit instantiation of undefined template 'ctjs::detail::decl_name<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'x'>>, ctjs::ast::num_lit<ctlark::text<'1'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'y'>>, ctjs::ast::num_lit<ctlark::text<'2'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'z'>>, ctjs::ast::num_lit<ctlark::text<'3'>>>>, ctjs::ast::dprop<ctlark::text<'x'>, ctlark::text<'d', 'x'>>, ctjs::ast::dprop<ctlark::text<'y'>, ctlark::text<'d', 'y'>>>>'
+ 1081 |                 (one(decl_name<Ds>::view()), ...);
+      |                      ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:1148:19: note: in instantiation of member function 'ctjs::detail::hoist_vars<ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'x'>>, ctjs::ast::num_lit<ctlark::text<'1'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'y'>>, ctjs::ast::num_lit<ctlark::text<'2'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'z'>>, ctjs::ast::num_lit<ctlark::text<'3'>>>>, ctjs::ast::dprop<ctlark::text<'x'>, ctlark::text<'d', 'x'>>, ctjs::ast::dprop<ctlark::text<'y'>, ctlark::text<'d', 'y'>>>>>::go' requested here
+ 1148 |         (hoist_vars<Ss>::go(fnscope), ...);
+      |                          ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:116:3: note: in instantiation of function template specialization 'ctjs::detail::hoist_functions<ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'x'>>, ctjs::ast::num_lit<ctlark::text<'1'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'y'>>, ctjs::ast::num_lit<ctlark::text<'2'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'z'>>, ctjs::ast::num_lit<ctlark::text<'3'>>>>, ctjs::ast::dprop<ctlark::text<'x'>, ctlark::text<'d', 'x'>>, ctjs::ast::dprop<ctlark::text<'y'>, ctlark::text<'d', 'y'>>>>, ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'w'>>, ctjs::ast::num_lit<ctlark::text<'9'>>>>, ctjs::ast::dprop<ctlark::text<'w'>, ctlark::text<'w'>>>>, ctjs::ast::expr_stmt<ctjs::ast::call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctjs::ast::ident<ctlark::text<'d', 'x'>>, ctjs::ast::ident<ctlark::text<'d', 'y'>>, ctjs::ast::ident<ctlark::text<'w'>>>>>' requested here
+  116 |                 hoist_functions<Ss...>(env, cx);
+      |                 ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/script.hpp:141:38: note: in instantiation of member function 'ctjs::detail::program_runner<ctjs::ast::program<ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'x'>>, ctjs::ast::num_lit<ctlark::text<'1'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'y'>>, ctjs::ast::num_lit<ctlark::text<'2'>>>, ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'z'>>, ctjs::ast::num_lit<ctlark::text<'3'>>>>, ctjs::ast::dprop<ctlark::text<'x'>, ctlark::text<'d', 'x'>>, ctjs::ast::dprop<ctlark::text<'y'>, ctlark::text<'d', 'y'>>>>, ctjs::ast::var_stmt<ctjs::ast::destr_object<ctjs::ast::object_lit<ctjs::ast::prop<ctjs::ast::ident<ctlark::text<'w'>>, ctjs::ast::num_lit<ctlark::text<'9'>>>>, ctjs::ast::dprop<ctlark::text<'w'>, ctlark::text<'w'>>>>, ctjs::ast::expr_stmt<ctjs::ast::call<ctjs::ast::member<ctjs::ast::ident<ctlark::text<'c', 'o', 'n', 's', 'o', 'l', 'e'>>, ctlark::text<'l', 'o', 'g'>>, ctjs::ast::ident<ctlark::text<'d', 'x'>>, ctjs::ast::ident<ctlark::text<'d', 'y'>>, ctjs::ast::ident<ctlark::text<'w'>>>>>>::go' requested here
+  141 |                                 detail::program_runner<program>::go(globals, *cx);
+      |                                                                  ^
+tests/v8diff.cpp:16:33: note: in instantiation of member function 'ctjs::script_t<ctll::fixed_string<84UL - 1>{{118, 97, 114, 32, 123, 120, 58, 32, 100, 120, ...}, 83, true}>::run' requested here
+   16 |                 auto r = ctjs::script_t<Src>::run({});
+      |                                               ^
+tests/v8diff.cpp:211:2: note: in instantiation of function template specialization 'run_case<ctll::fixed_string<84UL - 1>{{118, 97, 114, 32, 123, 120, 58, 32, 100, 120, ...}, 83, true}>' requested here
+  211 |         run_case<R"v8(var {x: dx, y: dy} = {x: 1, y: 2, z: 3};
+      |         ^
+/mnt/c/Users/aange/Downloads/claude/compile-time-javascript/include/ctjs/interp.hpp:654:30: note: template is declared here
+  654 | template <typename D> struct decl_name;
+      |                              ^
+3 errors generated.
+make: *** [Makefile:56: tests/v8diff] Error 1
+make tests/v8diff  220.82s user 6.88s system 97% cpu 3:53.28 total

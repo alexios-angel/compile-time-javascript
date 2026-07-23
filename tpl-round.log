@@ -1,0 +1,8 @@
+make: Warning: File 'tests/v8diff.cpp' has modification time 0.3 s in the future
+In file included from include/ctjs.hpp:5:
+include/ctjs/grammar.hpp:187:15: error: static assertion failed due to requirement 'ctlark::grammar_valid<ctll::fixed_string<4754>{{10, 115, 116, 97, 114, 116, 58, 32, 115, 116, ...}, 4754, true}>': ctjs: internal error - the JavaScript grammar failed to compile
+  187 | static_assert(ctlark::grammar_valid<js_grammar>,
+      |               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 error generated.
+make: *** [Makefile:64: ctjs.pch] Error 1
+make tests/v8diff  105.38s user 3.79s system 98% cpu 1:50.56 total

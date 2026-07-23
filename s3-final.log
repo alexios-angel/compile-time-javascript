@@ -1,0 +1,7 @@
+== tests/parse
+parse suite: all static_asserts held
+== tests/runtime
+runtime suite: all checks passed
+== tests/v8diff
+v8diff: 0 failures, 0 parse gaps, 43 cases
+make  281.31s user 12.14s system 97% cpu 5:00.15 total

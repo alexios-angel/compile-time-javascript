@@ -4,24 +4,29 @@ jobs:
   gcc:
     strategy:
       matrix:
-        gcc: [12, 13, 14]
+        gcc: [13, 14]
       fail-fast: false
-    name: "GCC ${{ matrix.gcc }} (C++20)"
+    name: "GCC ${{ matrix.gcc }} (C++23)"
     runs-on: ubuntu-latest
     steps:
-      - run: sudo apt-get install g++-${{ matrix.gcc }}
+      - run: sudo apt-get update && sudo apt-get install -y g++-${{ matrix.gcc }} ninja-build
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: make CXX=g++-${{ matrix.gcc }}
+      - run: >
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=g++-${{ matrix.gcc }}
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
   clang:
     strategy:
       matrix:
-        clang: [15, 16, 18]
+        clang: [17, 18]
       fail-fast: false
-    name: "Clang ${{ matrix.clang }} (C++20)"
+    name: "Clang ${{ matrix.clang }} (C++23)"
     runs-on: ubuntu-latest
     steps:
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: "Install Clang"
         uses: egor-tensin/setup-clang@v1
         with:
@@ -29,15 +34,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: make CXX=clang++
-  cmake:
-    name: "CMake (configure, build, ctest)"
+      - run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+      - run: cmake --build build
+      - run: ctest --test-dir build --output-on-failure
+  install:
+    name: "Install (Ninja, package config)"
     runs-on: ubuntu-latest
     steps:
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-      - run: cmake --build build -j
+      - run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       - run: cmake --install build --prefix "$PWD/prefix"

@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.14...4.3)
 
-if(NOT CMAKE_EXPERIMENTAL_CXX_STD AND NOT CMAKE_CXX_MODULE_STD)
+# the import-std experimental plumbing exists solely for the named
+# C++ module build (CTJS_MODULE=ON); engaging it unconditionally makes
+# CMake demand std-modules metadata (libstdc++.modules.json) from
+# toolchains that do not ship it, failing ordinary C++23 configures
+if(CTJS_MODULE AND NOT CMAKE_EXPERIMENTAL_CXX_STD AND NOT CMAKE_CXX_MODULE_STD)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.30" AND CMAKE_VERSION VERSION_LESS_EQUAL "4.0")
         set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508")
     elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0" AND CMAKE_VERSION VERSION_LESS "4.0.3")
@@ -48,8 +52,13 @@ option(CTJS_MODULE "build C++ module (experimental)" OFF)
 option(CTJS_CONSTEXPR_LIMITS "Raise constexpr evaluation limits on the interface" ON)
 option(CTJS_PCH "Precompile ctjs.hpp for tests and examples" ON)
 
+# the strict flags every test and example builds with (kept off the
+# exported interface so consumers choose their own)
+set(CTJS_WARNING_OPTIONS
+  $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O2;-pedantic;-Wall;-Wextra;-Werror;-Wconversion>)
+
 set(CTJS_CONSTEXPR_OPTIONS
-  $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fconstexpr-steps=500000000;-fconstexpr-depth=1024;-fbracket-depth=2048>
+  $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fconstexpr-steps=500000000;-fconstexpr-depth=1024>
   $<$<CXX_COMPILER_ID:GNU>:-fconstexpr-ops-limit=3000000000;-fconstexpr-loop-limit=10000000;-fconstexpr-depth=1024>
   $<$<CXX_COMPILER_ID:MSVC>:/constexpr:steps500000000;/constexpr:depth1024>)
 
@@ -173,8 +182,35 @@ if(CTJS_PCH AND (CTJS_BUILD_TESTS OR CTJS_BUILD_EXAMPLES)
     "int ctjs_pch_anchor_symbol = 0;\n")
   add_library(ctjs-pch-anchor OBJECT "${CMAKE_BINARY_DIR}/ctjs-pch-anchor.cpp")
   target_link_libraries(ctjs-pch-anchor PRIVATE ctjs::ctjs)
+  # the anchor MUST compile with the same flags as every REUSE_FROM
+  # consumer: gcc validates predefines (-pedantic flips feature macros)
+  # and rejects a mismatched .gch outright
+  target_compile_options(ctjs-pch-anchor PRIVATE ${CTJS_WARNING_OPTIONS})
   target_precompile_headers(ctjs-pch-anchor PRIVATE
     "${PROJECT_SOURCE_DIR}/include/ctjs.hpp")
+endif()
+
+# `cmake --build build --target single-header` regenerates the quom
+# amalgamation (needs python3 with the quom package)
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_FOUND)
+    add_custom_target(single-header
+      COMMAND ${Python3_EXECUTABLE} -m quom
+        "${PROJECT_SOURCE_DIR}/include/ctjs.hpp" ctjs.hpp.tmp
+        -I "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include"
+        -I "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include/ctlark"
+        -I "${PROJECT_SOURCE_DIR}/external/compile-time-lark/include/ctll"
+      COMMAND ${CMAKE_COMMAND}
+        -DLICENSE=${PROJECT_SOURCE_DIR}/LICENSE
+        -DBODY=ctjs.hpp.tmp
+        -DOUT=${PROJECT_SOURCE_DIR}/single-header/ctjs.hpp
+        -P "${PROJECT_SOURCE_DIR}/packaging/prepend-license.cmake"
+      COMMAND ${CMAKE_COMMAND} -E rm -f ctjs.hpp.tmp
+      WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+      COMMENT "amalgamating single-header/ctjs.hpp (quom)"
+      VERBATIM)
+  endif()
 endif()
 
 if(CTJS_BUILD_TESTS)

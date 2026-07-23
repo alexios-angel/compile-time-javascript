@@ -147,19 +147,24 @@ template <typename E> constexpr value ev(const env_ptr & env, context & cx) {
 
 // --- JS operator semantics
 
-inline value to_primitive(const value & v) {
+// declared ahead of the eval_ specializations that call it with explicit
+// template arguments (two-phase lookup cannot see the later definition)
+template <typename... Args>
+constexpr std::vector<value> gather_args(const env_ptr & env, context & cx);
+
+inline constexpr value to_primitive(const value & v) {
 	if (v.is_array() || v.is_object() || v.is_function()) { return value{v.to_string()}; }
 	return v;
 }
 
-inline value js_add(const value & l, const value & r) {
+inline constexpr value js_add(const value & l, const value & r) {
 	const value lp = to_primitive(l);
 	const value rp = to_primitive(r);
 	if (lp.is_string() || rp.is_string()) { return value{lp.to_string() + rp.to_string()}; }
 	return value{lp.to_number() + rp.to_number()};
 }
 
-template <typename Op> value binary_arith(const value & l, const value & r) {
+template <typename Op> constexpr value binary_arith(const value & l, const value & r) {
 	if constexpr (std::is_same_v<Op, op_add>) {
 		return js_add(l, r);
 	} else if constexpr (std::is_same_v<Op, op_sub>) {
@@ -176,7 +181,7 @@ template <typename Op> value binary_arith(const value & l, const value & r) {
 	}
 }
 
-template <typename Op> bool compare_rel(const value & l, const value & r) {
+template <typename Op> constexpr bool compare_rel(const value & l, const value & r) {
 	const value lp = to_primitive(l);
 	const value rp = to_primitive(r);
 	if (lp.is_string() && rp.is_string()) {
@@ -442,7 +447,7 @@ template <typename Obj, typename Index> struct eval_<index<Obj, Index>> {
 // in cx.pending_this so the callee (if a script function) sees it as
 // `this` - V8 method-call semantics; plain calls leave it undefined
 template <typename... Args>
-inline std::vector<value> gather_args(const env_ptr & env, context & cx) {
+constexpr std::vector<value> gather_args(const env_ptr & env, context & cx) {
 	std::vector<value> args;
 	(spread_into<Args>::go(args, env, cx), ...);
 	return args;
@@ -1184,7 +1189,7 @@ struct method_is_ctor<class_method<N, P, B>>
 
 // finish a class: wire the constructor value, run static-field inits,
 // declare the binding. `base` is undefined for a base class.
-inline value finish_class(std::string name, const rc<object_t> & proto,
+inline constexpr value finish_class(std::string name, const rc<object_t> & proto,
                           const rc<object_t> & statics, class_build & cb,
                           context & cx, const value & base) {
 	const value protoval = value{proto};

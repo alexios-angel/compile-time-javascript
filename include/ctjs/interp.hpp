@@ -5,6 +5,8 @@
 #include "value.hpp"
 #include "builtins.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <functional>
 #include <charconv>
@@ -43,11 +45,11 @@ enum class flow { normal, brk, cont, ret };
 template <typename Text> constexpr double num_of() {
 	const std::string_view s = Text::view();
 	if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-		unsigned long long u = 0;
-		for (size_t i = 2; i < s.size(); ++i) {
+		std::uint64_t u = 0;
+		for (std::size_t i = 2; i < s.size(); ++i) {
 			const char c = s[i];
-			const unsigned d = c <= '9' ? static_cast<unsigned>(c - '0')
-			                            : static_cast<unsigned>((c | 0x20) - 'a' + 10);
+			const std::uint32_t d = c <= '9' ? static_cast<std::uint32_t>(c - '0')
+			                            : static_cast<std::uint32_t>((c | 0x20) - 'a' + 10);
 			u = u * 16 + d;
 		}
 		return static_cast<double>(u);
@@ -57,8 +59,8 @@ template <typename Text> constexpr double num_of() {
 		if (c < '0' || c > '9') { intlit = false; break; }
 	}
 	if (intlit) {
-		unsigned long long u = 0;
-		for (const char c : s) { u = u * 10 + static_cast<unsigned>(c - '0'); }
+		std::uint64_t u = 0;
+		for (const char c : s) { u = u * 10 + static_cast<std::uint32_t>(c - '0'); }
 		return static_cast<double>(u);
 	}
 	double d = 0;
@@ -66,7 +68,7 @@ template <typename Text> constexpr double num_of() {
 	return d;
 }
 
-constexpr void push_utf8(std::string & out, unsigned long cp) {
+constexpr void push_utf8(std::string & out, char32_t cp) {
 	if (cp < 0x80) {
 		out += static_cast<char>(cp);
 	} else if (cp < 0x800) {
@@ -86,8 +88,8 @@ constexpr void push_utf8(std::string & out, unsigned long cp) {
 
 constexpr std::string cook_string(std::string_view raw) {
 	std::string out;
-	size_t i = 1;                    // skip the opening quote
-	const size_t end = raw.size() - 1; // and the closing one
+	std::size_t i = 1;                    // skip the opening quote
+	const std::size_t end = raw.size() - 1; // and the closing one
 	while (i < end) {
 		const char c = raw[i];
 		if (c != '\\') {
@@ -106,18 +108,18 @@ constexpr std::string cook_string(std::string_view raw) {
 			case 'v': out += '\v'; break;
 			case '0': out += '\0'; break;
 			case 'x': {
-				unsigned long cp = 0;
-				for (int k = 0; k < 2 && i < end; ++k, ++i) {
-					cp = cp * 16 + static_cast<unsigned long>(
+				char32_t cp = 0;
+				for (std::int32_t k = 0; k < 2 && i < end; ++k, ++i) {
+					cp = cp * 16 + static_cast<char32_t>(
 					                   raw[i] <= '9' ? raw[i] - '0' : (raw[i] | 0x20) - 'a' + 10);
 				}
 				push_utf8(out, cp);
 				break;
 			}
 			case 'u': {
-				unsigned long cp = 0;
-				for (int k = 0; k < 4 && i < end; ++k, ++i) {
-					cp = cp * 16 + static_cast<unsigned long>(
+				char32_t cp = 0;
+				for (std::int32_t k = 0; k < 4 && i < end; ++k, ++i) {
+					cp = cp * 16 + static_cast<char32_t>(
 					                   raw[i] <= '9' ? raw[i] - '0' : (raw[i] | 0x20) - 'a' + 10);
 				}
 				push_utf8(out, cp);
@@ -178,7 +180,7 @@ template <typename Op> bool compare_rel(const value & l, const value & r) {
 	const value lp = to_primitive(l);
 	const value rp = to_primitive(r);
 	if (lp.is_string() && rp.is_string()) {
-		const int c = lp.as_string().compare(rp.as_string());
+		const std::int32_t c = lp.as_string().compare(rp.as_string());
 		if constexpr (std::is_same_v<Op, op_lt>) { return c < 0; }
 		else if constexpr (std::is_same_v<Op, op_gt>) { return c > 0; }
 		else if constexpr (std::is_same_v<Op, op_le>) { return c <= 0; }
@@ -352,10 +354,10 @@ template <typename... Ps> struct eval_<object_lit<Ps...>> {
 			for (const auto & [k, pv] : src.as_object()->props) { o.set(k, pv); }
 		} else if (src.is_array()) {
 			const array_t & arr = *src.as_array();
-			for (size_t i = 0; i < arr.size(); ++i) { o.set(std::to_string(i), arr[i]); }
+			for (std::size_t i = 0; i < arr.size(); ++i) { o.set(std::to_string(i), arr[i]); }
 		} else if (src.is_string()) {
 			const std::string & s = src.as_string();
-			for (size_t i = 0; i < s.size(); ++i) {
+			for (std::size_t i = 0; i < s.size(); ++i) {
 				o.set(std::to_string(i), value{std::string(1, s[i])});
 			}
 		}
@@ -605,7 +607,7 @@ template <typename Text> struct eval_<regex_lit<Text>> {
 	static constexpr value go(const env_ptr &, context &) {
 		// spelling is /body/flags; split and hand to the runtime engine
 		constexpr std::string_view raw = Text::view();
-		constexpr size_t close = raw.rfind('/');
+		constexpr std::size_t close = raw.rfind('/');
 		return make_regex(std::string{raw.substr(1, close - 1)},
 		                  std::string{raw.substr(close + 1)});
 	}
@@ -662,7 +664,7 @@ template <typename O, typename I> struct eval_<delete_op<index<O, I>>> {
 		} else if (recv.is_array()) {
 			const double d = k.to_number();
 			if (d >= 0 && d < static_cast<double>(recv.as_array()->size())) {
-				(*recv.as_array())[static_cast<size_t>(d)] = value{};
+				(*recv.as_array())[static_cast<std::size_t>(d)] = value{};
 			}
 		}
 		return value{true};
@@ -672,8 +674,8 @@ template <typename O, typename I> struct eval_<delete_op<index<O, I>>> {
 // template segments arrive with their delimiters on: ` or } in
 // front, ` or ${ behind; escapes cook like strings (minus the quotes)
 inline std::string cook_template_segment(std::string_view raw) {
-	size_t from = 1; // leading ` or }
-	size_t to = raw.size();
+	std::size_t from = 1; // leading ` or }
+	std::size_t to = raw.size();
 	if (raw.size() >= 2 && raw.substr(raw.size() - 2) == "${") { to -= 2; }
 	else if (!raw.empty()) { to -= 1; } // trailing `
 	std::string quoted = "\"";
@@ -827,14 +829,14 @@ template <typename... Ss> constexpr void hoist_functions(const env_ptr & env, co
 // arg is missing (or undefined), param_rest sweeps the tail into array
 template <typename P> struct bind_param {
 	static constexpr void go(const env_ptr & local, const std::vector<value> & args, context &,
-	               size_t & i) {
+	               std::size_t & i) {
 		local->declare(P::view(), i < args.size() ? args[i] : value{});
 		++i;
 	}
 };
 template <typename N, typename Def> struct bind_param<param_default<N, Def>> {
 	static constexpr void go(const env_ptr & local, const std::vector<value> & args, context & cx,
-	               size_t & i) {
+	               std::size_t & i) {
 		value v = i < args.size() ? args[i] : value{};
 		if (v.is_undefined()) { v = ev<Def>(local, cx); } // default sees prior params
 		local->declare(N::view(), std::move(v));
@@ -843,7 +845,7 @@ template <typename N, typename Def> struct bind_param<param_default<N, Def>> {
 };
 template <typename N> struct bind_param<param_rest<N>> {
 	static constexpr void go(const env_ptr & local, const std::vector<value> & args, context &,
-	               size_t & i) {
+	               std::size_t & i) {
 		array_t rest;
 		for (; i < args.size(); ++i) { rest.push_back(args[i]); }
 		local->declare(N::view(), value::array(std::move(rest)));
@@ -853,7 +855,7 @@ template <typename N> struct bind_param<param_rest<N>> {
 template <typename Params> struct param_binder;
 template <typename... Ps> struct param_binder<plist<Ps...>> {
 	static constexpr void bind(const env_ptr & local, const std::vector<value> & args, context & cx) {
-		size_t i = 0;
+		std::size_t i = 0;
 		(bind_param<Ps>::go(local, args, cx, i), ...);
 	}
 };
@@ -904,7 +906,7 @@ struct fn_maker {
 	// next() drains them, honoring the iterator protocol for...of speaks
 	static value make_generator_object(std::vector<value> items, value ret) {
 		auto buffered = std::make_shared<std::vector<value>>(std::move(items));
-		auto pos = std::make_shared<size_t>(0);
+		auto pos = std::make_shared<std::size_t>(0);
 		object_t it;
 		it.set("next", value::function(
 		                   [buffered, pos, ret](context &, const std::vector<value> &) {
@@ -992,7 +994,7 @@ template <decl_kind K, typename Init, typename... Names, typename... Rest>
 struct declare_all<K, destr_array<Init, Names...>, Rest...> {
 	static constexpr void go(const env_ptr & env, context & cx) {
 		const value src = ev<Init>(env, cx);
-		size_t i = 0;
+		std::size_t i = 0;
 		const auto one = [&](std::string_view nm) {
 			value v;
 			if (src.is_array() && i < src.as_array()->size()) { v = (*src.as_array())[i]; }
@@ -1300,7 +1302,7 @@ struct loop_labels {
 		return false;
 	}
 	// 0 = proceed to next iteration, 1 = stop loop, 2 = propagate f
-	int triage(flow f, context & cx) const {
+	std::int32_t triage(flow f, context & cx) const {
 		if (f == flow::ret) { return 2; }
 		if (f == flow::brk) {
 			if (cx.flow_label.empty() || owns(cx)) { cx.flow_label.clear(); return 1; }
@@ -1317,7 +1319,7 @@ template <typename C, typename B> struct exec_<while_stmt<C, B>> {
 		const loop_labels labels(cx);
 		while (ev<C>(env, cx).truthy()) {
 			const flow f = exec_<B>::go(env, cx, ret);
-			const int t = labels.triage(f, cx);
+			const std::int32_t t = labels.triage(f, cx);
 			if (t == 1) { break; }
 			if (t == 2) { return f; }
 		}
@@ -1330,7 +1332,7 @@ template <typename B, typename C> struct exec_<do_stmt<B, C>> {
 		const loop_labels labels(cx);
 		do {
 			const flow f = exec_<B>::go(env, cx, ret);
-			const int t = labels.triage(f, cx);
+			const std::int32_t t = labels.triage(f, cx);
 			if (t == 1) { break; }
 			if (t == 2) { return f; }
 		} while (ev<C>(env, cx).truthy());
@@ -1379,7 +1381,7 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 					if (!ev<Cond>(iter, cx).truthy()) { break; }
 				}
 				const flow f = exec_<B>::go(iter, cx, ret);
-				const int t = labels.triage(f, cx);
+				const std::int32_t t = labels.triage(f, cx);
 				if (t == 1) { break; }
 				if (t == 2) { return f; }
 				auto next = rc<environment>::make();
@@ -1395,7 +1397,7 @@ struct exec_<for_stmt<Init, Cond, Step, B>> {
 				if (!ev<Cond>(scope, cx).truthy()) { break; }
 			}
 			const flow f = exec_<B>::go(scope, cx, ret);
-			const int t = labels.triage(f, cx);
+			const std::int32_t t = labels.triage(f, cx);
 			if (t == 1) { break; }
 			if (t == 2) { return f; }
 			if constexpr (!std::is_void_v<Step>) { (void)ev<Step>(scope, cx); }
@@ -1416,9 +1418,9 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 		};
 		if (seq.is_array()) {
 			const rc<array_t> arr = seq.as_array();
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				const flow f = step((*arr)[i]);
-				const int t = labels.triage(f, cx);
+				const std::int32_t t = labels.triage(f, cx);
 				if (t == 1) { break; }
 				if (t == 2) { return f; }
 			}
@@ -1427,7 +1429,7 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 		if (seq.is_string()) {
 			for (const char c : seq.as_string()) {
 				const flow f = step(value{std::string(1, c)});
-				const int t = labels.triage(f, cx);
+				const std::int32_t t = labels.triage(f, cx);
 				if (t == 1) { break; }
 				if (t == 2) { return f; }
 			}
@@ -1446,7 +1448,7 @@ template <typename N, typename Iter, typename B> struct exec_<forof_stmt<N, Iter
 					if (done != nullptr && done->truthy()) { break; }
 					const value * v = r.as_object()->find("value");
 					const flow f = step(v != nullptr ? *v : value{});
-					const int t = labels.triage(f, cx);
+					const std::int32_t t = labels.triage(f, cx);
 					if (t == 1) { break; }
 					if (t == 2) { return f; }
 				}
@@ -1532,7 +1534,7 @@ template <typename L, typename S> struct exec_<labeled_stmt<L, S>> {
 		cx.pending_labels.push_back(std::string{L::view()});
 		const flow f = exec_<S>::go(env, cx, ret);
 		// a wrapped non-loop never consumed the pending label; drop it
-		for (size_t i = cx.pending_labels.size(); i-- > 0;) {
+		for (std::size_t i = cx.pending_labels.size(); i-- > 0;) {
 			if (cx.pending_labels[i] == L::view()) {
 				cx.pending_labels.erase(cx.pending_labels.begin() +
 				                        static_cast<ptrdiff_t>(i));

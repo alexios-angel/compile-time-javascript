@@ -100,18 +100,18 @@ namespace detail {
 
 // integer decimal string, exact and constexpr (used by the compile-time
 // path and as the fast common case)
-constexpr std::string int_to_string(long long v) {
+constexpr std::string int_to_string(std::int64_t v) {
 	if (v == 0) { return "0"; }
 	std::string out;
 	const bool neg = v < 0;
-	unsigned long long u = neg ? static_cast<unsigned long long>(-(v + 1)) + 1
-	                           : static_cast<unsigned long long>(v);
+	std::uint64_t u = neg ? static_cast<std::uint64_t>(-(v + 1)) + 1
+	                           : static_cast<std::uint64_t>(v);
 	while (u) {
 		out.push_back(static_cast<char>('0' + u % 10));
 		u /= 10;
 	}
 	if (neg) { out.push_back('-'); }
-	for (size_t i = 0, j = out.size() - 1; i < j; ++i, --j) {
+	for (std::size_t i = 0, j = out.size() - 1; i < j; ++i, --j) {
 		const char t = out[i];
 		out[i] = out[j];
 		out[j] = t;
@@ -128,8 +128,8 @@ inline std::string number_to_string(double x) {
 	if (std::isnan(x)) { return "NaN"; }
 	if (x == 0) { return "0"; } // -0 prints "0", like JS
 	if (std::isinf(x)) { return x < 0 ? std::string{"-Infinity"} : std::string{"Infinity"}; }
-	if (x == static_cast<double>(static_cast<long long>(x))) {
-		return int_to_string(static_cast<long long>(x)); // exact & constexpr
+	if (x == static_cast<double>(static_cast<std::int64_t>(x))) {
+		return int_to_string(static_cast<std::int64_t>(x)); // exact & constexpr
 	}
 	std::string out;
 	double m = x;
@@ -140,28 +140,28 @@ inline std::string number_to_string(double x) {
 	// shortest digits + decimal exponent via scientific to_chars
 	char buf[40];
 	const auto res = std::to_chars(buf, buf + sizeof(buf), m, std::chars_format::scientific);
-	std::string_view sci{buf, static_cast<size_t>(res.ptr - buf)};
-	const size_t epos = sci.find('e');
+	std::string_view sci{buf, static_cast<std::size_t>(res.ptr - buf)};
+	const std::size_t epos = sci.find('e');
 	std::string digits;
 	for (const char c : sci.substr(0, epos)) {
 		if (c != '.') { digits += c; }
 	}
 	while (digits.size() > 1 && digits.back() == '0') { digits.pop_back(); }
-	int exp10 = 0;
-	const size_t esign = epos + 1 + (sci[epos + 1] == '+' ? 1 : 0);
+	std::int32_t exp10 = 0;
+	const std::size_t esign = epos + 1 + (sci[epos + 1] == '+' ? 1 : 0);
 	std::from_chars(sci.data() + esign, sci.data() + sci.size(), exp10);
-	const int k = static_cast<int>(digits.size());
-	const int n = exp10 + 1;
+	const std::int32_t k = static_cast<std::int32_t>(digits.size());
+	const std::int32_t n = exp10 + 1;
 	if (k <= n && n <= 21) {
 		out += digits;
-		out.append(static_cast<size_t>(n - k), '0');
+		out.append(static_cast<std::size_t>(n - k), '0');
 	} else if (0 < n && n <= 21) {
-		out += digits.substr(0, static_cast<size_t>(n));
+		out += digits.substr(0, static_cast<std::size_t>(n));
 		out += '.';
-		out += digits.substr(static_cast<size_t>(n));
+		out += digits.substr(static_cast<std::size_t>(n));
 	} else if (-6 < n && n <= 0) {
 		out += "0.";
-		out.append(static_cast<size_t>(-n), '0');
+		out.append(static_cast<std::size_t>(-n), '0');
 		out += digits;
 	} else {
 		out += digits.substr(0, 1);
@@ -196,13 +196,13 @@ constexpr double string_to_number(std::string_view s) {
 	}
 	// hex integer: exact and constexpr
 	if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-		unsigned long long u = 0;
-		for (size_t i = 2; i < s.size(); ++i) {
+		std::uint64_t u = 0;
+		for (std::size_t i = 2; i < s.size(); ++i) {
 			const char c = s[i];
-			unsigned d = 0;
-			if (c >= '0' && c <= '9') { d = static_cast<unsigned>(c - '0'); }
-			else if (c >= 'a' && c <= 'f') { d = static_cast<unsigned>(c - 'a' + 10); }
-			else if (c >= 'A' && c <= 'F') { d = static_cast<unsigned>(c - 'A' + 10); }
+			std::uint32_t d = 0;
+			if (c >= '0' && c <= '9') { d = static_cast<std::uint32_t>(c - '0'); }
+			else if (c >= 'a' && c <= 'f') { d = static_cast<std::uint32_t>(c - 'a' + 10); }
+			else if (c >= 'A' && c <= 'F') { d = static_cast<std::uint32_t>(c - 'A' + 10); }
 			else { return std::numeric_limits<double>::quiet_NaN(); }
 			u = u * 16 + d;
 		}
@@ -215,8 +215,8 @@ constexpr double string_to_number(std::string_view s) {
 		if (c < '0' || c > '9') { all_digits = false; break; }
 	}
 	if (all_digits) {
-		unsigned long long u = 0;
-		for (const char c : s) { u = u * 10 + static_cast<unsigned>(c - '0'); }
+		std::uint64_t u = 0;
+		for (const char c : s) { u = u * 10 + static_cast<std::uint32_t>(c - '0'); }
 		return neg ? -static_cast<double>(u) : static_cast<double>(u);
 	}
 	double d = 0;
@@ -240,9 +240,9 @@ public:
 	constexpr value(null_t) : v_(null_t{}) { }
 	constexpr value(bool b) : v_(b) { }
 	constexpr value(double d) : v_(d) { }
-	constexpr value(int i) : v_(static_cast<double>(i)) { }
-	constexpr value(long long i) : v_(static_cast<double>(i)) { }
-	constexpr value(size_t i) : v_(static_cast<double>(i)) { }
+	constexpr value(std::int32_t i) : v_(static_cast<double>(i)) { }
+	constexpr value(std::int64_t i) : v_(static_cast<double>(i)) { }
+	constexpr value(std::size_t i) : v_(static_cast<double>(i)) { }
 	constexpr value(const char * s) : v_(std::string{s}) { }
 	constexpr value(std::string s) : v_(std::move(s)) { }
 	constexpr value(std::string_view s) : v_(std::string{s}) { }
@@ -369,9 +369,9 @@ public:
 
 	// C++-side drilling: obj["key"], arr[2] - misses yield undefined
 	constexpr value operator[](std::string_view key) const;
-	constexpr value operator[](size_t i) const;
+	constexpr value operator[](std::size_t i) const;
 
-	// C++-side extraction: to<double>(), to<int>(), to<bool>(), to<std::string>()
+	// C++-side extraction: to<double>(), to<std::int32_t>(), to<bool>(), to<std::string>()
 	template <typename T> constexpr T to() const {
 		if constexpr (std::is_same_v<T, bool>) {
 			return truthy();
@@ -394,7 +394,7 @@ constexpr value value::operator[](std::string_view key) const {
 	}
 	return value{};
 }
-constexpr value value::operator[](size_t i) const {
+constexpr value value::operator[](std::size_t i) const {
 	if (is_array() && i < as_array()->size()) { return (*as_array())[i]; }
 	return value{};
 }
@@ -514,7 +514,7 @@ struct environment {
 		return *e;
 	}
 	constexpr void declare(std::string_view name, value v) {
-		for (size_t i = 0; i < tdz.size(); ++i) {
+		for (std::size_t i = 0; i < tdz.size(); ++i) {
 			if (tdz[i] == name) {
 				tdz.erase(tdz.begin() + static_cast<std::ptrdiff_t>(i));
 				break;
@@ -603,8 +603,8 @@ struct context {
 	std::string flow_label;
 	std::vector<std::string> pending_labels;
 	std::vector<std::string> stack; // live call stack (function names) for traces
-	int depth = 0;
-	int max_depth = 256;
+	std::int32_t depth = 0;
+	std::int32_t max_depth = 256;
 
 	constexpr void write(std::string_view s) {
 		console += s;

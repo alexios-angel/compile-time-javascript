@@ -19,15 +19,15 @@
 
 namespace ctjs::detail {
 
-template <size_t I, typename... Ts> struct nth_s {
+template <std::size_t I, typename... Ts> struct nth_s {
 	using type = void;
 };
 template <typename T0, typename... Ts> struct nth_s<0, T0, Ts...> {
 	using type = T0;
 };
-template <size_t I, typename T0, typename... Ts> struct nth_s<I, T0, Ts...>
+template <std::size_t I, typename T0, typename... Ts> struct nth_s<I, T0, Ts...>
     : nth_s<I - 1, Ts...> { };
-template <size_t I, typename... Ts> using nth_t = typename nth_s<I, Ts...>::type;
+template <std::size_t I, typename... Ts> using nth_t = typename nth_s<I, Ts...>::type;
 
 template <typename KindText> constexpr char accessor_kind_of(); // defined below
 template <typename Node> struct lower_expr;
@@ -310,7 +310,7 @@ template <typename TN, typename TV> struct lower_expr<ctlark::token<TN, TV>> {
 };
 
 template <typename TN, typename... Ks> struct lower_expr<ctlark::tree<TN, Ks...>> {
-	template <size_t I> using kid = nth_t<I, Ks...>;
+	template <std::size_t I> using kid = nth_t<I, Ks...>;
 	static constexpr auto pick() {
 		constexpr std::string_view n = TN::view();
 		if constexpr (n == std::string_view{"paren"}) {
@@ -487,7 +487,7 @@ template <typename KindText> constexpr char accessor_kind_of() {
 // static-ness is carried by wrapping the inner node in static_member.
 template <typename Tree> struct lower_member;
 template <typename MN, typename... Ks> struct lower_member<ctlark::tree<MN, Ks...>> {
-	template <size_t I> using kid = nth_t<I, Ks...>;
+	template <std::size_t I> using kid = nth_t<I, Ks...>;
 	static constexpr std::string_view n = MN::view();
 	static constexpr bool is_static = n.size() >= 7 && n.substr(0, 7) == std::string_view{"static_"};
 
@@ -561,7 +561,7 @@ template <typename D, typename... Cs> struct lower_switch<D, Cs...> {
 };
 
 template <typename TN, typename... Ks> struct lower_stmt<ctlark::tree<TN, Ks...>> {
-	template <size_t I> using kid = nth_t<I, Ks...>;
+	template <std::size_t I> using kid = nth_t<I, Ks...>;
 	static constexpr auto pick() {
 		constexpr std::string_view n = TN::view();
 		if constexpr (n == std::string_view{"block"}) {

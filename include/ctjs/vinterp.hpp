@@ -5,6 +5,7 @@
 #include "builtins.hpp"
 #include "vparse.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <cstddef>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -46,14 +47,14 @@ struct binding {
 	value v;
 };
 
-// numeric literal -> double (int / hex / float / exponent)
+// numeric literal -> double (std::int32_t / hex / float / exponent)
 inline double num_lit(std::string_view s) {
 	if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-		unsigned long long u = 0;
+		std::uint64_t u = 0;
 		for (std::size_t i = 2; i < s.size(); ++i) {
 			char c = s[i];
-			unsigned dg = (c <= '9') ? static_cast<unsigned>(c - '0')
-			                         : static_cast<unsigned>((c | 0x20) - 'a' + 10);
+			std::uint32_t dg = (c <= '9') ? static_cast<std::uint32_t>(c - '0')
+			                         : static_cast<std::uint32_t>((c | 0x20) - 'a' + 10);
 			u = u * 16 + dg;
 		}
 		return static_cast<double>(u);
@@ -103,8 +104,8 @@ struct vm {
 		scope = child_env(globals, true);
 	}
 
-	const node & N(int i) const { return tree.nodes[static_cast<std::size_t>(i)]; }
-	int child(int list, int k) const { return tree.pool[static_cast<std::size_t>(list + k)]; }
+	const node & N(std::int32_t i) const { return tree.nodes[static_cast<std::size_t>(i)]; }
+	std::int32_t child(std::int32_t list, std::int32_t k) const { return tree.pool[static_cast<std::size_t>(list + k)]; }
 
 	static env_ptr child_env(const env_ptr & parent, bool fn_scope = false) {
 		env_ptr e = rc<environment>::make();
@@ -122,16 +123,16 @@ struct vm {
 	}
 
 	// hoist function declarations (so `foo()` before `function foo(){}` works)
-	void hoist(int blk, const env_ptr & env, context & cx) {
+	void hoist(std::int32_t blk, const env_ptr & env, context & cx) {
 		const node & b = N(blk);
-		for (int k = 0; k < b.list_len; ++k) {
-			int si = child(b.list, k);
+		for (std::int32_t k = 0; k < b.list_len; ++k) {
+			std::int32_t si = child(b.list, k);
 			if (N(si).kind == nk::func_decl) { env->declare(N(si).text, make_fn(si, env, cx)); }
 		}
 	}
 
 	// ---- expressions -------------------------------------------------------
-	value eval(int i, const env_ptr & env, context & cx) {
+	value eval(std::int32_t i, const env_ptr & env, context & cx) {
 		const node & n = N(i);
 		switch (n.kind) {
 		case nk::num: return value{num_lit(n.text)};
@@ -184,7 +185,7 @@ struct vm {
 	value get_index(const value & obj, const value & key, context & cx) {
 		if (obj.is_array()) {
 			double d0 = key.to_number();
-			if (d0 >= 0 && d0 == static_cast<double>(static_cast<long long>(d0))) {
+			if (d0 >= 0 && d0 == static_cast<double>(static_cast<std::int64_t>(d0))) {
 				std::size_t idx = static_cast<std::size_t>(d0);
 				const rc<array_t> & arr = obj.as_array();
 				return idx < arr->size() ? (*arr)[idx] : value{};
@@ -192,7 +193,7 @@ struct vm {
 		}
 		if (obj.is_string()) {
 			double d0 = key.to_number();
-			if (d0 >= 0 && d0 == static_cast<double>(static_cast<long long>(d0))) {
+			if (d0 >= 0 && d0 == static_cast<double>(static_cast<std::int64_t>(d0))) {
 				const std::string & s = obj.as_string();
 				std::size_t idx = static_cast<std::size_t>(d0);
 				return idx < s.size() ? value{std::string(1, s[idx])} : value{};
@@ -203,7 +204,7 @@ struct vm {
 	void set_index(const value & obj, const value & key, const value & v, context & cx) {
 		if (obj.is_array()) {
 			double d0 = key.to_number();
-			if (d0 >= 0 && d0 == static_cast<double>(static_cast<long long>(d0))) {
+			if (d0 >= 0 && d0 == static_cast<double>(static_cast<std::int64_t>(d0))) {
 				std::size_t idx = static_cast<std::size_t>(d0);
 				const rc<array_t> & arr = obj.as_array();
 				if (idx >= arr->size()) { arr->resize(idx + 1); }
@@ -216,8 +217,8 @@ struct vm {
 
 	value eval_array(const node & n, const env_ptr & env, context & cx) {
 		array_t out;
-		for (int k = 0; k < n.list_len; ++k) {
-			int ei = child(n.list, k);
+		for (std::int32_t k = 0; k < n.list_len; ++k) {
+			std::int32_t ei = child(n.list, k);
 			if (N(ei).kind == nk::spread) {
 				value s = eval(N(ei).a, env, cx);
 				if (s.is_array()) { for (const value & e : *s.as_array()) { out.push_back(e); } }
@@ -230,8 +231,8 @@ struct vm {
 
 	value eval_object(const node & n, const env_ptr & env, context & cx) {
 		auto o = rc<object_t>::make();
-		for (int k = 0; k < n.list_len; ++k) {
-			int pi = child(n.list, k);
+		for (std::int32_t k = 0; k < n.list_len; ++k) {
+			std::int32_t pi = child(n.list, k);
 			const node & p = N(pi);
 			if (p.kind == nk::spread) {
 				value s = eval(p.a, env, cx);
@@ -323,7 +324,7 @@ struct vm {
 	}
 
 	// assign `v` into the lvalue at node `t`
-	void store(int ti, const value & v, const env_ptr & env, context & cx) {
+	void store(std::int32_t ti, const value & v, const env_ptr & env, context & cx) {
 		const node & t = N(ti);
 		if (t.kind == nk::ident) {
 			environment * o = env->owner(t.text);
@@ -359,7 +360,7 @@ struct vm {
 		if (op == "!==") { return value{!strict_equals(a, b)}; }
 		if (op == "<" || op == ">" || op == "<=" || op == ">=") {
 			if (a.is_string() && b.is_string()) {
-				int c = a.as_string().compare(b.as_string());
+				std::int32_t c = a.as_string().compare(b.as_string());
 				if (op == "<") { return value{c < 0}; }
 				if (op == ">") { return value{c > 0}; }
 				if (op == "<=") { return value{c <= 0}; }
@@ -393,10 +394,10 @@ struct vm {
 		return false;
 	}
 
-	std::vector<value> eval_args(int list, int len, const env_ptr & env, context & cx) {
+	std::vector<value> eval_args(std::int32_t list, std::int32_t len, const env_ptr & env, context & cx) {
 		std::vector<value> out;
-		for (int k = 0; k < len; ++k) {
-			int ai = child(list, k);
+		for (std::int32_t k = 0; k < len; ++k) {
+			std::int32_t ai = child(list, k);
 			if (N(ai).kind == nk::spread) {
 				value s = eval(N(ai).a, env, cx);
 				if (s.is_array()) { for (const value & e : *s.as_array()) { out.push_back(e); } }
@@ -472,7 +473,7 @@ struct vm {
 			char c = raw[i];
 			if (c == '\\' && i + 1 < end) { out += raw[i + 1]; i += 2; continue; }
 			if (c == '$' && i + 1 < end && raw[i + 1] == '{') {
-				std::size_t j = i + 2; int depth = 1;
+				std::size_t j = i + 2; std::int32_t depth = 1;
 				while (j < end && depth) { if (raw[j] == '{') { ++depth; } else if (raw[j] == '}') { --depth; } if (depth) { ++j; } }
 				std::string_view expr = raw.substr(i + 2, j - (i + 2));
 				ast sub = parse(std::string{"("} + std::string{expr} + std::string{")"});
@@ -512,7 +513,7 @@ struct vm {
 	}
 
 	// ---- functions ---------------------------------------------------------
-	value make_fn(int fn_node, const env_ptr & closure, context & cx) {
+	value make_fn(std::int32_t fn_node, const env_ptr & closure, context & cx) {
 		const node & fn = N(fn_node);
 		bool is_arrow = (fn.kind == nk::arrow);
 		value lexical_this = cx.current_this;
@@ -534,7 +535,7 @@ struct vm {
 		return f;
 	}
 
-	value call_user(int fn_node, const env_ptr & closure, const std::vector<value> & args,
+	value call_user(std::int32_t fn_node, const env_ptr & closure, const std::vector<value> & args,
 	                context & cx, bool is_arrow, const value & lexical_this) {
 		const node & fn = N(fn_node);
 		env_ptr local = child_env(closure, true);
@@ -570,8 +571,8 @@ struct vm {
 		return (f == flow::ret) ? ret : value{};
 	}
 
-	void bind_params(int list, int len, const std::vector<value> & args, const env_ptr & env, context & cx) {
-		for (int k = 0; k < len; ++k) {
+	void bind_params(std::int32_t list, std::int32_t len, const std::vector<value> & args, const env_ptr & env, context & cx) {
+		for (std::int32_t k = 0; k < len; ++k) {
 			const node & p = N(child(list, k));
 			if (p.d == 1) {   // rest
 				array_t rest;
@@ -585,7 +586,7 @@ struct vm {
 		}
 	}
 
-	value build_class(int ci, const env_ptr & env, context & cx) {
+	value build_class(std::int32_t ci, const env_ptr & env, context & cx) {
 		const node & c = N(ci);
 		auto proto = rc<object_t>::make();
 		value super;
@@ -597,10 +598,10 @@ struct vm {
 				}
 			}
 		}
-		int ctor_node = -1;
-		std::vector<int> fields;
-		for (int k = 0; k < c.list_len; ++k) {
-			int mi = child(c.list, k);
+		std::int32_t ctor_node = -1;
+		std::vector<std::int32_t> fields;
+		for (std::int32_t k = 0; k < c.list_len; ++k) {
+			std::int32_t mi = child(c.list, k);
 			const node & m = N(mi);
 			bool is_static = (m.d & 1);
 			if (m.c == 1) {   // method
@@ -617,9 +618,9 @@ struct vm {
 		// constructor function
 		vm * self = this;
 		env_ptr closure = env;
-		int cn = ctor_node;
+		std::int32_t cn = ctor_node;
 		value protov{proto};
-		std::vector<int> fset = fields;
+		std::vector<std::int32_t> fset = fields;
 		value superv = super;
 		ctjs::native_fn ctor = [self, cn, closure, protov, fset, superv](context & c2, const std::vector<value> & args) -> value {
 			value thisv = c2.current_this;
@@ -628,7 +629,7 @@ struct vm {
 			// runs the parent ctor on the same instance) would clobber it.
 			(void)protov;
 			// initialise instance fields
-			for (int fi : fset) {
+			for (std::int32_t fi : fset) {
 				const node & f = self->N(fi);
 				value fv = (f.b >= 0) ? self->eval(f.b, closure, c2) : value{};
 				if (thisv.is_object()) { thisv.as_object()->set(std::string{f.text}, std::move(fv)); }
@@ -650,8 +651,8 @@ struct vm {
 		if (!ctorv.as_function()->props) { ctorv.as_function()->props = rc<object_t>::make(); }
 		ctorv.as_function()->props->set("prototype", protov);
 		// static members
-		for (int k = 0; k < c.list_len; ++k) {
-			int mi = child(c.list, k);
+		for (std::int32_t k = 0; k < c.list_len; ++k) {
+			std::int32_t mi = child(c.list, k);
 			const node & m = N(mi);
 			if (!(m.d & 1)) { continue; }
 			if (m.c == 1) { ctorv.as_function()->props->set(std::string{m.text}, make_fn(m.b, env, cx)); }
@@ -663,14 +664,14 @@ struct vm {
 
 	// ---- statements --------------------------------------------------------
 	flow exec_block(const node & b, const env_ptr & env, context & cx, value & ret) {
-		for (int k = 0; k < b.list_len; ++k) {
+		for (std::int32_t k = 0; k < b.list_len; ++k) {
 			flow f = exec(child(b.list, k), env, cx, ret);
 			if (f != flow::normal) { return f; }
 		}
 		return flow::normal;
 	}
 
-	flow exec(int i, const env_ptr & env, context & cx, value & ret) {
+	flow exec(std::int32_t i, const env_ptr & env, context & cx, value & ret) {
 		const node & n = N(i);
 		switch (n.kind) {
 		case nk::program: return exec_block(n, env, cx, ret);
@@ -678,7 +679,7 @@ struct vm {
 		case nk::empty: return flow::normal;
 		case nk::expr_stmt: cx.last = eval(n.a, env, cx); return flow::normal;
 		case nk::var_decl: {
-			for (int k = 0; k < n.list_len; ++k) {
+			for (std::int32_t k = 0; k < n.list_len; ++k) {
 				const node & dcl = N(child(n.list, k));
 				value v = (dcl.a >= 0) ? eval(dcl.a, env, cx) : value{};
 				env->declare(dcl.text, std::move(v));
@@ -774,17 +775,17 @@ struct vm {
 	flow exec_switch(const node & n, const env_ptr & env, context & cx, value & ret) {
 		value disc = eval(n.a, env, cx);
 		env_ptr se = child_env(env);
-		int start = -1, deflt = -1;
-		for (int k = 0; k < n.list_len; ++k) {
+		std::int32_t start = -1, deflt = -1;
+		for (std::int32_t k = 0; k < n.list_len; ++k) {
 			const node & cl = N(child(n.list, k));
 			if (cl.d == 1) { deflt = k; }
 			else if (strict_equals(disc, eval(cl.a, se, cx))) { start = k; break; }
 		}
 		if (start < 0) { start = deflt; }
 		if (start < 0) { return flow::normal; }
-		for (int k = start; k < n.list_len; ++k) {
+		for (std::int32_t k = start; k < n.list_len; ++k) {
 			const node & cl = N(child(n.list, k));
-			for (int j = 0; j < cl.list_len; ++j) {
+			for (std::int32_t j = 0; j < cl.list_len; ++j) {
 				flow f = exec(child(cl.list, j), se, cx, ret);
 				if (f == flow::brk) { return flow::normal; }
 				if (f == flow::ret) { return f; }
@@ -803,7 +804,7 @@ inline value vm::eval_subexpr(std::string_view expr, const env_ptr & env, contex
 	const node & prog = sub->N(sub->tree.root);
 	if (prog.list_len == 0) { return value{}; }
 	const node & st = sub->N(sub->child(prog.list, 0));
-	int e = (st.kind == nk::expr_stmt) ? st.a : sub->child(prog.list, 0);
+	std::int32_t e = (st.kind == nk::expr_stmt) ? st.a : sub->child(prog.list, 0);
 	// share environment: swap sub's globals for our env chain during eval
 	return sub->eval(e, env, cx);
 }

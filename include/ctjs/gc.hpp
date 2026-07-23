@@ -2,6 +2,7 @@
 #define CTJS__GC__HPP
 
 #ifndef CTJS_IN_A_MODULE
+#include <cstdint>
 #include <vector>
 #endif
 
@@ -24,10 +25,10 @@
 
 namespace ctjs::gc {
 
-enum class color : unsigned char { black, gray, white, purple };
+enum class color : std::uint8_t { black, gray, white, purple };
 
 struct header {
-	long count = 0;         // the reference count (the sole count; rc<T> uses it)
+	std::int64_t count = 0; // the reference count (the sole count; rc<T> uses it)
 	color col = color::black;
 	bool buffered = false;  // currently in the roots candidate buffer
 	void * obj = nullptr;   // -> the T payload (for trace/clear)
@@ -167,9 +168,9 @@ inline void collect() {
 		// (releasing live children properly, decrementing pinned dying ones
 		// harmlessly), then deallocate every dying node unconditionally - by now
 		// nothing (live or dying) still references any of them.
-		// 2^30 fits a 32-bit long (Windows is LLP64) and still dwarfs any
-		// possible cascade of decrements - a node would need >10^9 in-refs.
-		constexpr long PIN = 1L << 30;
+		// int64 everywhere (long is 32-bit on LLP64 Windows); 2^40 dwarfs
+		// any possible cascade of decrements.
+		constexpr std::int64_t PIN = std::int64_t{1} << 40;
 		for (header * s : dead) { s->count += PIN; }
 		for (header * s : dead) {
 			if (s->clear != nullptr) { s->clear(s->obj); }

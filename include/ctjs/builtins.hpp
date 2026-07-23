@@ -3,6 +3,8 @@
 
 #include "value.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <functional>
 #include <algorithm>
@@ -200,9 +202,9 @@ struct rx_piece {
 	char c = 0;
 	rx_class cc;
 	std::shared_ptr<rx_alt> sub;
-	int cap = -1; // capture slot, -1 = (?:)
-	int min = 1;
-	int max = 1; // -1 = unbounded
+	std::int32_t cap = -1; // capture slot, -1 = (?:)
+	std::int32_t min = 1;
+	std::int32_t max = 1; // -1 = unbounded
 	bool greedy = true;
 };
 using rx_seq = std::vector<rx_piece>;
@@ -211,7 +213,7 @@ struct rx_alt {
 };
 struct rx_prog {
 	std::shared_ptr<rx_alt> root;
-	int ngroups = 0;
+	std::int32_t ngroups = 0;
 	bool icase = false, global = false, multi = false;
 };
 
@@ -252,10 +254,10 @@ inline char rx_escape_char(char e) {
 	}
 }
 
-inline std::shared_ptr<rx_alt> rx_parse_alt(std::string_view src, size_t & i, rx_prog & p,
+inline std::shared_ptr<rx_alt> rx_parse_alt(std::string_view src, std::size_t & i, rx_prog & p,
                                             bool top);
 
-inline rx_piece rx_parse_atom(std::string_view src, size_t & i, rx_prog & p) {
+inline rx_piece rx_parse_atom(std::string_view src, std::size_t & i, rx_prog & p) {
 	rx_piece pc;
 	const char c = src[i];
 	if (c == '(') {
@@ -350,22 +352,22 @@ inline rx_piece rx_parse_atom(std::string_view src, size_t & i, rx_prog & p) {
 	return pc;
 }
 
-inline constexpr void rx_parse_quant(std::string_view src, size_t & i, rx_piece & pc) {
+inline constexpr void rx_parse_quant(std::string_view src, std::size_t & i, rx_piece & pc) {
 	if (i >= src.size()) { return; }
 	const char c = src[i];
 	if (c == '*') { pc.min = 0; pc.max = -1; ++i; }
 	else if (c == '+') { pc.min = 1; pc.max = -1; ++i; }
 	else if (c == '?') { pc.min = 0; pc.max = 1; ++i; }
 	else if (c == '{') {
-		size_t j = i + 1;
-		int lo = 0;
+		std::size_t j = i + 1;
+		std::int32_t lo = 0;
 		bool has = false;
 		while (j < src.size() && src[j] >= '0' && src[j] <= '9') {
 			lo = lo * 10 + (src[j++] - '0');
 			has = true;
 		}
 		if (!has) { return; } // literal '{'
-		int hi = lo;
+		std::int32_t hi = lo;
 		if (j < src.size() && src[j] == ',') {
 			++j;
 			if (j < src.size() && src[j] == '}') { hi = -1; }
@@ -389,7 +391,7 @@ inline constexpr void rx_parse_quant(std::string_view src, size_t & i, rx_piece 
 	}
 }
 
-inline std::shared_ptr<rx_alt> rx_parse_alt(std::string_view src, size_t & i, rx_prog & p,
+inline std::shared_ptr<rx_alt> rx_parse_alt(std::string_view src, std::size_t & i, rx_prog & p,
                                             bool top) {
 	auto out = std::make_shared<rx_alt>();
 	out->alts.emplace_back();
@@ -419,7 +421,7 @@ inline rx_prog rx_compile(std::string_view source, std::string_view flags) {
 		else if (f == 'm') { p.multi = true; }
 		else { throw_error("SyntaxError", "Invalid regular expression flags"); }
 	}
-	size_t i = 0;
+	std::size_t i = 0;
 	p.root = rx_parse_alt(source, i, p, true);
 	if (i != source.size()) { rx_fail(source); }
 	return p;
@@ -428,7 +430,7 @@ inline rx_prog rx_compile(std::string_view source, std::string_view flags) {
 struct rx_state {
 	const std::string * s = nullptr;
 	const rx_prog * p = nullptr;
-	std::vector<std::pair<long, long>> caps; // -1,-1 = unmatched
+	std::vector<std::pair<std::ptrdiff_t, std::ptrdiff_t>> caps; // -1,-1 = unmatched
 };
 
 inline char rx_fold(char c, bool icase) {
@@ -458,11 +460,11 @@ inline constexpr bool rx_class_hit(const rx_class & cc, char ch, bool icase) {
 	return cc.neg ? !hit : hit;
 }
 
-using rx_cont = std::function<bool(size_t)>;
+using rx_cont = std::function<bool(std::size_t)>;
 
-inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos, const rx_cont & k);
+inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, std::size_t pos, const rx_cont & k);
 
-inline constexpr bool rx_match_once(const rx_piece & pc, rx_state & st, size_t pos, const rx_cont & k) {
+inline constexpr bool rx_match_once(const rx_piece & pc, rx_state & st, std::size_t pos, const rx_cont & k) {
 	const std::string & s = *st.s;
 	switch (pc.kind) {
 	case rx_piece::lit:
@@ -484,30 +486,30 @@ inline constexpr bool rx_match_once(const rx_piece & pc, rx_state & st, size_t p
 		return boundary == (pc.kind == rx_piece::wordb) && k(pos);
 	}
 	case rx_piece::grp: {
-		const int cap = pc.cap;
-		const auto saved = cap >= 0 ? st.caps[static_cast<size_t>(cap)]
-		                            : std::pair<long, long>{-1, -1};
-		const bool ok = rx_match_alt(*pc.sub, st, pos, [&](size_t end) {
+		const std::int32_t cap = pc.cap;
+		const auto saved = cap >= 0 ? st.caps[static_cast<std::size_t>(cap)]
+		                            : std::pair<std::ptrdiff_t, std::ptrdiff_t>{-1, -1};
+		const bool ok = rx_match_alt(*pc.sub, st, pos, [&](std::size_t end) {
 			if (cap >= 0) {
-				st.caps[static_cast<size_t>(cap)] = {static_cast<long>(pos),
-				                                     static_cast<long>(end)};
+				st.caps[static_cast<std::size_t>(cap)] = {static_cast<std::ptrdiff_t>(pos),
+				                                     static_cast<std::ptrdiff_t>(end)};
 			}
 			return k(end);
 		});
-		if (!ok && cap >= 0) { st.caps[static_cast<size_t>(cap)] = saved; }
+		if (!ok && cap >= 0) { st.caps[static_cast<std::size_t>(cap)] = saved; }
 		return ok;
 	}
 	}
 	return false;
 }
 
-inline constexpr bool rx_match_piece(const rx_piece & pc, rx_state & st, size_t pos, const rx_cont & k) {
+inline constexpr bool rx_match_piece(const rx_piece & pc, rx_state & st, std::size_t pos, const rx_cont & k) {
 	// quantified matching; a zero-width repetition stops the loop
-	std::function<bool(size_t, int)> rec = [&](size_t at, int n) -> bool {
+	std::function<bool(std::size_t, std::int32_t)> rec = [&](std::size_t at, std::int32_t n) -> bool {
 		const bool may_more = pc.max < 0 || n < pc.max;
 		const bool may_stop = n >= pc.min;
 		const auto more = [&]() {
-			return may_more && rx_match_once(pc, st, at, [&](size_t np) {
+			return may_more && rx_match_once(pc, st, at, [&](std::size_t np) {
 				       return np == at ? (n + 1 >= pc.min && k(np)) : rec(np, n + 1);
 			       });
 		};
@@ -517,15 +519,15 @@ inline constexpr bool rx_match_piece(const rx_piece & pc, rx_state & st, size_t 
 	return rec(pos, 0);
 }
 
-inline constexpr bool rx_match_seq(const rx_seq & sq, size_t idx, rx_state & st, size_t pos,
+inline constexpr bool rx_match_seq(const rx_seq & sq, std::size_t idx, rx_state & st, std::size_t pos,
                          const rx_cont & k) {
 	if (idx == sq.size()) { return k(pos); }
-	return rx_match_piece(sq[idx], st, pos, [&](size_t np) {
+	return rx_match_piece(sq[idx], st, pos, [&](std::size_t np) {
 		return rx_match_seq(sq, idx + 1, st, np, k);
 	});
 }
 
-inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos, const rx_cont & k) {
+inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, std::size_t pos, const rx_cont & k) {
 	for (const rx_seq & sq : alt.alts) {
 		if (rx_match_seq(sq, 0, st, pos, k)) { return true; }
 	}
@@ -533,18 +535,18 @@ inline constexpr bool rx_match_alt(const rx_alt & alt, rx_state & st, size_t pos
 }
 
 struct rx_match {
-	size_t begin = 0, end = 0;
-	std::vector<std::pair<long, long>> caps;
+	std::size_t begin = 0, end = 0;
+	std::vector<std::pair<std::ptrdiff_t, std::ptrdiff_t>> caps;
 };
 
-inline constexpr bool rx_search(const rx_prog & p, const std::string & s, size_t from, rx_match & out) {
-	for (size_t start = from; start <= s.size(); ++start) {
+inline constexpr bool rx_search(const rx_prog & p, const std::string & s, std::size_t from, rx_match & out) {
+	for (std::size_t start = from; start <= s.size(); ++start) {
 		rx_state st;
 		st.s = &s;
 		st.p = &p;
-		st.caps.assign(static_cast<size_t>(p.ngroups), {-1, -1});
-		size_t got_end = 0;
-		if (rx_match_alt(*p.root, st, start, [&](size_t end) {
+		st.caps.assign(static_cast<std::size_t>(p.ngroups), {-1, -1});
+		std::size_t got_end = 0;
+		if (rx_match_alt(*p.root, st, start, [&](std::size_t end) {
 			    got_end = end;
 			    return true;
 		    })) {
@@ -570,8 +572,8 @@ inline constexpr value rx_exec_array(const std::string & s, const rxd::rx_match 
 	for (const auto & [b, e] : m.caps) {
 		if (b < 0) { out.push_back(value{}); }
 		else {
-			out.push_back(value{s.substr(static_cast<size_t>(b),
-			                             static_cast<size_t>(e - b))});
+			out.push_back(value{s.substr(static_cast<std::size_t>(b),
+			                             static_cast<std::size_t>(e - b))});
 		}
 	}
 	return value::array(std::move(out));
@@ -579,7 +581,7 @@ inline constexpr value rx_exec_array(const std::string & s, const rxd::rx_match 
 
 inline constexpr value make_regex(std::string source, std::string flags) {
 	const auto prog = std::make_shared<rxd::rx_prog>(rxd::rx_compile(source, flags));
-	const auto last_index = std::make_shared<size_t>(0); // g-mode exec cursor
+	const auto last_index = std::make_shared<std::size_t>(0); // g-mode exec cursor
 	auto o = rc<object_t>::make();
 	o->set("__regex", value{true});
 	o->set("source", value{source});
@@ -597,7 +599,7 @@ inline constexpr value make_regex(std::string source, std::string flags) {
 	o->set("exec", value::function(
 	                   [prog, last_index](context &, const std::vector<value> & a) -> value {
 		                   const std::string s = a.empty() ? "" : a[0].to_string();
-		                   const size_t from = prog->global ? *last_index : 0;
+		                   const std::size_t from = prog->global ? *last_index : 0;
 		                   rxd::rx_match m;
 		                   if (from > s.size() || !rxd::rx_search(*prog, s, from, m)) {
 			                   *last_index = 0;
@@ -623,19 +625,19 @@ inline rxd::rx_prog rx_of(const value & re) {
 
 namespace detail {
 
-inline constexpr value arg_or_undefined(const std::vector<value> & a, size_t i) {
+inline constexpr value arg_or_undefined(const std::vector<value> & a, std::size_t i) {
 	return i < a.size() ? a[i] : value{};
 }
 
 // JS ToIntegerOrInfinity + relative index clamping for slice()
-inline constexpr size_t rel_index(double d, size_t len) {
+inline constexpr std::size_t rel_index(double d, std::size_t len) {
 	if (std::isnan(d)) { return 0; }
 	if (d < 0) {
 		d += static_cast<double>(len);
 		if (d < 0) { return 0; }
 	}
 	if (d > static_cast<double>(len)) { return len; }
-	return static_cast<size_t>(d);
+	return static_cast<std::size_t>(d);
 }
 
 // console.log renders arrays/objects like node does, not via ToString
@@ -796,30 +798,30 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 	}
 	if (name == "slice") {
 		return bound("slice", [arr](context &, const std::vector<value> & a) {
-			const size_t len = arr->size();
-			const size_t from = a.empty() ? 0 : rel_index(a[0].to_number(), len);
-			const size_t to = a.size() < 2 || a[1].is_undefined()
+			const std::size_t len = arr->size();
+			const std::size_t from = a.empty() ? 0 : rel_index(a[0].to_number(), len);
+			const std::size_t to = a.size() < 2 || a[1].is_undefined()
 			                      ? len
 			                      : rel_index(a[1].to_number(), len);
 			array_t out;
-			for (size_t i = from; i < to; ++i) { out.push_back((*arr)[i]); }
+			for (std::size_t i = from; i < to; ++i) { out.push_back((*arr)[i]); }
 			return value::array(std::move(out));
 		});
 	}
 	if (name == "splice") {
 		return bound("splice", [arr](context &, const std::vector<value> & a) {
-			const size_t len = arr->size();
-			const size_t start = a.empty() ? 0 : rel_index(a[0].to_number(), len);
-			size_t del;
+			const std::size_t len = arr->size();
+			const std::size_t start = a.empty() ? 0 : rel_index(a[0].to_number(), len);
+			std::size_t del;
 			if (a.size() < 2) {
 				del = len - start; // no deleteCount -> remove through the end
 			} else {
 				const double dc = a[1].to_number();
-				del = (std::isnan(dc) || dc < 0) ? 0 : static_cast<size_t>(dc);
+				del = (std::isnan(dc) || dc < 0) ? 0 : static_cast<std::size_t>(dc);
 				if (del > len - start) { del = len - start; }
 			}
 			array_t removed;
-			for (size_t i = 0; i < del; ++i) { removed.push_back((*arr)[start + i]); }
+			for (std::size_t i = 0; i < del; ++i) { removed.push_back((*arr)[start + i]); }
 			arr->erase(arr->begin() + static_cast<std::ptrdiff_t>(start),
 			           arr->begin() + static_cast<std::ptrdiff_t>(start + del));
 			if (a.size() > 2) {
@@ -832,7 +834,7 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 		const bool want_index = (name == "findIndex");
 		return bound(want_index ? "findIndex" : "find", [arr, recv, want_index](context & cx, const std::vector<value> & a) -> value {
 			if (a.empty() || !a[0].is_function()) { return want_index ? value{-1.0} : value{}; }
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				if (call_value(cx, a[0], {(*arr)[i], value{static_cast<double>(i)}, recv}).truthy()) {
 					return want_index ? value{static_cast<double>(i)} : (*arr)[i];
 				}
@@ -844,7 +846,7 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 		const bool is_every = (name == "every");
 		return bound(is_every ? "every" : "some", [arr, recv, is_every](context & cx, const std::vector<value> & a) -> value {
 			if (a.empty() || !a[0].is_function()) { return value{is_every}; }
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				const bool t = call_value(cx, a[0], {(*arr)[i], value{static_cast<double>(i)}, recv}).truthy();
 				if (is_every && !t) { return value{false}; }
 				if (!is_every && t) { return value{true}; }
@@ -854,18 +856,18 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 	}
 	if (name == "fill") {
 		return bound("fill", [arr](context &, const std::vector<value> & a) {
-			const size_t len = arr->size();
+			const std::size_t len = arr->size();
 			const value fv = arg_or_undefined(a, 0);
-			const size_t from = a.size() < 2 ? 0 : rel_index(a[1].to_number(), len);
-			const size_t to = a.size() < 3 || a[2].is_undefined() ? len : rel_index(a[2].to_number(), len);
-			for (size_t i = from; i < to; ++i) { (*arr)[i] = fv; }
+			const std::size_t from = a.size() < 2 ? 0 : rel_index(a[1].to_number(), len);
+			const std::size_t to = a.size() < 3 || a[2].is_undefined() ? len : rel_index(a[2].to_number(), len);
+			for (std::size_t i = from; i < to; ++i) { (*arr)[i] = fv; }
 			return value{arr};
 		});
 	}
 	if (name == "indexOf") {
 		return bound("indexOf", [arr](context &, const std::vector<value> & a) {
 			const value target = arg_or_undefined(a, 0);
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				if (strict_equals((*arr)[i], target)) { return value{static_cast<double>(i)}; }
 			}
 			return value{-1.0};
@@ -933,7 +935,7 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 	if (name == "map") {
 		return bound("map", [arr](context & c, const std::vector<value> & a) {
 			array_t out;
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				out.push_back(call_value(c, arg_or_undefined(a, 0),
 				                         {(*arr)[i], value{static_cast<double>(i)}}));
 			}
@@ -943,7 +945,7 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 	if (name == "filter") {
 		return bound("filter", [arr](context & c, const std::vector<value> & a) {
 			array_t out;
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				if (call_value(c, arg_or_undefined(a, 0),
 				               {(*arr)[i], value{static_cast<double>(i)}})
 				        .truthy()) {
@@ -955,7 +957,7 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 	}
 	if (name == "forEach") {
 		return bound("forEach", [arr](context & c, const std::vector<value> & a) {
-			for (size_t i = 0; i < arr->size(); ++i) {
+			for (std::size_t i = 0; i < arr->size(); ++i) {
 				call_value(c, arg_or_undefined(a, 0),
 				           {(*arr)[i], value{static_cast<double>(i)}});
 			}
@@ -964,7 +966,7 @@ inline constexpr value array_member(const value & recv, std::string_view name) {
 	}
 	if (name == "reduce") {
 		return bound("reduce", [arr](context & c, const std::vector<value> & a) {
-			size_t i = 0;
+			std::size_t i = 0;
 			value acc;
 			if (a.size() >= 2) {
 				acc = a[1];
@@ -990,9 +992,9 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 	if (name == "length") { return value{s.size()}; }
 	if (name == "slice") {
 		return bound("slice", [s](context &, const std::vector<value> & a) {
-			const size_t len = s.size();
-			const size_t from = a.empty() ? 0 : rel_index(a[0].to_number(), len);
-			const size_t to = a.size() < 2 || a[1].is_undefined()
+			const std::size_t len = s.size();
+			const std::size_t from = a.empty() ? 0 : rel_index(a[0].to_number(), len);
+			const std::size_t to = a.size() < 2 || a[1].is_undefined()
 			                      ? len
 			                      : rel_index(a[1].to_number(), len);
 			return value{from < to ? s.substr(from, to - from) : std::string{}};
@@ -1058,7 +1060,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 			}
 			if (is_regex(a[0])) {
 				const rxd::rx_prog prog = rx_of(a[0]);
-				size_t at = 0;
+				std::size_t at = 0;
 				rxd::rx_match m;
 				while (at <= s.size() && rxd::rx_search(prog, s, at, m)) {
 					if (m.end == m.begin) { // zero-width: avoid stalling
@@ -1078,9 +1080,9 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 				for (const char c : s) { out.push_back(value{std::string(1, c)}); }
 				return value::array(std::move(out));
 			}
-			size_t at = 0;
+			std::size_t at = 0;
 			while (true) {
-				const size_t hit = s.find(sep, at);
+				const std::size_t hit = s.find(sep, at);
 				if (hit == std::string::npos) {
 					out.push_back(value{s.substr(at)});
 					break;
@@ -1097,7 +1099,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 			if (std::isnan(d) || d < 0 || d >= static_cast<double>(s.size())) {
 				return value{std::string{}};
 			}
-			return value{std::string(1, s[static_cast<size_t>(d)])};
+			return value{std::string(1, s[static_cast<std::size_t>(d)])};
 		});
 	}
 	if (name == "charCodeAt") {
@@ -1107,7 +1109,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 				return value{std::nan("")};
 			}
 			return value{static_cast<double>(
-			    static_cast<unsigned char>(s[static_cast<size_t>(d)]))};
+			    static_cast<unsigned char>(s[static_cast<std::size_t>(d)]))};
 		});
 	}
 	if (name == "repeat") {
@@ -1115,7 +1117,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 			const double d = a.empty() ? 0 : a[0].to_number();
 			if (d < 0 || std::isinf(d)) { throw_error("RangeError", "Invalid count value"); }
 			std::string out;
-			for (size_t i = 0; i < static_cast<size_t>(d); ++i) { out += s; }
+			for (std::size_t i = 0; i < static_cast<std::size_t>(d); ++i) { out += s; }
 			return value{out};
 		});
 	}
@@ -1125,12 +1127,12 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 				const rxd::rx_prog prog = rx_of(a[0]);
 				const std::string tpl = arg_or_undefined(a, 1).to_string();
 				std::string out;
-				size_t at = 0;
+				std::size_t at = 0;
 				rxd::rx_match m;
 				while (at <= s.size() && rxd::rx_search(prog, s, at, m)) {
 					out += s.substr(at, m.begin - at);
 					// substitute $&, $1..$9, $$ into the replacement
-					for (size_t i = 0; i < tpl.size(); ++i) {
+					for (std::size_t i = 0; i < tpl.size(); ++i) {
 						if (tpl[i] != '$' || i + 1 >= tpl.size()) {
 							out += tpl[i];
 							continue;
@@ -1139,11 +1141,11 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 						if (d == '$') { out += '$'; }
 						else if (d == '&') { out += s.substr(m.begin, m.end - m.begin); }
 						else if (d >= '1' && d <= '9' &&
-						         static_cast<size_t>(d - '1') < m.caps.size()) {
-							const auto & [b, e] = m.caps[static_cast<size_t>(d - '1')];
+						         static_cast<std::size_t>(d - '1') < m.caps.size()) {
+							const auto & [b, e] = m.caps[static_cast<std::size_t>(d - '1')];
 							if (b >= 0) {
-								out += s.substr(static_cast<size_t>(b),
-								                static_cast<size_t>(e - b));
+								out += s.substr(static_cast<std::size_t>(b),
+								                static_cast<std::size_t>(e - b));
 							}
 						} else {
 							out += '$';
@@ -1159,7 +1161,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 			}
 			const std::string from = arg_or_undefined(a, 0).to_string();
 			const std::string to = arg_or_undefined(a, 1).to_string();
-			const size_t hit = s.find(from);
+			const std::size_t hit = s.find(from);
 			if (hit == std::string::npos || from.empty()) { return value{s}; }
 			std::string out = s;
 			out.replace(hit, from.size(), to);
@@ -1178,7 +1180,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 				return rx_exec_array(s, m);
 			}
 			array_t out;
-			size_t at = 0;
+			std::size_t at = 0;
 			while (at <= s.size() && rxd::rx_search(prog, s, at, m)) {
 				out.push_back(value{s.substr(m.begin, m.end - m.begin)});
 				at = m.end > m.begin ? m.end : m.end + 1;
@@ -1193,9 +1195,9 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 			const std::string to = arg_or_undefined(a, 1).to_string();
 			if (from.empty()) { return value{s}; }
 			std::string out;
-			size_t at = 0;
+			std::size_t at = 0;
 			while (true) {
-				const size_t hit = s.find(from, at);
+				const std::size_t hit = s.find(from, at);
 				if (hit == std::string::npos) {
 					out += s.substr(at);
 					break;
@@ -1211,8 +1213,8 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 		const bool at_start = name == "padStart";
 		return bound(std::string{name}, [s, at_start](context &, const std::vector<value> & a) {
 			const double want_d = a.empty() ? 0 : a[0].to_number();
-			const size_t want =
-			    std::isnan(want_d) || want_d < 0 ? 0 : static_cast<size_t>(want_d);
+			const std::size_t want =
+			    std::isnan(want_d) || want_d < 0 ? 0 : static_cast<std::size_t>(want_d);
 			const std::string pad =
 			    a.size() < 2 || a[1].is_undefined() ? " " : a[1].to_string();
 			std::string out = s;
@@ -1239,7 +1241,7 @@ inline constexpr value number_member(const value & recv, std::string_view name) 
 	}
 	if (name == "toFixed") {
 		return bound("toFixed", [d](context &, const std::vector<value> & a) {
-			const int digits = a.empty() ? 0 : static_cast<int>(a[0].to_number());
+			const std::int32_t digits = a.empty() ? 0 : static_cast<std::int32_t>(a[0].to_number());
 			if (digits < 0 || digits > 100) {
 				throw_error("RangeError", "toFixed() digits argument must be between 0 and 100");
 			}
@@ -1311,19 +1313,19 @@ inline constexpr value get_index(context & cx, const value & recv, const value &
 		const double d = key.as_number();
 		const auto & arr = *recv.as_array();
 		if (d < 0 || d >= static_cast<double>(arr.size()) ||
-		    d != static_cast<double>(static_cast<size_t>(d))) {
+		    d != static_cast<double>(static_cast<std::size_t>(d))) {
 			return value{};
 		}
-		return arr[static_cast<size_t>(d)];
+		return arr[static_cast<std::size_t>(d)];
 	}
 	if (recv.is_string() && key.is_number()) {
 		const double d = key.as_number();
 		const std::string & s = recv.as_string();
 		if (d < 0 || d >= static_cast<double>(s.size()) ||
-		    d != static_cast<double>(static_cast<size_t>(d))) {
+		    d != static_cast<double>(static_cast<std::size_t>(d))) {
 			return value{};
 		}
-		return value{std::string(1, s[static_cast<size_t>(d)])};
+		return value{std::string(1, s[static_cast<std::size_t>(d)])};
 	}
 	return get_member(cx, recv, key.to_string());
 }
@@ -1359,7 +1361,7 @@ inline constexpr void set_member(context & cx, const value & recv, std::string_v
 		return;
 	}
 	if (recv.is_array() && name == "length") {
-		recv.as_array()->resize(static_cast<size_t>(v.to_number()));
+		recv.as_array()->resize(static_cast<std::size_t>(v.to_number()));
 		return;
 	}
 	if (recv.is_function()) { // statics: C.x = ... / F.prototype = ...
@@ -1374,9 +1376,9 @@ inline constexpr void set_member(context & cx, const value & recv, std::string_v
 inline constexpr void set_index(context & cx, const value & recv, const value & key, value v) {
 	if (recv.is_array() && key.is_number()) {
 		const double d = key.as_number();
-		if (d >= 0 && d == static_cast<double>(static_cast<size_t>(d))) {
+		if (d >= 0 && d == static_cast<double>(static_cast<std::size_t>(d))) {
 			auto & arr = *recv.as_array();
-			const size_t i = static_cast<size_t>(d);
+			const std::size_t i = static_cast<std::size_t>(d);
 			if (i >= arr.size()) { arr.resize(i + 1); }
 			arr[i] = std::move(v);
 			return;
@@ -1496,18 +1498,18 @@ inline constexpr value make_math() {
 
 // JSON.parse: strict recursive descent -> value tree; SyntaxError on
 // anything malformed (no reviver in v0.1)
-inline constexpr void json_ws(std::string_view s, size_t & i) {
+inline constexpr void json_ws(std::string_view s, std::size_t & i) {
 	while (i < s.size() &&
 	       (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r')) {
 		++i;
 	}
 }
 
-[[noreturn]] inline void json_fail(size_t at) {
+[[noreturn]] inline void json_fail(std::size_t at) {
 	throw_error("SyntaxError", "Unexpected token in JSON at position " + std::to_string(at));
 }
 
-inline constexpr void json_utf8(std::string & out, unsigned cp) {
+inline constexpr void json_utf8(std::string & out, std::uint32_t cp) {
 	if (cp < 0x80) {
 		out += static_cast<char>(cp);
 	} else if (cp < 0x800) {
@@ -1525,22 +1527,22 @@ inline constexpr void json_utf8(std::string & out, unsigned cp) {
 	}
 }
 
-inline unsigned json_hex4(std::string_view s, size_t & i) {
+inline std::uint32_t json_hex4(std::string_view s, std::size_t & i) {
 	if (i + 4 > s.size()) { json_fail(i); }
-	unsigned cp = 0;
-	for (size_t k = 0; k < 4; ++k) {
+	std::uint32_t cp = 0;
+	for (std::size_t k = 0; k < 4; ++k) {
 		const char c = s[i + k];
 		cp <<= 4;
-		if (c >= '0' && c <= '9') { cp |= static_cast<unsigned>(c - '0'); }
-		else if (c >= 'a' && c <= 'f') { cp |= static_cast<unsigned>(c - 'a' + 10); }
-		else if (c >= 'A' && c <= 'F') { cp |= static_cast<unsigned>(c - 'A' + 10); }
+		if (c >= '0' && c <= '9') { cp |= static_cast<std::uint32_t>(c - '0'); }
+		else if (c >= 'a' && c <= 'f') { cp |= static_cast<std::uint32_t>(c - 'a' + 10); }
+		else if (c >= 'A' && c <= 'F') { cp |= static_cast<std::uint32_t>(c - 'A' + 10); }
 		else { json_fail(i + k); }
 	}
 	i += 4;
 	return cp;
 }
 
-inline constexpr std::string json_string(std::string_view s, size_t & i) {
+inline constexpr std::string json_string(std::string_view s, std::size_t & i) {
 	// s[i] == '"' on entry
 	++i;
 	std::string out;
@@ -1566,11 +1568,11 @@ inline constexpr std::string json_string(std::string_view s, size_t & i) {
 		case 't': out += '\t'; ++i; break;
 		case 'u': {
 			++i;
-			unsigned cp = json_hex4(s, i);
+			std::uint32_t cp = json_hex4(s, i);
 			if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < s.size() && s[i] == '\\' &&
 			    s[i + 1] == 'u') { // surrogate pair
-				size_t j = i + 2;
-				const unsigned lo = json_hex4(s, j);
+				std::size_t j = i + 2;
+				const std::uint32_t lo = json_hex4(s, j);
 				if (lo >= 0xDC00 && lo <= 0xDFFF) {
 					cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
 					i = j;
@@ -1584,7 +1586,7 @@ inline constexpr std::string json_string(std::string_view s, size_t & i) {
 	}
 }
 
-inline constexpr value json_value(std::string_view s, size_t & i, int depth) {
+inline constexpr value json_value(std::string_view s, std::size_t & i, std::int32_t depth) {
 	if (depth > 128) { json_fail(i); } // nesting bound, plain-stack safety
 	json_ws(s, i);
 	if (i >= s.size()) { json_fail(i); }
@@ -1626,7 +1628,7 @@ inline constexpr value json_value(std::string_view s, size_t & i, int depth) {
 	if (s.compare(i, 5, "false") == 0) { i += 5; return value{false}; }
 	if (s.compare(i, 4, "null") == 0) { i += 4; return value::null(); }
 	if (c == '-' || (c >= '0' && c <= '9')) {
-		const size_t start = i;
+		const std::size_t start = i;
 		if (s[i] == '-') { ++i; }
 		if (i >= s.size() || s[i] < '0' || s[i] > '9') { json_fail(i); }
 		if (s[i] == '0') { ++i; } // no leading zeros
@@ -1653,7 +1655,7 @@ inline constexpr value make_json() {
 	json.set("parse", value::function(
 	                      [](context &, const std::vector<value> & a) {
 		                      const std::string text = arg_or_undefined(a, 0).to_string();
-		                      size_t i = 0;
+		                      std::size_t i = 0;
 		                      value out = json_value(text, i, 0);
 		                      json_ws(text, i);
 		                      if (i != text.size()) { json_fail(i); }
@@ -1675,28 +1677,28 @@ inline constexpr value make_json() {
 } // namespace detail
 
 // days -> y/m/d (proleptic Gregorian, UTC); Hinnant's civil_from_days
-inline constexpr void civil_from_days(long long z, long long & y, unsigned & m, unsigned & d) {
+inline constexpr void civil_from_days(std::int64_t z, std::int64_t & y, std::uint32_t & m, std::uint32_t & d) {
 	z += 719468;
-	const long long era = (z >= 0 ? z : z - 146096) / 146097;
-	const unsigned long long doe = static_cast<unsigned long long>(z - era * 146097);
-	const unsigned long long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-	y = static_cast<long long>(yoe) + era * 400;
-	const unsigned long long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-	const unsigned long long mp = (5 * doy + 2) / 153;
-	d = static_cast<unsigned>(doy - (153 * mp + 2) / 5 + 1);
-	m = static_cast<unsigned>(mp < 10 ? mp + 3 : mp - 9);
+	const std::int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+	const std::uint64_t doe = static_cast<std::uint64_t>(z - era * 146097);
+	const std::uint64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+	y = static_cast<std::int64_t>(yoe) + era * 400;
+	const std::uint64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+	const std::uint64_t mp = (5 * doy + 2) / 153;
+	d = static_cast<std::uint32_t>(doy - (153 * mp + 2) / 5 + 1);
+	m = static_cast<std::uint32_t>(mp < 10 ? mp + 3 : mp - 9);
 	if (m <= 2) { ++y; }
 }
 
 // y/m/d -> days since the epoch (inverse of the above); Hinnant
-inline long long days_from_civil(long long y, unsigned m, unsigned d) {
+inline std::int64_t days_from_civil(std::int64_t y, std::uint32_t m, std::uint32_t d) {
 	y -= m <= 2;
-	const long long era = (y >= 0 ? y : y - 399) / 400;
-	const unsigned yoe = static_cast<unsigned>(y - era * 400);
-	const unsigned doy =
+	const std::int64_t era = (y >= 0 ? y : y - 399) / 400;
+	const std::uint32_t yoe = static_cast<std::uint32_t>(y - era * 400);
+	const std::uint32_t doy =
 	    (153u * (m + (m > 2 ? -3u : 9u)) + 2u) / 5u + d - 1u;
-	const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
-	return era * 146097 + static_cast<long long>(doe) - 719468;
+	const std::uint32_t doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+	return era * 146097 + static_cast<std::int64_t>(doe) - 719468;
 }
 
 // parse the ISO-8601 subset toISOString produces (plus date-only and
@@ -1704,10 +1706,10 @@ inline long long days_from_civil(long long y, unsigned m, unsigned d) {
 inline constexpr double parse_date_ms(std::string_view s) {
 	while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) { s.remove_prefix(1); }
 	while (!s.empty() && (s.back() == ' ' || s.back() == '\t')) { s.remove_suffix(1); }
-	const auto num = [&](size_t pos, size_t len) -> long {
+	const auto num = [&](std::size_t pos, std::size_t len) -> std::int32_t {
 		if (pos + len > s.size()) { return -1; }
-		long v = 0;
-		for (size_t i = 0; i < len; ++i) {
+		std::int32_t v = 0;
+		for (std::size_t i = 0; i < len; ++i) {
 			const char c = s[pos + i];
 			if (c < '0' || c > '9') { return -1; }
 			v = v * 10 + (c - '0');
@@ -1715,10 +1717,10 @@ inline constexpr double parse_date_ms(std::string_view s) {
 		return v;
 	};
 	if (s.size() < 10 || s[4] != '-' || s[7] != '-') { return std::nan(""); }
-	const long Y = num(0, 4), Mo = num(5, 2), D = num(8, 2);
+	const std::int32_t Y = num(0, 4), Mo = num(5, 2), D = num(8, 2);
 	if (Y < 0 || Mo < 1 || Mo > 12 || D < 1 || D > 31) { return std::nan(""); }
-	long hh = 0, mm = 0, ss = 0, ms = 0;
-	size_t i = 10;
+	std::int32_t hh = 0, mm = 0, ss = 0, ms = 0;
+	std::size_t i = 10;
 	if (s.size() > 10 && (s[10] == 'T' || s[10] == ' ')) {
 		if (s.size() < 16 || s[13] != ':') { return std::nan(""); }
 		hh = num(11, 2);
@@ -1731,8 +1733,8 @@ inline constexpr double parse_date_ms(std::string_view s) {
 			i += 3;
 		}
 		if (s.size() > i && s[i] == '.') {
-			size_t j = i + 1, k = 0;
-			long f = 0;
+			std::size_t j = i + 1, k = 0;
+			std::int32_t f = 0;
 			while (j < s.size() && k < 3 && s[j] >= '0' && s[j] <= '9') {
 				f = f * 10 + (s[j] - '0');
 				++j;
@@ -1745,7 +1747,7 @@ inline constexpr double parse_date_ms(std::string_view s) {
 		}
 	}
 	if (i < s.size() && s[i] != 'Z') { return std::nan(""); } // only UTC ('Z' or bare)
-	const long long days = days_from_civil(Y, static_cast<unsigned>(Mo), static_cast<unsigned>(D));
+	const std::int64_t days = days_from_civil(Y, static_cast<std::uint32_t>(Mo), static_cast<std::uint32_t>(D));
 	return static_cast<double>(days) * 86400000.0 + static_cast<double>(hh) * 3600000.0 +
 	       static_cast<double>(mm) * 60000.0 + static_cast<double>(ss) * 1000.0 +
 	       static_cast<double>(ms);
@@ -1754,13 +1756,13 @@ inline constexpr double parse_date_ms(std::string_view s) {
 inline constexpr value make_date_object(double ms) {
 	auto o = rc<object_t>::make();
 	o->set("__date_ms", value{ms});
-	const auto part = [ms](int which) -> double {
-		const long long total = static_cast<long long>(ms);
-		long long days = total / 86400000;
-		long long rem = total % 86400000;
+	const auto part = [ms](std::int32_t which) -> double {
+		const std::int64_t total = static_cast<std::int64_t>(ms);
+		std::int64_t days = total / 86400000;
+		std::int64_t rem = total % 86400000;
 		if (rem < 0) { rem += 86400000; --days; }
-		long long y;
-		unsigned mo, dy;
+		std::int64_t y;
+		std::uint32_t mo, dy;
 		civil_from_days(days, y, mo, dy);
 		switch (which) {
 		case 0: return static_cast<double>(y);
@@ -1773,7 +1775,7 @@ inline constexpr value make_date_object(double ms) {
 		default: return static_cast<double>((days % 7 + 11) % 7); // 1970-01-01 = Thursday
 		}
 	};
-	const auto getter = [part](const char * name, int which) {
+	const auto getter = [part](const char * name, std::int32_t which) {
 		return value::function(
 		    [part, which](context &, const std::vector<value> &) { return value{part(which)}; },
 		    name);
@@ -1795,13 +1797,13 @@ inline constexpr value make_date_object(double ms) {
 		                          char buf[40];
 		                          std::snprintf(buf, sizeof(buf),
 		                                        "%04lld-%02u-%02uT%02u:%02u:%02u.%03uZ",
-		                                        static_cast<long long>(part(0)),
-		                                        static_cast<unsigned>(part(1)) + 1,
-		                                        static_cast<unsigned>(part(2)),
-		                                        static_cast<unsigned>(part(3)),
-		                                        static_cast<unsigned>(part(4)),
-		                                        static_cast<unsigned>(part(5)),
-		                                        static_cast<unsigned>(part(6)));
+		                                        static_cast<std::int64_t>(part(0)),
+		                                        static_cast<std::uint32_t>(part(1)) + 1,
+		                                        static_cast<std::uint32_t>(part(2)),
+		                                        static_cast<std::uint32_t>(part(3)),
+		                                        static_cast<std::uint32_t>(part(4)),
+		                                        static_cast<std::uint32_t>(part(5)),
+		                                        static_cast<std::uint32_t>(part(6)));
 		                          return value{std::string{buf}};
 	                          },
 	                          "toISOString"));
@@ -1913,7 +1915,7 @@ inline constexpr env_ptr make_globals() {
 			                    if (a.empty()) { return value{}; }
 			                    const value target = a[0];
 			                    if (!target.is_object()) { return target; }
-			                    for (size_t i = 1; i < a.size(); ++i) {
+			                    for (std::size_t i = 1; i < a.size(); ++i) {
 				                    if (!a[i].is_object()) { continue; }
 				                    for (const auto & [k, v] : a[i].as_object()->props) {
 					                    if (own_ok(k, v)) { set_member(cx, target, k, v); }
@@ -2003,11 +2005,11 @@ inline constexpr env_ptr make_globals() {
 	g->declare("parseInt", value::function(
 	                           [](context &, const std::vector<value> & a) {
 		                           std::string s = detail::arg_or_undefined(a, 0).to_string();
-		                           const int radix =
+		                           const std::int32_t radix =
 		                               a.size() > 1 && !a[1].is_undefined()
-		                                   ? static_cast<int>(a[1].to_number())
+		                                   ? static_cast<std::int32_t>(a[1].to_number())
 		                                   : 10;
-		                           size_t at = 0;
+		                           std::size_t at = 0;
 		                           while (at < s.size() &&
 		                                  (s[at] == ' ' || s[at] == '\t' || s[at] == '\n')) {
 			                           ++at;
@@ -2019,7 +2021,7 @@ inline constexpr env_ptr make_globals() {
 		                           }
 		                           // spec: an unspecified (or 16) radix accepts an
 		                           // 0x/0X prefix and parses hexadecimal
-		                           int r = radix;
+		                           std::int32_t r = radix;
 		                           if ((r == 10 || r == 16) && at + 1 < s.size() &&
 		                               s[at] == '0' && (s[at + 1] == 'x' || s[at + 1] == 'X')) {
 			                           const bool defaulted =
@@ -2030,10 +2032,10 @@ inline constexpr env_ptr make_globals() {
 				                           at += 2;
 			                           }
 		                           }
-		                           long long out = 0;
-		                           size_t digits = 0;
+		                           std::int64_t out = 0;
+		                           std::size_t digits = 0;
 		                           for (; at < s.size(); ++at) {
-			                           int d = -1;
+			                           std::int32_t d = -1;
 			                           const char c = s[at];
 			                           if (c >= '0' && c <= '9') { d = c - '0'; }
 			                           else if (c >= 'a' && c <= 'z') { d = c - 'a' + 10; }

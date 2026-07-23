@@ -1,6 +1,9 @@
 #ifndef CTJS__ASI__HPP
 #define CTJS__ASI__HPP
 
+#include <cstddef>
+#include <cstdint>
+
 #include "../ctlark.hpp"   // ctll::fixed_string
 
 // Automatic Semicolon Insertion (ASI).
@@ -64,8 +67,8 @@ constexpr bool kw_eq(const char32_t * s, std::size_t a, std::size_t b, const cha
 template <class Emit>
 constexpr void run(const char32_t * s, std::size_t n, Emit emit) {
 	frame stack[512];
-	int sp = 0;
-	int fn_expr_depth = -1;   // stack depth at a `function` EXPRESSION keyword;
+	std::int32_t sp = 0;
+	std::int32_t fn_expr_depth = -1;   // stack depth at a `function` EXPRESSION keyword;
 	                          // the body '{' opened back at this depth is an
 	                          // expression block whose '}' ends the statement
 	tok prev;
@@ -157,7 +160,7 @@ constexpr void run(const char32_t * s, std::size_t n, Emit emit) {
 			if (i < n) { ++i; }
 			t.ender = true; t.div_ok = true;
 		} else if (c == '`') {
-			++i; int depth = 0;
+			++i; std::int32_t depth = 0;
 			while (i < n) {
 				char32_t d = s[i];
 				if (d == '\\' && i + 1 < n) { i += 2; continue; }

@@ -1,6 +1,8 @@
 #ifndef CTJS__VPARSE__HPP
 #define CTJS__VPARSE__HPP
 
+#include <cstddef>
+
 #include <cstdint>
 #include <string_view>
 #include <vector>
@@ -128,7 +130,7 @@ constexpr std::vector<token> lex(std::string_view src) {
 		}
 		// template literal (whole thing as one token for now; ${} kept inside)
 		if (c == '`') {
-			++i; int depth = 0;
+			++i; std::int32_t depth = 0;
 			while (i < n) {
 				char d = src[i];
 				if (d == '\\' && i + 1 < n) { i += 2; continue; }
@@ -191,22 +193,22 @@ enum class nk : std::uint8_t {
 struct node {
 	nk kind;
 	std::string_view text;                 // op / name / literal lexeme / flag
-	int a = -1, b = -1, c = -1, d = -1;    // fixed child slots
-	int list = -1, list_len = 0;           // variable-arity children (into ast::pool)
+	std::int32_t a = -1, b = -1, c = -1, d = -1;    // fixed child slots
+	std::int32_t list = -1, list_len = 0;           // variable-arity children (into ast::pool)
 };
 
 struct ast {
 	std::vector<node> nodes;
-	std::vector<int> pool;                 // child-index pool for list nodes
-	int root = -1;
+	std::vector<std::int32_t> pool;                 // child-index pool for list nodes
+	std::int32_t root = -1;
 	bool ok = true;
 	std::string_view error;
 	std::size_t error_tok = 0;
 
-	constexpr int add(node nd) { nodes.push_back(nd); return static_cast<int>(nodes.size()) - 1; }
-	constexpr int add_list(const std::vector<int> & kids) {
-		int at = static_cast<int>(pool.size());
-		for (int k : kids) { pool.push_back(k); }
+	constexpr std::int32_t add(node nd) { nodes.push_back(nd); return static_cast<std::int32_t>(nodes.size()) - 1; }
+	constexpr std::int32_t add_list(const std::vector<std::int32_t> & kids) {
+		std::int32_t at = static_cast<std::int32_t>(pool.size());
+		for (std::int32_t k : kids) { pool.push_back(k); }
 		return at;
 	}
 };
@@ -230,7 +232,7 @@ struct parser {
 	constexpr bool eat_p(std::string_view s) { if (is_p(s)) { advance(); return true; } return false; }
 	constexpr bool eat_kw(std::string_view s) { if (is_kw(s)) { advance(); return true; } return false; }
 
-	constexpr int fail(std::string_view msg) {
+	constexpr std::int32_t fail(std::string_view msg) {
 		if (a.ok) { a.ok = false; a.error = msg; a.error_tok = p; }
 		return -1;
 	}
@@ -244,7 +246,7 @@ struct parser {
 		       o == "^=" || o == "&&=" || o == "||=" || o == "?\?=";
 	}
 	// left binding power of the current (infix) token; -1 if not infix
-	constexpr int lbp() const {
+	constexpr std::int32_t lbp() const {
 		if (cur().kind == tk::kw) {
 			if (cur().s == "in" || cur().s == "instanceof") { return 13; }
 			return -1;
@@ -269,24 +271,24 @@ struct parser {
 	}
 
 	// --- expressions ---------------------------------------------------------
-	constexpr int expr(int min_bp) {
-		int left = unary();
+	constexpr std::int32_t expr(std::int32_t min_bp) {
+		std::int32_t left = unary();
 		for (;;) {
-			int bp = lbp();
+			std::int32_t bp = lbp();
 			if (bp < 0 || bp < min_bp) { break; }
 			std::string_view o = cur().s;
 			if (cur().kind == tk::punct && o == "?") {           // ternary
 				advance();
-				int cons = expr(0);
+				std::int32_t cons = expr(0);
 				expect_p(":");
-				int alt = expr(2);                                // right side down to assignment
+				std::int32_t alt = expr(2);                                // right side down to assignment
 				node nd{nk::ternary, "?:"}; nd.a = left; nd.b = cons; nd.c = alt;
 				left = a.add(nd);
 				continue;
 			}
 			if (cur().kind == tk::punct && is_assign_op(o)) {    // assignment (right-assoc)
 				advance();
-				int right = expr(bp);
+				std::int32_t right = expr(bp);
 				node nd{nk::assign, o}; nd.a = left; nd.b = right;
 				left = a.add(nd);
 				continue;
@@ -294,14 +296,14 @@ struct parser {
 			// binary / logical / relational (left-assoc; ** right-assoc)
 			bool logical = (o == "&&" || o == "||" || o == "??");
 			advance();
-			int right = expr(o == "**" ? bp : bp + 1);
+			std::int32_t right = expr(o == "**" ? bp : bp + 1);
 			node nd{logical ? nk::logical : nk::binary, o}; nd.a = left; nd.b = right;
 			left = a.add(nd);
 		}
 		return left;
 	}
 
-	constexpr int unary() {
+	constexpr std::int32_t unary() {
 		if (cur().kind == tk::punct) {
 			std::string_view o = cur().s;
 			if (o == "!" || o == "-" || o == "+" || o == "~") {
@@ -320,8 +322,8 @@ struct parser {
 		return postfix();
 	}
 
-	constexpr int postfix() {
-		int e = primary();
+	constexpr std::int32_t postfix() {
+		std::int32_t e = primary();
 		for (;;) {
 			if (is_p(".")) { advance(); node nd{nk::member, cur().s}; nd.a = e; advance(); e = a.add(nd); }
 			else if (is_p("?.")) {
@@ -339,25 +341,25 @@ struct parser {
 	}
 
 	// call/array argument list starting at '(' or '['; returns pool offset, sets len
-	constexpr int args(int & len) {
+	constexpr std::int32_t args(std::int32_t & len) {
 		std::string_view open = cur().s, close = (open == "(") ? ")" : "]";
 		advance();
-		std::vector<int> kids;
+		std::vector<std::int32_t> kids;
 		while (!is_p(close) && !at_end()) {
 			if (is_p("...")) { advance(); node nd{nk::spread, ""}; nd.a = expr(2); kids.push_back(a.add(nd)); }
 			else { kids.push_back(expr(2)); }
 			if (!eat_p(",")) { break; }
 		}
 		expect_p(close);
-		len = static_cast<int>(kids.size());
+		len = static_cast<std::int32_t>(kids.size());
 		return a.add_list(kids);
 	}
 
 	// the constructor of a `new`: a member expression with NO call (the call
 	// after it, if any, supplies the new's arguments; further chains apply to
 	// the constructed object)
-	constexpr int new_callee() {
-		int e = primary();
+	constexpr std::int32_t new_callee() {
+		std::int32_t e = primary();
 		for (;;) {
 			if (is_p(".")) { advance(); node nd{nk::member, cur().s}; nd.a = e; advance(); e = a.add(nd); }
 			else if (is_p("[")) { advance(); node nd{nk::index, ""}; nd.a = e; nd.b = expr(0); expect_p("]"); e = a.add(nd); }
@@ -366,7 +368,7 @@ struct parser {
 		return e;
 	}
 
-	constexpr int primary() {
+	constexpr std::int32_t primary() {
 		const token & c = cur();
 		if (c.kind == tk::num) { node nd{nk::num, c.s}; advance(); return a.add(nd); }
 		if (c.kind == tk::str) { node nd{nk::str, c.s}; advance(); return a.add(nd); }
@@ -406,8 +408,8 @@ struct parser {
 		return fail("expression");
 	}
 
-	constexpr int arrow_single() {
-		std::vector<int> ps;
+	constexpr std::int32_t arrow_single() {
+		std::vector<std::int32_t> ps;
 		node pn{nk::param, cur().s}; ps.push_back(a.add(pn)); advance();   // ident
 		expect_p("=>");
 		node nd{nk::arrow, ""}; nd.list = a.add_list(ps); nd.list_len = 1;
@@ -417,7 +419,7 @@ struct parser {
 
 	// disambiguate "(expr)" from "(params) =>" by scanning to the matching ')'
 	constexpr bool arrow_ahead() const {
-		std::size_t q = p; int depth = 0;
+		std::size_t q = p; std::int32_t depth = 0;
 		for (; q < t.size(); ++q) {
 			if (t[q].kind == tk::punct && t[q].s == "(") { ++depth; }
 			else if (t[q].kind == tk::punct && t[q].s == ")") { if (--depth == 0) { break; } }
@@ -427,28 +429,28 @@ struct parser {
 		return after < t.size() && t[after].kind == tk::punct && t[after].s == "=>";
 	}
 
-	constexpr int paren_or_arrow() {
+	constexpr std::int32_t paren_or_arrow() {
 		if (arrow_ahead()) {
 			node nd{nk::arrow, ""};
-			int len = 0; nd.list = params(len); nd.list_len = len;
+			std::int32_t len = 0; nd.list = params(len); nd.list_len = len;
 			expect_p("=>");
 			nd.a = arrow_body();
 			return a.add(nd);
 		}
 		advance();                       // '('
-		int e = expr(0);
+		std::int32_t e = expr(0);
 		expect_p(")");
 		return e;
 	}
-	constexpr int arrow_body() {
+	constexpr std::int32_t arrow_body() {
 		if (is_p("{")) { return block(); }
 		return expr(2);
 	}
 
 	// parameter list at '(' -> pool; supports defaults and rest
-	constexpr int params(int & len) {
+	constexpr std::int32_t params(std::int32_t & len) {
 		expect_p("(");
-		std::vector<int> ps;
+		std::vector<std::int32_t> ps;
 		while (!is_p(")") && !at_end()) {
 			if (is_p("...")) { advance(); node nd{nk::param, cur().s}; nd.text = cur().s; nd.d = 1; /*rest*/ advance(); ps.push_back(a.add(nd)); }
 			else {
@@ -459,13 +461,13 @@ struct parser {
 			if (!eat_p(",")) { break; }
 		}
 		expect_p(")");
-		len = static_cast<int>(ps.size());
+		len = static_cast<std::int32_t>(ps.size());
 		return a.add_list(ps);
 	}
 
-	constexpr int object() {
+	constexpr std::int32_t object() {
 		expect_p("{");
-		std::vector<int> props;
+		std::vector<std::int32_t> props;
 		while (!is_p("}") && !at_end()) {
 			if (is_p("...")) { advance(); node sp{nk::spread, ""}; sp.a = expr(2); props.push_back(a.add(sp)); }
 			else {
@@ -474,8 +476,8 @@ struct parser {
 				if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; /*computed*/ }
 				else { pr.text = cur().s; advance(); }
 				if (is_p("(")) {                        // method shorthand
-					int len = 0; int pl = params(len);
-					int body = block();
+					std::int32_t len = 0; std::int32_t pl = params(len);
+					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
 					pr.b = a.add(fn); pr.c = 1; /*method*/
 				} else if (eat_p(":")) {
@@ -488,19 +490,19 @@ struct parser {
 			if (!eat_p(",")) { break; }
 		}
 		expect_p("}");
-		node nd{nk::object, ""}; nd.list = a.add_list(props); nd.list_len = static_cast<int>(props.size());
+		node nd{nk::object, ""}; nd.list = a.add_list(props); nd.list_len = static_cast<std::int32_t>(props.size());
 		return a.add(nd);
 	}
 
 	// function expression/declaration; `expr` true => expression context;
 	// `is_async` records `async` so the interpreter wraps the return in a promise
-	constexpr int func(bool is_expr, bool is_async = false) {
+	constexpr std::int32_t func(bool is_expr, bool is_async = false) {
 		eat_kw("function");
 		eat_p("*");
 		std::string_view name;
 		if (cur().kind == tk::ident) { name = cur().s; advance(); }
-		int len = 0; int pl = params(len);
-		int body = block();
+		std::int32_t len = 0; std::int32_t pl = params(len);
+		std::int32_t body = block();
 		node nd{is_expr ? nk::func_expr : nk::func_decl, name};
 		nd.list = pl; nd.list_len = len; nd.a = body;
 		if (is_async) { nd.c = 1; }
@@ -508,18 +510,18 @@ struct parser {
 	}
 
 	// --- statements ----------------------------------------------------------
-	constexpr int block() {
+	constexpr std::int32_t block() {
 		expect_p("{");
-		std::vector<int> stmts;
+		std::vector<std::int32_t> stmts;
 		while (!is_p("}") && !at_end()) { stmts.push_back(stmt()); if (!a.ok) { break; } }
 		expect_p("}");
-		node nd{nk::block, ""}; nd.list = a.add_list(stmts); nd.list_len = static_cast<int>(stmts.size());
+		node nd{nk::block, ""}; nd.list = a.add_list(stmts); nd.list_len = static_cast<std::int32_t>(stmts.size());
 		return a.add(nd);
 	}
 
-	constexpr int var_decl() {
+	constexpr std::int32_t var_decl() {
 		std::string_view kw = cur().s; advance();      // let/const/var
-		std::vector<int> decls;
+		std::vector<std::int32_t> decls;
 		for (;;) {
 			node d{nk::declarator, cur().s}; advance();  // name (destructuring TODO)
 			if (eat_p("=")) { d.a = expr(2); }
@@ -527,18 +529,18 @@ struct parser {
 			if (!eat_p(",")) { break; }
 		}
 		semi();
-		node nd{nk::var_decl, kw}; nd.list = a.add_list(decls); nd.list_len = static_cast<int>(decls.size());
+		node nd{nk::var_decl, kw}; nd.list = a.add_list(decls); nd.list_len = static_cast<std::int32_t>(decls.size());
 		return a.add(nd);
 	}
 
-	constexpr int class_decl(bool /*is_expr*/) {
+	constexpr std::int32_t class_decl(bool /*is_expr*/) {
 		eat_kw("class");
 		std::string_view name;
 		if (cur().kind == tk::ident) { name = cur().s; advance(); }
-		int super = -1;
+		std::int32_t super = -1;
 		if (eat_kw("extends")) { super = unary(); }
 		expect_p("{");
-		std::vector<int> members;
+		std::vector<std::int32_t> members;
 		while (!is_p("}") && !at_end()) {
 			if (eat_p(";")) { continue; }
 			node m{nk::class_member, ""};
@@ -559,8 +561,8 @@ struct parser {
 			else { mname = cur().s; advance(); }
 			m.text = mname;                            // always the property name
 			if (is_p("(")) {                          // method or accessor
-				int len = 0; int pl = params(len);
-				int body = block();
+				std::int32_t len = 0; std::int32_t pl = params(len);
+				std::int32_t body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
 				if (masync) { fn.c = 1; }             // async method -> promise-wrapped return
 				m.b = a.add(fn);
@@ -575,11 +577,11 @@ struct parser {
 		}
 		expect_p("}");
 		node nd{nk::class_decl, name}; nd.a = super;
-		nd.list = a.add_list(members); nd.list_len = static_cast<int>(members.size());
+		nd.list = a.add_list(members); nd.list_len = static_cast<std::int32_t>(members.size());
 		return a.add(nd);
 	}
 
-	constexpr int stmt() {
+	constexpr std::int32_t stmt() {
 		const token & c = cur();
 		if (c.kind == tk::punct && c.s == "{") { return block(); }
 		if (c.kind == tk::punct && c.s == ";") { advance(); return a.add({nk::empty, ""}); }
@@ -608,28 +610,28 @@ struct parser {
 		node nd{nk::expr_stmt, ""}; nd.a = expr(0); semi(); return a.add(nd);
 	}
 
-	constexpr int if_stmt() {
+	constexpr std::int32_t if_stmt() {
 		eat_kw("if"); expect_p("(");
 		node nd{nk::if_stmt, ""}; nd.a = expr(0); expect_p(")");
 		nd.b = stmt();
 		if (eat_kw("else")) { nd.c = stmt(); }
 		return a.add(nd);
 	}
-	constexpr int while_stmt() {
+	constexpr std::int32_t while_stmt() {
 		eat_kw("while"); expect_p("(");
 		node nd{nk::while_stmt, ""}; nd.a = expr(0); expect_p(")"); nd.b = stmt();
 		return a.add(nd);
 	}
-	constexpr int do_stmt() {
+	constexpr std::int32_t do_stmt() {
 		eat_kw("do");
 		node nd{nk::do_stmt, ""}; nd.a = stmt();
 		eat_kw("while"); expect_p("("); nd.b = expr(0); expect_p(")"); semi();
 		return a.add(nd);
 	}
-	constexpr int for_stmt() {
+	constexpr std::int32_t for_stmt() {
 		eat_kw("for"); expect_p("(");
 		// init: var decl or expr or empty
-		int init = -1; std::string_view forkw;
+		std::int32_t init = -1; std::string_view forkw;
 		if (is_kw("let") || is_kw("const") || is_kw("var")) {
 			forkw = cur().s; advance();
 			node d{nk::declarator, cur().s}; advance();
@@ -642,9 +644,9 @@ struct parser {
 				return a.add(nd);
 			}
 			if (eat_p("=")) { d.a = expr(2); }
-			std::vector<int> decls; decls.push_back(a.add(d));
+			std::vector<std::int32_t> decls; decls.push_back(a.add(d));
 			while (eat_p(",")) { node d2{nk::declarator, cur().s}; advance(); if (eat_p("=")) { d2.a = expr(2); } decls.push_back(a.add(d2)); }
-			node vd{nk::var_decl, forkw}; vd.list = a.add_list(decls); vd.list_len = static_cast<int>(decls.size());
+			node vd{nk::var_decl, forkw}; vd.list = a.add_list(decls); vd.list_len = static_cast<std::int32_t>(decls.size());
 			init = a.add(vd);
 		} else if (!is_p(";")) {
 			init = expr(0);
@@ -656,7 +658,7 @@ struct parser {
 		nd.d = stmt();
 		return a.add(nd);
 	}
-	constexpr int try_stmt() {
+	constexpr std::int32_t try_stmt() {
 		eat_kw("try");
 		node nd{nk::try_stmt, ""}; nd.a = block();
 		if (eat_kw("catch")) {
@@ -667,29 +669,29 @@ struct parser {
 		if (eat_kw("finally")) { nd.c = block(); }
 		return a.add(nd);
 	}
-	constexpr int switch_stmt() {
+	constexpr std::int32_t switch_stmt() {
 		eat_kw("switch"); expect_p("(");
 		node nd{nk::switch_stmt, ""}; nd.a = expr(0); expect_p(")"); expect_p("{");
-		std::vector<int> clauses;
+		std::vector<std::int32_t> clauses;
 		while (!is_p("}") && !at_end()) {
 			node cl{nk::case_clause, ""};
 			if (eat_kw("case")) { cl.a = expr(0); expect_p(":"); }
 			else { eat_kw("default"); expect_p(":"); cl.d = 1; }
-			std::vector<int> body;
+			std::vector<std::int32_t> body;
 			while (!is_kw("case") && !is_kw("default") && !is_p("}") && !at_end()) { body.push_back(stmt()); if (!a.ok) { break; } }
-			cl.list = a.add_list(body); cl.list_len = static_cast<int>(body.size());
+			cl.list = a.add_list(body); cl.list_len = static_cast<std::int32_t>(body.size());
 			clauses.push_back(a.add(cl));
 			if (!a.ok) { break; }
 		}
 		expect_p("}");
-		nd.list = a.add_list(clauses); nd.list_len = static_cast<int>(clauses.size());
+		nd.list = a.add_list(clauses); nd.list_len = static_cast<std::int32_t>(clauses.size());
 		return a.add(nd);
 	}
 
-	constexpr int program() {
-		std::vector<int> stmts;
+	constexpr std::int32_t program() {
+		std::vector<std::int32_t> stmts;
 		while (!at_end()) { stmts.push_back(stmt()); if (!a.ok) { break; } }
-		node nd{nk::program, ""}; nd.list = a.add_list(stmts); nd.list_len = static_cast<int>(stmts.size());
+		node nd{nk::program, ""}; nd.list = a.add_list(stmts); nd.list_len = static_cast<std::int32_t>(stmts.size());
 		return a.add(nd);
 	}
 };

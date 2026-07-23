@@ -3,6 +3,7 @@
 
 #include "ast.hpp"
 #ifndef CTJS_IN_A_MODULE
+#include <cstdint>
 #include <array>
 #include <cstddef>
 #include <string_view>
@@ -44,22 +45,22 @@ constexpr folded fold_nul() { return {folded::kNul, 0.0}; }
 constexpr folded parse_int_literal(std::string_view s) {
 	if (s.empty()) { return fold_none(); }
 	if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-		unsigned long long u = 0;
-		for (size_t i = 2; i < s.size(); ++i) {
+		std::uint64_t u = 0;
+		for (std::size_t i = 2; i < s.size(); ++i) {
 			const char c = s[i];
-			unsigned d = 0;
-			if (c >= '0' && c <= '9') { d = static_cast<unsigned>(c - '0'); }
-			else if (c >= 'a' && c <= 'f') { d = static_cast<unsigned>(c - 'a' + 10); }
-			else if (c >= 'A' && c <= 'F') { d = static_cast<unsigned>(c - 'A' + 10); }
+			std::uint32_t d = 0;
+			if (c >= '0' && c <= '9') { d = static_cast<std::uint32_t>(c - '0'); }
+			else if (c >= 'a' && c <= 'f') { d = static_cast<std::uint32_t>(c - 'a' + 10); }
+			else if (c >= 'A' && c <= 'F') { d = static_cast<std::uint32_t>(c - 'A' + 10); }
 			else { return fold_none(); }
 			u = u * 16 + d;
 		}
 		return fold_num(static_cast<double>(u));
 	}
-	unsigned long long u = 0;
+	std::uint64_t u = 0;
 	for (const char c : s) {
 		if (c < '0' || c > '9') { return fold_none(); } // '.'/'e' => not folded
-		u = u * 10 + static_cast<unsigned>(c - '0');
+		u = u * 10 + static_cast<std::uint32_t>(c - '0');
 	}
 	return fold_num(static_cast<double>(u));
 }
@@ -95,12 +96,12 @@ template <typename Op, typename E> constexpr folded fold_val(unary<Op, E>) {
 
 constexpr double fold_ipow(double base, double exp) {
 	// exact only for a non-negative integer exponent
-	long long e = static_cast<long long>(exp);
+	std::int64_t e = static_cast<std::int64_t>(exp);
 	double r = 1.0;
-	for (long long i = 0; i < e; ++i) { r *= base; }
+	for (std::int64_t i = 0; i < e; ++i) { r *= base; }
 	return r;
 }
-constexpr bool is_int(double d) { return d == static_cast<double>(static_cast<long long>(d)); }
+constexpr bool is_int(double d) { return d == static_cast<double>(static_cast<std::int64_t>(d)); }
 
 template <typename Op, typename L, typename R> constexpr folded fold_val(binary<Op, L, R>) {
 	const folded l = fold_val(L{});
@@ -133,7 +134,7 @@ template <typename Op, typename L, typename R> constexpr folded fold_val(binary<
 		else if constexpr (std::is_same_v<Op, op_div>) { return fold_num(a / b); }
 		else if constexpr (std::is_same_v<Op, op_mod>) {
 			return b == 0.0 ? fold_num(a - a) : fold_num(a - b * static_cast<double>(
-			                                                        static_cast<long long>(a / b)));
+			                                                        static_cast<std::int64_t>(a / b)));
 		} else if constexpr (std::is_same_v<Op, op_pow>) {
 			if (is_int(b) && b >= 0) { return fold_num(fold_ipow(a, b)); }
 			return fold_none();
@@ -233,7 +234,7 @@ template <typename L, typename R> struct simplify<binary<op_nullish, L, R>> {
 // string, matching the interpreter.
 
 // mirror interp's push_utf8, writing into a buffer
-constexpr size_t fold_push_utf8(char * out, unsigned long cp) {
+constexpr std::size_t fold_push_utf8(char * out, char32_t cp) {
 	if (cp < 0x80) { out[0] = static_cast<char>(cp); return 1; }
 	if (cp < 0x800) {
 		out[0] = static_cast<char>(0xC0 | (cp >> 6));
@@ -254,9 +255,9 @@ constexpr size_t fold_push_utf8(char * out, unsigned long cp) {
 }
 // cook a quoted string literal into `out`, byte-for-byte as interp's
 // cook_string; returns the cooked length
-constexpr size_t fold_cook(std::string_view raw, char * out) {
-	size_t n = 0, i = 1;
-	const size_t end = raw.size() - 1;
+constexpr std::size_t fold_cook(std::string_view raw, char * out) {
+	std::size_t n = 0, i = 1;
+	const std::size_t end = raw.size() - 1;
 	while (i < end) {
 		const char c = raw[i];
 		if (c != '\\') { out[n++] = c; ++i; continue; }
@@ -271,18 +272,18 @@ constexpr size_t fold_cook(std::string_view raw, char * out) {
 		case 'v': out[n++] = '\v'; break;
 		case '0': out[n++] = '\0'; break;
 		case 'x': {
-			unsigned long cp = 0;
-			for (int k = 0; k < 2 && i < end; ++k, ++i) {
-				cp = cp * 16 + static_cast<unsigned long>(
+			char32_t cp = 0;
+			for (std::int32_t k = 0; k < 2 && i < end; ++k, ++i) {
+				cp = cp * 16 + static_cast<char32_t>(
 				                   raw[i] <= '9' ? raw[i] - '0' : (raw[i] | 0x20) - 'a' + 10);
 			}
 			n += fold_push_utf8(out + n, cp);
 			break;
 		}
 		case 'u': {
-			unsigned long cp = 0;
-			for (int k = 0; k < 4 && i < end; ++k, ++i) {
-				cp = cp * 16 + static_cast<unsigned long>(
+			char32_t cp = 0;
+			for (std::int32_t k = 0; k < 4 && i < end; ++k, ++i) {
+				cp = cp * 16 + static_cast<char32_t>(
 				                   raw[i] <= '9' ? raw[i] - '0' : (raw[i] | 0x20) - 'a' + 10);
 			}
 			n += fold_push_utf8(out + n, cp);
@@ -294,15 +295,15 @@ constexpr size_t fold_cook(std::string_view raw, char * out) {
 	}
 	return n;
 }
-constexpr size_t fold_itoa(long long v, char * out) {
-	size_t n = 0;
-	unsigned long long u = v < 0 ? (out[n++] = '-', static_cast<unsigned long long>(-(v + 1)) + 1)
-	                             : static_cast<unsigned long long>(v);
+constexpr std::size_t fold_itoa(std::int64_t v, char * out) {
+	std::size_t n = 0;
+	std::uint64_t u = v < 0 ? (out[n++] = '-', static_cast<std::uint64_t>(-(v + 1)) + 1)
+	                             : static_cast<std::uint64_t>(v);
 	char tmp[24] = {};
-	size_t t = 0;
+	std::size_t t = 0;
 	if (u == 0) { tmp[t++] = '0'; }
 	while (u) { tmp[t++] = static_cast<char>('0' + u % 10); u /= 10; }
-	for (size_t k = 0; k < t; ++k) { out[n++] = tmp[t - 1 - k]; }
+	for (std::size_t k = 0; k < t; ++k) { out[n++] = tmp[t - 1 - k]; }
 	return n;
 }
 
@@ -311,23 +312,23 @@ constexpr size_t fold_itoa(long long v, char * out) {
 template <typename N> struct sform {
 	static constexpr bool str = false;
 	static constexpr bool coercible = false;
-	static constexpr size_t len() { return 0; }
-	static constexpr size_t write(char *) { return 0; }
+	static constexpr std::size_t len() { return 0; }
+	static constexpr std::size_t write(char *) { return 0; }
 };
 template <typename T> struct sform<str_lit<T>> {
 	static constexpr bool str = true, coercible = true;
-	static constexpr size_t raw = T::view().size();
-	static constexpr size_t len() {
+	static constexpr std::size_t raw = T::view().size();
+	static constexpr std::size_t len() {
 		std::array<char, raw ? raw : 1> b{};
 		return fold_cook(T::view(), b.data());
 	}
-	static constexpr size_t write(char * out) { return fold_cook(T::view(), out); }
+	static constexpr std::size_t write(char * out) { return fold_cook(T::view(), out); }
 };
 template <char... Cs> struct sform<const_str<Cs...>> {
 	static constexpr bool str = true, coercible = true;
-	static constexpr size_t len() { return sizeof...(Cs); }
-	static constexpr size_t write(char * out) {
-		size_t n = 0;
+	static constexpr std::size_t len() { return sizeof...(Cs); }
+	static constexpr std::size_t write(char * out) {
+		std::size_t n = 0;
 		((out[n++] = Cs), ...);
 		return n;
 	}
@@ -335,45 +336,45 @@ template <char... Cs> struct sform<const_str<Cs...>> {
 template <double V> struct sform<const_num<V>> {
 	static constexpr bool str = false;
 	static constexpr bool coercible = is_int(V);
-	static constexpr size_t len() {
+	static constexpr std::size_t len() {
 		char b[24] = {};
-		return fold_itoa(static_cast<long long>(V), b);
+		return fold_itoa(static_cast<std::int64_t>(V), b);
 	}
-	static constexpr size_t write(char * out) {
-		return fold_itoa(static_cast<long long>(V), out);
+	static constexpr std::size_t write(char * out) {
+		return fold_itoa(static_cast<std::int64_t>(V), out);
 	}
 };
 template <typename T> struct sform<num_lit<T>> {
 	static constexpr folded fv = parse_int_literal(T::view());
 	static constexpr bool str = false;
 	static constexpr bool coercible = fv.ok();
-	static constexpr size_t len() {
+	static constexpr std::size_t len() {
 		char b[24] = {};
-		return fold_itoa(static_cast<long long>(fv.num), b);
+		return fold_itoa(static_cast<std::int64_t>(fv.num), b);
 	}
-	static constexpr size_t write(char * out) {
-		return fold_itoa(static_cast<long long>(fv.num), out);
+	static constexpr std::size_t write(char * out) {
+		return fold_itoa(static_cast<std::int64_t>(fv.num), out);
 	}
 };
 template <> struct sform<true_lit> {
 	static constexpr bool str = false, coercible = true;
-	static constexpr size_t len() { return 4; }
-	static constexpr size_t write(char * o) { o[0]='t';o[1]='r';o[2]='u';o[3]='e'; return 4; }
+	static constexpr std::size_t len() { return 4; }
+	static constexpr std::size_t write(char * o) { o[0]='t';o[1]='r';o[2]='u';o[3]='e'; return 4; }
 };
 template <> struct sform<false_lit> {
 	static constexpr bool str = false, coercible = true;
-	static constexpr size_t len() { return 5; }
-	static constexpr size_t write(char * o) {
+	static constexpr std::size_t len() { return 5; }
+	static constexpr std::size_t write(char * o) {
 		o[0]='f';o[1]='a';o[2]='l';o[3]='s';o[4]='e'; return 5;
 	}
 };
 template <> struct sform<null_lit> {
 	static constexpr bool str = false, coercible = true;
-	static constexpr size_t len() { return 4; }
-	static constexpr size_t write(char * o) { o[0]='n';o[1]='u';o[2]='l';o[3]='l'; return 4; }
+	static constexpr std::size_t len() { return 4; }
+	static constexpr std::size_t write(char * o) { o[0]='n';o[1]='u';o[2]='l';o[3]='l'; return 4; }
 };
 
-template <auto Arr, size_t... I>
+template <auto Arr, std::size_t... I>
 constexpr auto arr_to_const_str(std::index_sequence<I...>) {
 	return const_str<Arr[I]...>{};
 }
@@ -526,10 +527,10 @@ template <typename N, typename P, typename E> struct def_name<fn_def<N, P, E>> {
 	using type = N;
 };
 template <typename P> struct param_count {
-	static constexpr size_t value = 0;
+	static constexpr std::size_t value = 0;
 };
 template <typename... Ps> struct param_count<plist<Ps...>> {
-	static constexpr size_t value = sizeof...(Ps);
+	static constexpr std::size_t value = sizeof...(Ps);
 };
 
 // a top-level fn_decl -> fn_def (or void if not foldable)
@@ -575,14 +576,14 @@ template <typename Name, typename D0, typename... Ds> struct fn_lookup<Name, tli
 
 // the rewrite: fold constant-argument calls to table functions,
 // recursing through the whole tree generically (re-folding each node).
-template <typename N, typename FT, int Depth> struct rewrite {
+template <typename N, typename FT, std::int32_t Depth> struct rewrite {
 	using type = N;
 };
-template <template <typename...> class Tmpl, typename... Ks, typename FT, int Depth>
+template <template <typename...> class Tmpl, typename... Ks, typename FT, std::int32_t Depth>
 struct rewrite<Tmpl<Ks...>, FT, Depth> {
 	using type = fold_node_t<Tmpl<typename rewrite<Ks, FT, Depth>::type...>>;
 };
-template <typename NameText, typename... Args, typename FT, int Depth>
+template <typename NameText, typename... Args, typename FT, std::int32_t Depth>
 struct rewrite<call<ident<NameText>, Args...>, FT, Depth> {
 	using def = typename fn_lookup<NameText, FT>::type;
 	static constexpr auto pick() {

@@ -16,6 +16,7 @@
 #endif
 #include "vinterp.hpp"   // parse-by-value path (ctjs::run_value)
 #ifndef CTJS_IN_A_MODULE
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -35,7 +36,7 @@
 //   auto out = src.run();
 //   out.ok();          // no uncaught exception
 //   out.console();     // "total 55\n"
-//   out["total"].to<int>();
+//   out["total"].to<std::int32_t>();
 //
 // run() seeds the default globals (console, Math, JSON, parseInt...).
 // Pass ctjs::binding{"name", value} instances to inject host values -
@@ -151,7 +152,7 @@ template <typename... Ss> struct program_runner<ast::program<Ss...>> {
 // constexpr, `ctjs::eval<Src>()` runs the whole program during constant
 // evaluation and hands back its completion value - usable in a
 // static_assert:
-//   static_assert(ctjs::eval<"let a = 2, b = 3; a * b + 1;">().to<int>() == 7);
+//   static_assert(ctjs::eval<"let a = 2, b = 3; a * b + 1;">().to<std::int32_t>() == 7);
 // A script that reaches a non-constexpr operation (Math via <cmath>,
 // Date via <chrono>, random, a throw, a host binding) is simply not a
 // constant expression there; run it at runtime with `.run()` instead.

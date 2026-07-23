@@ -531,63 +531,162 @@ private:
 
 #endif
 
-#ifndef CTJS__CFUNCTION__HPP
-#define CTJS__CFUNCTION__HPP
+#ifndef CTC__CFUNCTION__HPP
+#define CTC__CFUNCTION__HPP
 
-#ifndef CTJS_IN_A_MODULE
-#include <memory>
+#ifndef CTC__UTILITY__HPP
+#define CTC__UTILITY__HPP
+
+#ifndef CTC_IN_A_MODULE
+#include <cstddef>
+#include <cstdlib>
+#endif
+
+#ifdef CTC_IN_A_MODULE
+#define CTC_EXPORT export
+#else
+#define CTC_EXPORT
+#endif
+
+namespace ctc {
+
+using std::size_t;
+
+// transparent, stateless functors: the associative containers default
+// to these and construct them on use instead of storing them (a
+// stored comparator would be one more member in every NTTP)
+CTC_EXPORT struct less {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a < b;
+	}
+};
+
+CTC_EXPORT struct equal_to {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a == b;
+	}
+};
+
+namespace detail {
+
+// The precondition trap. Calling a non-constexpr function is not a
+// constant expression, so inside constant evaluation a violated
+// precondition fails the compilation - with this function's name and
+// its string argument visible in the constexpr backtrace. At runtime
+// it aborts (the library is exception-free).
+[[noreturn]] inline void precondition_violated(const char *) noexcept {
+	std::abort();
+}
+
+// binary search over the sorted containers' storage. KeyOf projects an
+// element to its key (identity for sets, .first for maps).
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t lower_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (Compare{}(key_of(data[mid]), key)) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t upper_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (!Compare{}(key, key_of(data[mid]))) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+} // namespace detail
+
+} // namespace ctc
+
+#endif
+
+#ifndef CTC_IN_A_MODULE
+#include <type_traits>
 #include <utility>
 #endif
 
 // A constexpr type-erased callable - std::function is not usable in
-// constant evaluation (C++23), this is. It stores the callable behind a
-// constexpr-virtual interface owned by a constexpr std::unique_ptr, so
-// the whole thing is evaluable at compile time. Adapted from the
-// compile-time function wrapper (thanks to the pattern the user shared);
-// made copyable (via a clone hook) since a JS function value is copied.
+// constant evaluation, this is. The callable sits behind a
+// constexpr-virtual interface; copying deep-copies it through a clone
+// hook (a function value is a value). Ownership is a hand-rolled
+// constexpr new/delete: std::unique_ptr is only constexpr from C++23,
+// and ctc's floor is C++20.
+//
+// (Moved here from compile-time-javascript, where it type-erases the
+// interpreter's native functions; compile-time-browser's layout hooks
+// ride it too.)
 
-namespace ctjs {
+namespace ctc {
 
-template <class> class cfunction;
+CTC_EXPORT template <class> class cfunction;
 
-template <class R, class... Args> class cfunction<R(Args...)> {
+CTC_EXPORT template <class R, class... Args> class cfunction<R(Args...)> {
 public:
-	cfunction() = default; // empty
+	constexpr cfunction() noexcept = default; // empty
 	template <class F>
 	    requires(!std::is_same_v<std::decay_t<F>, cfunction>)
-	constexpr cfunction(F f) : ptr_{std::make_unique<impl<F>>(std::move(f))} { }
+	constexpr cfunction(F f) : ptr_{new impl<F>{std::move(f)}} { }
 
 	constexpr cfunction(const cfunction & o) : ptr_{o.ptr_ ? o.ptr_->clone() : nullptr} { }
-	constexpr cfunction(cfunction &&) noexcept = default;
+	constexpr cfunction(cfunction && o) noexcept : ptr_{o.ptr_} { o.ptr_ = nullptr; }
 	constexpr cfunction & operator=(const cfunction & o) {
-		ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		}
 		return *this;
 	}
-	constexpr cfunction & operator=(cfunction &&) noexcept = default;
+	constexpr cfunction & operator=(cfunction && o) noexcept {
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_;
+			o.ptr_ = nullptr;
+		}
+		return *this;
+	}
+	constexpr ~cfunction() { delete ptr_; }
 
-	constexpr explicit operator bool() const { return static_cast<bool>(ptr_); }
+	constexpr explicit operator bool() const noexcept { return ptr_ != nullptr; }
 	constexpr R operator()(Args... args) const { return ptr_->call(static_cast<Args>(args)...); }
 
 private:
 	struct iface {
 		constexpr virtual R call(Args...) const = 0;
-		constexpr virtual std::unique_ptr<iface> clone() const = 0;
+		constexpr virtual iface * clone() const = 0;
 		constexpr virtual ~iface() = default;
 	};
 	template <class F> struct impl final : iface {
 		constexpr explicit impl(F f) : f_{std::move(f)} { }
-		constexpr R call(Args... args) const override {
-			return f_(static_cast<Args>(args)...);
-		}
-		constexpr std::unique_ptr<iface> clone() const override {
-			return std::make_unique<impl>(f_);
-		}
+		// explicitly defaulted: gcc defines implicit virtual destructors
+		// lazily, which is too late for a constexpr `delete` through the
+		// base pointer ("used before its definition")
+		constexpr ~impl() override = default;
+		constexpr R call(Args... args) const override { return f_(static_cast<Args>(args)...); }
+		constexpr iface * clone() const override { return new impl{f_}; }
 		F f_;
 	};
-	std::unique_ptr<iface> ptr_;
+	iface * ptr_ = nullptr;
 };
 
-} // namespace ctjs
+} // namespace ctc
 
 #endif
 
@@ -655,6 +754,7 @@ struct object_t {
 
 // one representation for JS functions and native (C++) functions: the
 // closure environment, if any, is captured inside the cfunction
+using ctc::cfunction; // the shared constexpr callable now lives in ctc
 using native_fn = cfunction<value(context &, const std::vector<value> &)>;
 struct function_t {
 	native_fn fn;
@@ -1517,63 +1617,162 @@ private:
 
 #endif
 
-#ifndef CTJS__CFUNCTION__HPP
-#define CTJS__CFUNCTION__HPP
+#ifndef CTC__CFUNCTION__HPP
+#define CTC__CFUNCTION__HPP
 
-#ifndef CTJS_IN_A_MODULE
-#include <memory>
+#ifndef CTC__UTILITY__HPP
+#define CTC__UTILITY__HPP
+
+#ifndef CTC_IN_A_MODULE
+#include <cstddef>
+#include <cstdlib>
+#endif
+
+#ifdef CTC_IN_A_MODULE
+#define CTC_EXPORT export
+#else
+#define CTC_EXPORT
+#endif
+
+namespace ctc {
+
+using std::size_t;
+
+// transparent, stateless functors: the associative containers default
+// to these and construct them on use instead of storing them (a
+// stored comparator would be one more member in every NTTP)
+CTC_EXPORT struct less {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a < b;
+	}
+};
+
+CTC_EXPORT struct equal_to {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a == b;
+	}
+};
+
+namespace detail {
+
+// The precondition trap. Calling a non-constexpr function is not a
+// constant expression, so inside constant evaluation a violated
+// precondition fails the compilation - with this function's name and
+// its string argument visible in the constexpr backtrace. At runtime
+// it aborts (the library is exception-free).
+[[noreturn]] inline void precondition_violated(const char *) noexcept {
+	std::abort();
+}
+
+// binary search over the sorted containers' storage. KeyOf projects an
+// element to its key (identity for sets, .first for maps).
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t lower_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (Compare{}(key_of(data[mid]), key)) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t upper_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (!Compare{}(key, key_of(data[mid]))) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+} // namespace detail
+
+} // namespace ctc
+
+#endif
+
+#ifndef CTC_IN_A_MODULE
+#include <type_traits>
 #include <utility>
 #endif
 
 // A constexpr type-erased callable - std::function is not usable in
-// constant evaluation (C++23), this is. It stores the callable behind a
-// constexpr-virtual interface owned by a constexpr std::unique_ptr, so
-// the whole thing is evaluable at compile time. Adapted from the
-// compile-time function wrapper (thanks to the pattern the user shared);
-// made copyable (via a clone hook) since a JS function value is copied.
+// constant evaluation, this is. The callable sits behind a
+// constexpr-virtual interface; copying deep-copies it through a clone
+// hook (a function value is a value). Ownership is a hand-rolled
+// constexpr new/delete: std::unique_ptr is only constexpr from C++23,
+// and ctc's floor is C++20.
+//
+// (Moved here from compile-time-javascript, where it type-erases the
+// interpreter's native functions; compile-time-browser's layout hooks
+// ride it too.)
 
-namespace ctjs {
+namespace ctc {
 
-template <class> class cfunction;
+CTC_EXPORT template <class> class cfunction;
 
-template <class R, class... Args> class cfunction<R(Args...)> {
+CTC_EXPORT template <class R, class... Args> class cfunction<R(Args...)> {
 public:
-	cfunction() = default; // empty
+	constexpr cfunction() noexcept = default; // empty
 	template <class F>
 	    requires(!std::is_same_v<std::decay_t<F>, cfunction>)
-	constexpr cfunction(F f) : ptr_{std::make_unique<impl<F>>(std::move(f))} { }
+	constexpr cfunction(F f) : ptr_{new impl<F>{std::move(f)}} { }
 
 	constexpr cfunction(const cfunction & o) : ptr_{o.ptr_ ? o.ptr_->clone() : nullptr} { }
-	constexpr cfunction(cfunction &&) noexcept = default;
+	constexpr cfunction(cfunction && o) noexcept : ptr_{o.ptr_} { o.ptr_ = nullptr; }
 	constexpr cfunction & operator=(const cfunction & o) {
-		ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		}
 		return *this;
 	}
-	constexpr cfunction & operator=(cfunction &&) noexcept = default;
+	constexpr cfunction & operator=(cfunction && o) noexcept {
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_;
+			o.ptr_ = nullptr;
+		}
+		return *this;
+	}
+	constexpr ~cfunction() { delete ptr_; }
 
-	constexpr explicit operator bool() const { return static_cast<bool>(ptr_); }
+	constexpr explicit operator bool() const noexcept { return ptr_ != nullptr; }
 	constexpr R operator()(Args... args) const { return ptr_->call(static_cast<Args>(args)...); }
 
 private:
 	struct iface {
 		constexpr virtual R call(Args...) const = 0;
-		constexpr virtual std::unique_ptr<iface> clone() const = 0;
+		constexpr virtual iface * clone() const = 0;
 		constexpr virtual ~iface() = default;
 	};
 	template <class F> struct impl final : iface {
 		constexpr explicit impl(F f) : f_{std::move(f)} { }
-		constexpr R call(Args... args) const override {
-			return f_(static_cast<Args>(args)...);
-		}
-		constexpr std::unique_ptr<iface> clone() const override {
-			return std::make_unique<impl>(f_);
-		}
+		// explicitly defaulted: gcc defines implicit virtual destructors
+		// lazily, which is too late for a constexpr `delete` through the
+		// base pointer ("used before its definition")
+		constexpr ~impl() override = default;
+		constexpr R call(Args... args) const override { return f_(static_cast<Args>(args)...); }
+		constexpr iface * clone() const override { return new impl{f_}; }
 		F f_;
 	};
-	std::unique_ptr<iface> ptr_;
+	iface * ptr_ = nullptr;
 };
 
-} // namespace ctjs
+} // namespace ctc
 
 #endif
 
@@ -1641,6 +1840,7 @@ struct object_t {
 
 // one representation for JS functions and native (C++) functions: the
 // closure environment, if any, is captured inside the cfunction
+using ctc::cfunction; // the shared constexpr callable now lives in ctc
 using native_fn = cfunction<value(context &, const std::vector<value> &)>;
 struct function_t {
 	native_fn fn;
@@ -4343,490 +4543,435 @@ inline constexpr env_ptr make_globals() {
 #ifndef CTJS__SCRIPT__HPP
 #define CTJS__SCRIPT__HPP
 
-#ifndef CTLL__FIXED_STRING__GPP
-#define CTLL__FIXED_STRING__GPP
+#ifndef CTC__STRING__HPP
+#define CTC__STRING__HPP
 
-#ifndef CTLL_IN_A_MODULE
-#include <utility>
+#ifndef CTC__UTILITY__HPP
+#define CTC__UTILITY__HPP
+
+#ifndef CTC_IN_A_MODULE
 #include <cstddef>
+#include <cstdlib>
+#endif
+
+#ifdef CTC_IN_A_MODULE
+#define CTC_EXPORT export
+#else
+#define CTC_EXPORT
+#endif
+
+namespace ctc {
+
+using std::size_t;
+
+// transparent, stateless functors: the associative containers default
+// to these and construct them on use instead of storing them (a
+// stored comparator would be one more member in every NTTP)
+CTC_EXPORT struct less {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a < b;
+	}
+};
+
+CTC_EXPORT struct equal_to {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a == b;
+	}
+};
+
+namespace detail {
+
+// The precondition trap. Calling a non-constexpr function is not a
+// constant expression, so inside constant evaluation a violated
+// precondition fails the compilation - with this function's name and
+// its string argument visible in the constexpr backtrace. At runtime
+// it aborts (the library is exception-free).
+[[noreturn]] inline void precondition_violated(const char *) noexcept {
+	std::abort();
+}
+
+// binary search over the sorted containers' storage. KeyOf projects an
+// element to its key (identity for sets, .first for maps).
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t lower_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (Compare{}(key_of(data[mid]), key)) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t upper_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (!Compare{}(key, key_of(data[mid]))) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+} // namespace detail
+
+} // namespace ctc
+
+#endif
+
+#ifndef CTC_IN_A_MODULE
 #include <string_view>
-#include <array>
-#include <cstdint>
+#include <type_traits>
 #include <iosfwd>
 #endif
 
-#ifndef CTLL__UTILITIES__HPP
-#define CTLL__UTILITIES__HPP
+// A fixed-capacity constexpr string. Unlike ctll::fixed_string (which
+// decodes to UTF-32 code points), the content is CharT code units,
+// stored as written - so `string<N>` is byte-oriented and converts to
+// std::string_view for free.
 
-#ifndef CTLL_IN_A_MODULE
-#include <type_traits>
-#endif
+namespace ctc {
 
-#ifdef CTLL_IN_A_MODULE
-#define CTLL_EXPORT export
-#else
-#define CTLL_EXPORT 
-#endif
+CTC_EXPORT template <typename CharT, size_t N> struct basic_string {
+	using value_type = CharT;
+	using size_type = size_t;
+	using view_type = std::basic_string_view<CharT>;
+	using reference = CharT &;
+	using const_reference = const CharT &;
+	using iterator = CharT *;
+	using const_iterator = const CharT *;
 
-#if defined __cpp_nontype_template_parameter_class
-    #define CTLL_CNTTP_COMPILER_CHECK 1
-#elif defined __cpp_nontype_template_args
-// compiler which defines correctly feature test macro (not you clang)
-    #if __cpp_nontype_template_args >= 201911L
-        #define CTLL_CNTTP_COMPILER_CHECK 1
-    #elif __cpp_nontype_template_args >= 201411L
-// appleclang 13+
-      #if defined __apple_build_version__
-        #if defined __clang_major__ && __clang_major__ >= 13
-// but only in c++20 and more
-          #if __cplusplus > 201703L
-              #define CTLL_CNTTP_COMPILER_CHECK 1
-          #endif
-        #endif
-      #else 
-// clang 12+
-        #if defined __clang_major__ && __clang_major__ >= 12
-// but only in c++20 and more
-          #if __cplusplus > 201703L
-              #define CTLL_CNTTP_COMPILER_CHECK 1
-          #endif
-        #endif
-      #endif
-    #endif
-#endif
+	static constexpr size_type npos = static_cast<size_type>(-1);
 
-#ifndef CTLL_CNTTP_COMPILER_CHECK
-    #define CTLL_CNTTP_COMPILER_CHECK 0
-#endif
+	// content[size()] is always CharT{} (so c_str() works), and every
+	// unit past the end is kept CharT{} by the mutators - so equal
+	// contents mean equivalent template arguments when a value is used
+	// as an NTTP (template-argument equivalence compares every array
+	// element, not just the first size() units).
+	CharT content[N + 1]{};
+	size_type real_size{0};
 
-#ifdef _MSC_VER
-#define CTLL_FORCE_INLINE __forceinline
-#else
-#define CTLL_FORCE_INLINE __attribute__((always_inline))
-#endif
+	constexpr basic_string() noexcept = default;
 
-namespace ctll {
-	
-template <bool> struct conditional_helper;
-	
-template <> struct conditional_helper<true> {
-	template <typename A, typename> using type = A;
-};
-
-template <> struct conditional_helper<false> {
-	template <typename, typename B> using type = B;
-};
-
-template <bool V, typename A, typename B> using conditional = typename conditional_helper<V>::template type<A,B>;
-	
-}
-
-#endif
-
-namespace ctll {
-
-struct length_value_t {
-	uint32_t value;
-	uint8_t length;
-};
-
-constexpr length_value_t length_and_value_of_utf8_code_point(uint8_t first_unit) noexcept {
-	if ((first_unit & 0b1000'0000) == 0b0000'0000) return {static_cast<uint32_t>(first_unit), 1};
-	else if ((first_unit & 0b1110'0000) == 0b1100'0000) return {static_cast<uint32_t>(first_unit & 0b0001'1111), 2};
-	else if ((first_unit & 0b1111'0000) == 0b1110'0000) return {static_cast<uint32_t>(first_unit & 0b0000'1111), 3};
-	else if ((first_unit & 0b1111'1000) == 0b1111'0000) return {static_cast<uint32_t>(first_unit & 0b0000'0111), 4};
-	else if ((first_unit & 0b1111'1100) == 0b1111'1000) return {static_cast<uint32_t>(first_unit & 0b0000'0011), 5};
-	else if ((first_unit & 0b1111'1100) == 0b1111'1100) return {static_cast<uint32_t>(first_unit & 0b0000'0001), 6};
-	else return {0, 0};
-}
-
-constexpr char32_t value_of_trailing_utf8_code_point(uint8_t unit, bool & correct) noexcept {
-	if ((unit & 0b1100'0000) == 0b1000'0000) return unit & 0b0011'1111;
-	else {
-		correct = false;
-		return 0;
-	}
-}
-
-constexpr length_value_t length_and_value_of_utf16_code_point(uint16_t first_unit) noexcept {
-	if ((first_unit & 0b1111110000000000) == 0b1101'1000'0000'0000) return {static_cast<uint32_t>(first_unit & 0b0000001111111111), 2};
-	else return {first_unit, 1};
-}
-
-struct construct_from_pointer_t { };
-
-constexpr auto construct_from_pointer = construct_from_pointer_t{};
-
-template <typename> inline constexpr bool always_false_v = false;
-
-// A general purpose compile-time string.
-//
-// The content is stored as UTF-32 code points: construction from char8_t
-// (and, with CTRE_STRING_IS_UTF8, from char) decodes UTF-8, construction
-// from char16_t decodes UTF-16, and wchar_t/char32_t units are taken as
-// code points. `N` is the capacity in input code units; `size()` is the
-// decoded length, which can be smaller. A malformed encoding doesn't fail
-// the compilation by itself, it just sets `correct()` to false.
-//
-// The type is structural (all members public), so values can be used as
-// non-type template parameters in C++20.
-CTLL_EXPORT template <std::size_t N> struct fixed_string {
-	using value_type = char32_t;
-	using size_type = std::size_t;
-	using const_reference = const char32_t &;
-	using const_iterator = const char32_t *;
-	using iterator = const_iterator;
-
-	static constexpr std::size_t npos = static_cast<std::size_t>(-1);
-
-	char32_t content[N ? N : 1] = {};
-	std::size_t real_size{0};
-	bool correct_flag{true};
-
-	constexpr fixed_string() noexcept = default;
-
-	template <typename T> constexpr fixed_string(construct_from_pointer_t, const T * input) noexcept {
-		if constexpr (std::is_same_v<T, char>) {
-			#ifdef CTRE_STRING_IS_UTF8
-				std::size_t out{0};
-				for (std::size_t i{0}; i < N; ++i) {
-					length_value_t info = length_and_value_of_utf8_code_point(input[i]);
-					switch (info.length) {
-						case 6:
-							if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-							[[fallthrough]];
-						case 5:
-							if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-							[[fallthrough]];
-						case 4:
-							if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-							[[fallthrough]];
-						case 3:
-							if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-							[[fallthrough]];
-						case 2:
-							if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-							[[fallthrough]];
-						case 1:
-							content[out++] = static_cast<char32_t>(info.value);
-							real_size++;
-							break;
-						default:
-							correct_flag = false;
-							return;
-					}
-				}
-			#else
-				for (std::size_t i{0}; i < N; ++i) {
-					content[i] = static_cast<uint8_t>(input[i]);
-					real_size++;
-				}
-			#endif
-#if defined(__cpp_char8_t)
-		} else if constexpr (std::is_same_v<T, char8_t>) {
-			std::size_t out{0};
-			for (std::size_t i{0}; i < N; ++i) {
-				length_value_t info = length_and_value_of_utf8_code_point(input[i]);
-				switch (info.length) {
-					case 6:
-						if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-						[[fallthrough]];
-					case 5:
-						if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-						[[fallthrough]];
-					case 4:
-						if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-						[[fallthrough]];
-					case 3:
-						if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-						[[fallthrough]];
-					case 2:
-						if (++i < N) info.value = (info.value << 6) | value_of_trailing_utf8_code_point(input[i], correct_flag);
-						[[fallthrough]];
-					case 1:
-						content[out++] = static_cast<char32_t>(info.value);
-						real_size++;
-						break;
-					default:
-						correct_flag = false;
-						return;
-				}
-			}
-#endif
-		} else if constexpr (std::is_same_v<T, char16_t>) {
-			std::size_t out{0};
-			for (std::size_t i{0}; i < N; ++i) {
-				length_value_t info = length_and_value_of_utf16_code_point(input[i]);
-				if (info.length == 2) {
-					if (++i < N) {
-						if ((input[i] & 0b1111'1100'0000'0000) == 0b1101'1100'0000'0000) {
-							content[out++] = ((info.value << 10) | (input[i] & 0b0000'0011'1111'1111)) + 0x10000;
-						} else {
-							correct_flag = false;
-							break;
-						}
-					}
-				} else {
-					content[out++] = info.value;
-				}
-			}
-			real_size = out;
-		} else if constexpr (std::is_same_v<T, wchar_t> || std::is_same_v<T, char32_t>) {
-			for (std::size_t i{0}; i < N; ++i) {
-				content[i] = static_cast<char32_t>(input[i]);
-				real_size++;
-			}
-		} else {
-			static_assert(always_false_v<T>, "ctll::fixed_string must be constructed from a character type (char, char8_t, char16_t, char32_t, wchar_t)");
+	// from a string literal (the terminator is not copied, not counted)
+	template <size_t M> requires (M <= N + 1) constexpr basic_string(const CharT (&literal)[M]) noexcept {
+		for (size_type i{0}; i + 1 < M; ++i) {
+			content[i] = literal[i];
 		}
+		real_size = M - 1;
 	}
 
-	template <typename T> constexpr fixed_string(const std::array<T, N> & in) noexcept: fixed_string{construct_from_pointer, in.data()} { }
-	template <typename T> constexpr fixed_string(const T (&input)[N+1]) noexcept: fixed_string{construct_from_pointer, input} { }
+	constexpr basic_string(const CharT * from, size_type count) noexcept {
+		if (count > N) {
+			detail::precondition_violated("ctc::basic_string: content does not fit the capacity");
+		}
+		for (size_type i{0}; i < count; ++i) {
+			content[i] = from[i];
+		}
+		real_size = count;
+	}
 
-	constexpr fixed_string(const fixed_string & other) noexcept {
-		for (std::size_t i{0}; i < N; ++i) {
-			content[i] = other.content[i];
+	explicit constexpr basic_string(view_type view) noexcept: basic_string{view.data(), view.size()} { }
+
+	constexpr basic_string(size_type count, CharT unit) noexcept {
+		if (count > N) {
+			detail::precondition_violated("ctc::basic_string: content does not fit the capacity");
 		}
-		real_size = other.real_size;
-		correct_flag = other.correct_flag;
-	}
-	constexpr fixed_string & operator=(const fixed_string & other) noexcept {
-		for (std::size_t i{0}; i < N; ++i) {
-			content[i] = other.content[i];
+		for (size_type i{0}; i < count; ++i) {
+			content[i] = unit;
 		}
-		real_size = other.real_size;
-		correct_flag = other.correct_flag;
-		return *this;
+		real_size = count;
 	}
+
+	// from another capacity (checked to fit)
+	template <size_t M> requires (M != N) explicit constexpr basic_string(const basic_string<CharT, M> & other) noexcept: basic_string{other.data(), other.size()} { }
 
 	// observers
-	constexpr bool correct() const noexcept {
-		return correct_flag;
-	}
-	constexpr std::size_t size() const noexcept {
+	constexpr size_type size() const noexcept {
 		return real_size;
 	}
-	constexpr std::size_t length() const noexcept {
+	constexpr size_type length() const noexcept {
 		return real_size;
 	}
-	static constexpr std::size_t max_size() noexcept {
+	static constexpr size_type capacity() noexcept {
 		return N;
 	}
-	static constexpr std::size_t capacity() noexcept {
+	static constexpr size_type max_size() noexcept {
 		return N;
 	}
 	constexpr bool empty() const noexcept {
 		return real_size == 0;
 	}
+	constexpr bool full() const noexcept {
+		return real_size == N;
+	}
 
 	// element access
-	constexpr const char32_t * data() const noexcept {
+	constexpr CharT * data() noexcept {
 		return content;
 	}
-	constexpr const char32_t * begin() const noexcept {
+	constexpr const CharT * data() const noexcept {
 		return content;
 	}
-	constexpr const char32_t * end() const noexcept {
-		return content + size();
+	constexpr const CharT * c_str() const noexcept {
+		return content;
 	}
-	constexpr const char32_t * cbegin() const noexcept {
-		return begin();
-	}
-	constexpr const char32_t * cend() const noexcept {
-		return end();
-	}
-	constexpr char32_t operator[](std::size_t i) const noexcept {
+	constexpr reference operator[](size_type i) noexcept {
+		if (i >= real_size) {
+			detail::precondition_violated("ctc::basic_string: index out of range");
+		}
 		return content[i];
 	}
-	constexpr char32_t front() const noexcept {
-		return content[0];
+	constexpr const_reference operator[](size_type i) const noexcept {
+		if (i >= real_size) {
+			detail::precondition_violated("ctc::basic_string: index out of range");
+		}
+		return content[i];
 	}
-	constexpr char32_t back() const noexcept {
+	constexpr reference at(size_type i) noexcept {
+		return (*this)[i];
+	}
+	constexpr const_reference at(size_type i) const noexcept {
+		return (*this)[i];
+	}
+	constexpr reference front() noexcept {
+		return (*this)[0];
+	}
+	constexpr const_reference front() const noexcept {
+		return (*this)[0];
+	}
+	constexpr reference back() noexcept {
+		if (real_size == 0) {
+			detail::precondition_violated("ctc::basic_string: back() on an empty string");
+		}
+		return content[real_size - 1];
+	}
+	constexpr const_reference back() const noexcept {
+		if (real_size == 0) {
+			detail::precondition_violated("ctc::basic_string: back() on an empty string");
+		}
 		return content[real_size - 1];
 	}
 
-	// conversion
-	constexpr std::basic_string_view<char32_t> view() const noexcept {
-		return std::basic_string_view<char32_t>{content, size()};
+	// iteration
+	constexpr iterator begin() noexcept {
+		return content;
 	}
-	constexpr operator std::basic_string_view<char32_t>() const noexcept {
+	constexpr const_iterator begin() const noexcept {
+		return content;
+	}
+	constexpr iterator end() noexcept {
+		return content + real_size;
+	}
+	constexpr const_iterator end() const noexcept {
+		return content + real_size;
+	}
+	constexpr const_iterator cbegin() const noexcept {
+		return begin();
+	}
+	constexpr const_iterator cend() const noexcept {
+		return end();
+	}
+
+	// conversion
+	constexpr view_type view() const noexcept {
+		return view_type{content, real_size};
+	}
+	constexpr operator view_type() const noexcept {
 		return view();
 	}
 
-	// comparison
-	template <std::size_t M> constexpr bool is_same_as(const fixed_string<M> & rhs) const noexcept {
-		if (real_size != rhs.size()) return false;
-		for (std::size_t i{0}; i != real_size; ++i) {
-			if (content[i] != rhs[i]) return false;
+	// mutation (every vacated unit is reset to CharT{}, see `content`)
+	constexpr void push_back(CharT unit) noexcept {
+		if (real_size == N) {
+			detail::precondition_violated("ctc::basic_string: push_back on a full string");
 		}
-		return true;
+		content[real_size++] = unit;
 	}
-	// three-way lexicographical comparison, ala std::basic_string_view::compare
-	template <std::size_t M> constexpr int compare(const fixed_string<M> & rhs) const noexcept {
-		const std::size_t common = real_size < rhs.size() ? real_size : rhs.size();
-		for (std::size_t i{0}; i != common; ++i) {
-			if (content[i] < rhs[i]) return -1;
-			if (content[i] > rhs[i]) return 1;
+	constexpr void pop_back() noexcept {
+		if (real_size == 0) {
+			detail::precondition_violated("ctc::basic_string: pop_back on an empty string");
 		}
-		if (real_size < rhs.size()) return -1;
-		if (real_size > rhs.size()) return 1;
-		return 0;
+		content[--real_size] = CharT{};
+	}
+	constexpr void clear() noexcept {
+		for (size_type i{0}; i < real_size; ++i) {
+			content[i] = CharT{};
+		}
+		real_size = 0;
+	}
+	constexpr void resize(size_type count, CharT unit = CharT{}) noexcept {
+		if (count > N) {
+			detail::precondition_violated("ctc::basic_string: resize beyond the capacity");
+		}
+		for (size_type i{real_size}; i < count; ++i) {
+			content[i] = unit;
+		}
+		for (size_type i{count}; i < real_size; ++i) {
+			content[i] = CharT{};
+		}
+		real_size = count;
+	}
+	constexpr basic_string & append(view_type suffix) noexcept {
+		if (suffix.size() > N - real_size) {
+			detail::precondition_violated("ctc::basic_string: append beyond the capacity");
+		}
+		for (size_type i{0}; i < suffix.size(); ++i) {
+			content[real_size + i] = suffix[i];
+		}
+		real_size += suffix.size();
+		return *this;
+	}
+	constexpr basic_string & append(size_type count, CharT unit) noexcept {
+		if (count > N - real_size) {
+			detail::precondition_violated("ctc::basic_string: append beyond the capacity");
+		}
+		for (size_type i{0}; i < count; ++i) {
+			content[real_size + i] = unit;
+		}
+		real_size += count;
+		return *this;
+	}
+	constexpr basic_string & operator+=(view_type suffix) noexcept {
+		return append(suffix);
+	}
+	constexpr basic_string & operator+=(CharT unit) noexcept {
+		push_back(unit);
+		return *this;
 	}
 
-	// search
-	template <std::size_t M> constexpr std::size_t find(const fixed_string<M> & needle, std::size_t pos = 0) const noexcept {
-		if (pos > real_size) return npos;
-		if (needle.size() > real_size) return npos;
-		for (std::size_t i{pos}; i + needle.size() <= real_size; ++i) {
-			bool found = true;
-			for (std::size_t j{0}; j != needle.size(); ++j) {
-				if (content[i + j] != needle[j]) {
-					found = false;
-					break;
-				}
-			}
-			if (found) return i;
-		}
-		return npos;
+	// search (all delegate to the constexpr std::basic_string_view)
+	constexpr size_type find(view_type needle, size_type pos = 0) const noexcept {
+		return view().find(needle, pos);
 	}
-	constexpr std::size_t find(char32_t needle, std::size_t pos = 0) const noexcept {
-		for (std::size_t i{pos}; i < real_size; ++i) {
-			if (content[i] == needle) return i;
-		}
-		return npos;
+	constexpr size_type find(CharT unit, size_type pos = 0) const noexcept {
+		return view().find(unit, pos);
 	}
-	template <std::size_t M> constexpr bool contains(const fixed_string<M> & needle) const noexcept {
+	constexpr size_type rfind(view_type needle, size_type pos = npos) const noexcept {
+		return view().rfind(needle, pos);
+	}
+	constexpr size_type rfind(CharT unit, size_type pos = npos) const noexcept {
+		return view().rfind(unit, pos);
+	}
+	constexpr bool contains(view_type needle) const noexcept {
 		return find(needle) != npos;
 	}
-	constexpr bool contains(char32_t needle) const noexcept {
-		return find(needle) != npos;
+	constexpr bool contains(CharT unit) const noexcept {
+		return find(unit) != npos;
 	}
-	template <std::size_t M> constexpr bool starts_with(const fixed_string<M> & prefix) const noexcept {
-		if (prefix.size() > real_size) return false;
-		for (std::size_t i{0}; i != prefix.size(); ++i) {
-			if (content[i] != prefix[i]) return false;
-		}
-		return true;
+	constexpr bool starts_with(view_type prefix) const noexcept {
+		return view().starts_with(prefix);
 	}
-	constexpr bool starts_with(char32_t c) const noexcept {
-		return real_size != 0 && content[0] == c;
+	constexpr bool starts_with(CharT unit) const noexcept {
+		return view().starts_with(unit);
 	}
-	template <std::size_t M> constexpr bool ends_with(const fixed_string<M> & suffix) const noexcept {
-		if (suffix.size() > real_size) return false;
-		const std::size_t offset = real_size - suffix.size();
-		for (std::size_t i{0}; i != suffix.size(); ++i) {
-			if (content[offset + i] != suffix[i]) return false;
-		}
-		return true;
+	constexpr bool ends_with(view_type suffix) const noexcept {
+		return view().ends_with(suffix);
 	}
-	constexpr bool ends_with(char32_t c) const noexcept {
-		return real_size != 0 && content[real_size - 1] == c;
+	constexpr bool ends_with(CharT unit) const noexcept {
+		return view().ends_with(unit);
+	}
+	constexpr int compare(view_type rhs) const noexcept {
+		return view().compare(rhs);
 	}
 
-	// substring: capacity is computed at compile time, content is clamped
-	// to the decoded size
-	template <std::size_t Pos, std::size_t Count = npos> constexpr auto substr() const noexcept {
-		constexpr std::size_t available_capacity = (Pos < N) ? (N - Pos) : 0;
-		constexpr std::size_t result_capacity = (Count < available_capacity) ? Count : available_capacity;
-		fixed_string<result_capacity> result;
-		std::size_t out{0};
-		for (std::size_t i{Pos}; i < real_size && out != result_capacity; ++i, ++out) {
+	// substring, with the capacity computed at compile time
+	template <size_t Pos, size_t Count = npos> constexpr auto substr() const noexcept {
+		constexpr size_type available_capacity = (Pos < N) ? (N - Pos) : 0;
+		constexpr size_type result_capacity = (Count < available_capacity) ? Count : available_capacity;
+		basic_string<CharT, result_capacity> result;
+		size_type out{0};
+		for (size_type i{Pos}; i < real_size && out != result_capacity; ++i, ++out) {
 			result.content[out] = content[i];
 		}
 		result.real_size = out;
-		result.correct_flag = correct_flag;
+		return result;
+	}
+	// substring as a view into this string (no copy)
+	constexpr view_type substr(size_type pos, size_type count = npos) const noexcept {
+		if (pos > real_size) {
+			detail::precondition_violated("ctc::basic_string: substr position out of range");
+		}
+		const size_type available = real_size - pos;
+		return view_type{content + pos, count < available ? count : available};
+	}
+
+	// a copy with a different capacity (checked to fit; shrunk<V>()
+	// right-sizes to exactly size())
+	template <size_t M> constexpr basic_string<CharT, M> with_capacity() const noexcept {
+		if (real_size > M) {
+			detail::precondition_violated("ctc::basic_string: content does not fit the new capacity");
+		}
+		basic_string<CharT, M> result;
+		for (size_type i{0}; i < real_size; ++i) {
+			result.content[i] = content[i];
+		}
+		result.real_size = real_size;
 		return result;
 	}
 };
 
-template <typename CharT, std::size_t N> fixed_string(const CharT (&)[N]) -> fixed_string<N-1>;
-template <typename CharT, std::size_t N> fixed_string(const std::array<CharT,N> &) -> fixed_string<N>;
+template <typename CharT, size_t M> basic_string(const CharT (&)[M]) -> basic_string<CharT, M - 1>;
 
-template <std::size_t N> fixed_string(fixed_string<N>) -> fixed_string<N>;
+CTC_EXPORT template <size_t N> using string = basic_string<char, N>;
+CTC_EXPORT template <size_t N> using wstring = basic_string<wchar_t, N>;
+CTC_EXPORT template <size_t N> using u8string = basic_string<char8_t, N>;
+CTC_EXPORT template <size_t N> using u16string = basic_string<char16_t, N>;
+CTC_EXPORT template <size_t N> using u32string = basic_string<char32_t, N>;
 
-// equality (works across different capacities; compares decoded content)
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr bool operator==(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	return lhs.is_same_as(rhs);
-}
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr bool operator!=(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	return !lhs.is_same_as(rhs);
-}
-CTLL_EXPORT template <std::size_t A, typename CharT, std::size_t M> constexpr bool operator==(const fixed_string<A> & lhs, const CharT (&rhs)[M]) noexcept {
-	return lhs.is_same_as(fixed_string<M-1>(rhs));
-}
-CTLL_EXPORT template <std::size_t A, typename CharT, std::size_t M> constexpr bool operator!=(const fixed_string<A> & lhs, const CharT (&rhs)[M]) noexcept {
-	return !lhs.is_same_as(fixed_string<M-1>(rhs));
-}
-CTLL_EXPORT template <typename CharT, std::size_t M, std::size_t B> constexpr bool operator==(const CharT (&lhs)[M], const fixed_string<B> & rhs) noexcept {
-	return rhs.is_same_as(fixed_string<M-1>(lhs));
-}
-CTLL_EXPORT template <typename CharT, std::size_t M, std::size_t B> constexpr bool operator!=(const CharT (&lhs)[M], const fixed_string<B> & rhs) noexcept {
-	return !rhs.is_same_as(fixed_string<M-1>(lhs));
+// make_string("literal"): deduction without spelling basic_string
+// (alias-template CTAD needs clang 19, so the aliases cannot deduce)
+CTC_EXPORT template <typename CharT, size_t M> constexpr auto make_string(const CharT (&literal)[M]) noexcept {
+	return basic_string<CharT, M - 1>{literal};
 }
 
-// lexicographical ordering
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr bool operator<(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	return lhs.compare(rhs) < 0;
+// comparison: across capacities, and against anything convertible to a
+// view (string literals, std::string_view, std::string). C++20
+// synthesizes the reversed and secondary operators.
+CTC_EXPORT template <typename CharT, size_t A, size_t B> constexpr bool operator==(const basic_string<CharT, A> & lhs, const basic_string<CharT, B> & rhs) noexcept {
+	return lhs.view() == rhs.view();
 }
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr bool operator<=(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	return lhs.compare(rhs) <= 0;
+CTC_EXPORT template <typename CharT, size_t A, size_t B> constexpr auto operator<=>(const basic_string<CharT, A> & lhs, const basic_string<CharT, B> & rhs) noexcept {
+	return lhs.compare(rhs.view()) <=> 0;
 }
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr bool operator>(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	return lhs.compare(rhs) > 0;
+CTC_EXPORT template <typename CharT, size_t A> constexpr bool operator==(const basic_string<CharT, A> & lhs, std::type_identity_t<std::basic_string_view<CharT>> rhs) noexcept {
+	return lhs.view() == rhs;
 }
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr bool operator>=(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	return lhs.compare(rhs) >= 0;
+CTC_EXPORT template <typename CharT, size_t A> constexpr auto operator<=>(const basic_string<CharT, A> & lhs, std::type_identity_t<std::basic_string_view<CharT>> rhs) noexcept {
+	return lhs.compare(rhs) <=> 0;
 }
 
 // concatenation
-CTLL_EXPORT template <std::size_t A, std::size_t B> constexpr auto operator+(const fixed_string<A> & lhs, const fixed_string<B> & rhs) noexcept {
-	fixed_string<A + B> result;
-	std::size_t out{0};
-	for (std::size_t i{0}; i != lhs.size(); ++i) {
-		result.content[out++] = lhs[i];
-	}
-	for (std::size_t i{0}; i != rhs.size(); ++i) {
-		result.content[out++] = rhs[i];
-	}
-	result.real_size = out;
-	result.correct_flag = lhs.correct() && rhs.correct();
+CTC_EXPORT template <typename CharT, size_t A, size_t B> constexpr auto operator+(const basic_string<CharT, A> & lhs, const basic_string<CharT, B> & rhs) noexcept {
+	basic_string<CharT, A + B> result;
+	result.append(lhs.view());
+	result.append(rhs.view());
 	return result;
 }
-CTLL_EXPORT template <std::size_t A, typename CharT, std::size_t M> constexpr auto operator+(const fixed_string<A> & lhs, const CharT (&rhs)[M]) noexcept {
-	return lhs + fixed_string<M-1>(rhs);
+CTC_EXPORT template <typename CharT, size_t A, size_t M> constexpr auto operator+(const basic_string<CharT, A> & lhs, const CharT (&rhs)[M]) noexcept {
+	return lhs + basic_string<CharT, M - 1>{rhs};
 }
-CTLL_EXPORT template <typename CharT, std::size_t M, std::size_t B> constexpr auto operator+(const CharT (&lhs)[M], const fixed_string<B> & rhs) noexcept {
-	return fixed_string<M-1>(lhs) + rhs;
-}
-
-// iostream interoperability: the content is encoded as UTF-8 and written
-// with a single formatted output operation (so padding/width apply once)
-CTLL_EXPORT template <typename Traits, std::size_t N> std::basic_ostream<char, Traits> & operator<<(std::basic_ostream<char, Traits> & stream, const fixed_string<N> & string) {
-	char buffer[4 * (N ? N : 1)];
-	std::size_t out{0};
-	for (std::size_t i{0}; i != string.size(); ++i) {
-		const char32_t cp = string[i];
-		if (cp < 0x80) {
-			buffer[out++] = static_cast<char>(cp);
-		} else if (cp < 0x800) {
-			buffer[out++] = static_cast<char>(0xC0 | (cp >> 6));
-			buffer[out++] = static_cast<char>(0x80 | (cp & 0x3F));
-		} else if (cp < 0x10000) {
-			buffer[out++] = static_cast<char>(0xE0 | (cp >> 12));
-			buffer[out++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-			buffer[out++] = static_cast<char>(0x80 | (cp & 0x3F));
-		} else {
-			buffer[out++] = static_cast<char>(0xF0 | (cp >> 18));
-			buffer[out++] = static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
-			buffer[out++] = static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-			buffer[out++] = static_cast<char>(0x80 | (cp & 0x3F));
-		}
-	}
-	return stream << std::basic_string_view<char, Traits>(buffer, out);
+CTC_EXPORT template <typename CharT, size_t M, size_t B> constexpr auto operator+(const CharT (&lhs)[M], const basic_string<CharT, B> & rhs) noexcept {
+	return basic_string<CharT, M - 1>{lhs} + rhs;
 }
 
+// iostream interoperability
+CTC_EXPORT template <typename CharT, typename Traits, size_t A> std::basic_ostream<CharT, Traits> & operator<<(std::basic_ostream<CharT, Traits> & stream, const basic_string<CharT, A> & string) {
+	return stream << std::basic_string_view<CharT, Traits>{string.data(), string.size()};
 }
+
+} // namespace ctc
 
 #endif
 
@@ -5143,63 +5288,162 @@ private:
 
 #endif
 
-#ifndef CTJS__CFUNCTION__HPP
-#define CTJS__CFUNCTION__HPP
+#ifndef CTC__CFUNCTION__HPP
+#define CTC__CFUNCTION__HPP
 
-#ifndef CTJS_IN_A_MODULE
-#include <memory>
+#ifndef CTC__UTILITY__HPP
+#define CTC__UTILITY__HPP
+
+#ifndef CTC_IN_A_MODULE
+#include <cstddef>
+#include <cstdlib>
+#endif
+
+#ifdef CTC_IN_A_MODULE
+#define CTC_EXPORT export
+#else
+#define CTC_EXPORT
+#endif
+
+namespace ctc {
+
+using std::size_t;
+
+// transparent, stateless functors: the associative containers default
+// to these and construct them on use instead of storing them (a
+// stored comparator would be one more member in every NTTP)
+CTC_EXPORT struct less {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a < b;
+	}
+};
+
+CTC_EXPORT struct equal_to {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a == b;
+	}
+};
+
+namespace detail {
+
+// The precondition trap. Calling a non-constexpr function is not a
+// constant expression, so inside constant evaluation a violated
+// precondition fails the compilation - with this function's name and
+// its string argument visible in the constexpr backtrace. At runtime
+// it aborts (the library is exception-free).
+[[noreturn]] inline void precondition_violated(const char *) noexcept {
+	std::abort();
+}
+
+// binary search over the sorted containers' storage. KeyOf projects an
+// element to its key (identity for sets, .first for maps).
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t lower_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (Compare{}(key_of(data[mid]), key)) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t upper_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (!Compare{}(key, key_of(data[mid]))) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+} // namespace detail
+
+} // namespace ctc
+
+#endif
+
+#ifndef CTC_IN_A_MODULE
+#include <type_traits>
 #include <utility>
 #endif
 
 // A constexpr type-erased callable - std::function is not usable in
-// constant evaluation (C++23), this is. It stores the callable behind a
-// constexpr-virtual interface owned by a constexpr std::unique_ptr, so
-// the whole thing is evaluable at compile time. Adapted from the
-// compile-time function wrapper (thanks to the pattern the user shared);
-// made copyable (via a clone hook) since a JS function value is copied.
+// constant evaluation, this is. The callable sits behind a
+// constexpr-virtual interface; copying deep-copies it through a clone
+// hook (a function value is a value). Ownership is a hand-rolled
+// constexpr new/delete: std::unique_ptr is only constexpr from C++23,
+// and ctc's floor is C++20.
+//
+// (Moved here from compile-time-javascript, where it type-erases the
+// interpreter's native functions; compile-time-browser's layout hooks
+// ride it too.)
 
-namespace ctjs {
+namespace ctc {
 
-template <class> class cfunction;
+CTC_EXPORT template <class> class cfunction;
 
-template <class R, class... Args> class cfunction<R(Args...)> {
+CTC_EXPORT template <class R, class... Args> class cfunction<R(Args...)> {
 public:
-	cfunction() = default; // empty
+	constexpr cfunction() noexcept = default; // empty
 	template <class F>
 	    requires(!std::is_same_v<std::decay_t<F>, cfunction>)
-	constexpr cfunction(F f) : ptr_{std::make_unique<impl<F>>(std::move(f))} { }
+	constexpr cfunction(F f) : ptr_{new impl<F>{std::move(f)}} { }
 
 	constexpr cfunction(const cfunction & o) : ptr_{o.ptr_ ? o.ptr_->clone() : nullptr} { }
-	constexpr cfunction(cfunction &&) noexcept = default;
+	constexpr cfunction(cfunction && o) noexcept : ptr_{o.ptr_} { o.ptr_ = nullptr; }
 	constexpr cfunction & operator=(const cfunction & o) {
-		ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		}
 		return *this;
 	}
-	constexpr cfunction & operator=(cfunction &&) noexcept = default;
+	constexpr cfunction & operator=(cfunction && o) noexcept {
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_;
+			o.ptr_ = nullptr;
+		}
+		return *this;
+	}
+	constexpr ~cfunction() { delete ptr_; }
 
-	constexpr explicit operator bool() const { return static_cast<bool>(ptr_); }
+	constexpr explicit operator bool() const noexcept { return ptr_ != nullptr; }
 	constexpr R operator()(Args... args) const { return ptr_->call(static_cast<Args>(args)...); }
 
 private:
 	struct iface {
 		constexpr virtual R call(Args...) const = 0;
-		constexpr virtual std::unique_ptr<iface> clone() const = 0;
+		constexpr virtual iface * clone() const = 0;
 		constexpr virtual ~iface() = default;
 	};
 	template <class F> struct impl final : iface {
 		constexpr explicit impl(F f) : f_{std::move(f)} { }
-		constexpr R call(Args... args) const override {
-			return f_(static_cast<Args>(args)...);
-		}
-		constexpr std::unique_ptr<iface> clone() const override {
-			return std::make_unique<impl>(f_);
-		}
+		// explicitly defaulted: gcc defines implicit virtual destructors
+		// lazily, which is too late for a constexpr `delete` through the
+		// base pointer ("used before its definition")
+		constexpr ~impl() override = default;
+		constexpr R call(Args... args) const override { return f_(static_cast<Args>(args)...); }
+		constexpr iface * clone() const override { return new impl{f_}; }
 		F f_;
 	};
-	std::unique_ptr<iface> ptr_;
+	iface * ptr_ = nullptr;
 };
 
-} // namespace ctjs
+} // namespace ctc
 
 #endif
 
@@ -5267,6 +5511,7 @@ struct object_t {
 
 // one representation for JS functions and native (C++) functions: the
 // closure environment, if any, is captured inside the cfunction
+using ctc::cfunction; // the shared constexpr callable now lives in ctc
 using native_fn = cfunction<value(context &, const std::vector<value> &)>;
 struct function_t {
 	native_fn fn;
@@ -6129,63 +6374,162 @@ private:
 
 #endif
 
-#ifndef CTJS__CFUNCTION__HPP
-#define CTJS__CFUNCTION__HPP
+#ifndef CTC__CFUNCTION__HPP
+#define CTC__CFUNCTION__HPP
 
-#ifndef CTJS_IN_A_MODULE
-#include <memory>
+#ifndef CTC__UTILITY__HPP
+#define CTC__UTILITY__HPP
+
+#ifndef CTC_IN_A_MODULE
+#include <cstddef>
+#include <cstdlib>
+#endif
+
+#ifdef CTC_IN_A_MODULE
+#define CTC_EXPORT export
+#else
+#define CTC_EXPORT
+#endif
+
+namespace ctc {
+
+using std::size_t;
+
+// transparent, stateless functors: the associative containers default
+// to these and construct them on use instead of storing them (a
+// stored comparator would be one more member in every NTTP)
+CTC_EXPORT struct less {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a < b;
+	}
+};
+
+CTC_EXPORT struct equal_to {
+	using is_transparent = void;
+	template <typename A, typename B> constexpr bool operator()(const A & a, const B & b) const {
+		return a == b;
+	}
+};
+
+namespace detail {
+
+// The precondition trap. Calling a non-constexpr function is not a
+// constant expression, so inside constant evaluation a violated
+// precondition fails the compilation - with this function's name and
+// its string argument visible in the constexpr backtrace. At runtime
+// it aborts (the library is exception-free).
+[[noreturn]] inline void precondition_violated(const char *) noexcept {
+	std::abort();
+}
+
+// binary search over the sorted containers' storage. KeyOf projects an
+// element to its key (identity for sets, .first for maps).
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t lower_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (Compare{}(key_of(data[mid]), key)) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+template <typename Compare, typename Node, typename K, typename KeyOf>
+constexpr size_t upper_bound_index(const Node * data, size_t size, const K & key, const KeyOf & key_of) noexcept {
+	size_t low{0};
+	size_t high{size};
+	while (low < high) {
+		const size_t mid = low + (high - low) / 2;
+		if (!Compare{}(key, key_of(data[mid]))) {
+			low = mid + 1;
+		} else {
+			high = mid;
+		}
+	}
+	return low;
+}
+
+} // namespace detail
+
+} // namespace ctc
+
+#endif
+
+#ifndef CTC_IN_A_MODULE
+#include <type_traits>
 #include <utility>
 #endif
 
 // A constexpr type-erased callable - std::function is not usable in
-// constant evaluation (C++23), this is. It stores the callable behind a
-// constexpr-virtual interface owned by a constexpr std::unique_ptr, so
-// the whole thing is evaluable at compile time. Adapted from the
-// compile-time function wrapper (thanks to the pattern the user shared);
-// made copyable (via a clone hook) since a JS function value is copied.
+// constant evaluation, this is. The callable sits behind a
+// constexpr-virtual interface; copying deep-copies it through a clone
+// hook (a function value is a value). Ownership is a hand-rolled
+// constexpr new/delete: std::unique_ptr is only constexpr from C++23,
+// and ctc's floor is C++20.
+//
+// (Moved here from compile-time-javascript, where it type-erases the
+// interpreter's native functions; compile-time-browser's layout hooks
+// ride it too.)
 
-namespace ctjs {
+namespace ctc {
 
-template <class> class cfunction;
+CTC_EXPORT template <class> class cfunction;
 
-template <class R, class... Args> class cfunction<R(Args...)> {
+CTC_EXPORT template <class R, class... Args> class cfunction<R(Args...)> {
 public:
-	cfunction() = default; // empty
+	constexpr cfunction() noexcept = default; // empty
 	template <class F>
 	    requires(!std::is_same_v<std::decay_t<F>, cfunction>)
-	constexpr cfunction(F f) : ptr_{std::make_unique<impl<F>>(std::move(f))} { }
+	constexpr cfunction(F f) : ptr_{new impl<F>{std::move(f)}} { }
 
 	constexpr cfunction(const cfunction & o) : ptr_{o.ptr_ ? o.ptr_->clone() : nullptr} { }
-	constexpr cfunction(cfunction &&) noexcept = default;
+	constexpr cfunction(cfunction && o) noexcept : ptr_{o.ptr_} { o.ptr_ = nullptr; }
 	constexpr cfunction & operator=(const cfunction & o) {
-		ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_ ? o.ptr_->clone() : nullptr;
+		}
 		return *this;
 	}
-	constexpr cfunction & operator=(cfunction &&) noexcept = default;
+	constexpr cfunction & operator=(cfunction && o) noexcept {
+		if (this != &o) {
+			delete ptr_;
+			ptr_ = o.ptr_;
+			o.ptr_ = nullptr;
+		}
+		return *this;
+	}
+	constexpr ~cfunction() { delete ptr_; }
 
-	constexpr explicit operator bool() const { return static_cast<bool>(ptr_); }
+	constexpr explicit operator bool() const noexcept { return ptr_ != nullptr; }
 	constexpr R operator()(Args... args) const { return ptr_->call(static_cast<Args>(args)...); }
 
 private:
 	struct iface {
 		constexpr virtual R call(Args...) const = 0;
-		constexpr virtual std::unique_ptr<iface> clone() const = 0;
+		constexpr virtual iface * clone() const = 0;
 		constexpr virtual ~iface() = default;
 	};
 	template <class F> struct impl final : iface {
 		constexpr explicit impl(F f) : f_{std::move(f)} { }
-		constexpr R call(Args... args) const override {
-			return f_(static_cast<Args>(args)...);
-		}
-		constexpr std::unique_ptr<iface> clone() const override {
-			return std::make_unique<impl>(f_);
-		}
+		// explicitly defaulted: gcc defines implicit virtual destructors
+		// lazily, which is too late for a constexpr `delete` through the
+		// base pointer ("used before its definition")
+		constexpr ~impl() override = default;
+		constexpr R call(Args... args) const override { return f_(static_cast<Args>(args)...); }
+		constexpr iface * clone() const override { return new impl{f_}; }
 		F f_;
 	};
-	std::unique_ptr<iface> ptr_;
+	iface * ptr_ = nullptr;
 };
 
-} // namespace ctjs
+} // namespace ctc
 
 #endif
 
@@ -6253,6 +6597,7 @@ struct object_t {
 
 // one representation for JS functions and native (C++) functions: the
 // closure environment, if any, is captured inside the cfunction
+using ctc::cfunction; // the shared constexpr callable now lives in ctc
 using native_fn = cfunction<value(context &, const std::vector<value> &)>;
 struct function_t {
 	native_fn fn;
@@ -10752,7 +11097,6 @@ inline vrun_result vrun(std::string_view src, std::vector<binding> host = {}) {
 #endif
 
 #ifndef CTJS_IN_A_MODULE
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -10872,35 +11216,20 @@ private:
 };
 
 // --- the NTTP surface, value-backed ---------------------------------
-// The source rides as a ctll::fixed_string template argument; validity
-// is proven during compilation by the CONSTEXPR value parser, and run()
-// executes through the same run_value machinery as a runtime string.
+// The source rides as a ctc::string template argument - a structural
+// byte string, so the template parameter object IS the script text
+// (static storage; view it directly). Validity is proven during
+// compilation by the CONSTEXPR value parser, and run() executes
+// through the same run_value machinery as a runtime string.
 
-namespace detail {
-
-// ctll::fixed_string stores wide code units; materialize the script's
-// bytes once per Src as a static char array
-template <ctll::fixed_string Src> struct src_bytes {
-	static constexpr auto compute() noexcept {
-		std::array<char, Src.size() + 1> out{};
-		for (std::size_t i = 0; i < Src.size(); ++i) {
-			out[i] = static_cast<char>(Src.content[i]);
-		}
-		return out;
-	}
-	static constexpr std::array<char, Src.size() + 1> storage = compute();
-	static constexpr std::string_view view() noexcept {
-		return std::string_view{storage.data(), Src.size()};
-	}
-};
-
-} // namespace detail
+// declared ahead of the NTTP surface, defined below
+inline run_result run_value(std::string_view src, std::vector<binding> host = {});
 
 // does the source parse as ctjs's JavaScript subset?
-CTLL_EXPORT template <ctll::fixed_string Src>
-inline constexpr bool is_valid = vp::is_valid(detail::src_bytes<Src>::view());
+CTC_EXPORT template <ctc::string Src>
+inline constexpr bool is_valid = vp::is_valid(std::string_view{Src.data(), Src.size()});
 
-CTLL_EXPORT template <ctll::fixed_string Src> struct script_t {
+CTC_EXPORT template <ctc::string Src> struct script_t {
 	// queryable without error (v8diff skips parse gaps through it)
 	static constexpr bool valid = is_valid<Src>;
 
@@ -10909,14 +11238,14 @@ CTLL_EXPORT template <ctll::fixed_string Src> struct script_t {
 		              "ctjs: the script is not valid JavaScript (within the "
 		              "supported subset) - run vp::parse on the source at "
 		              "runtime for the offending token");
-		return run_value(detail::src_bytes<Src>::view(), std::move(host));
+		return run_value(std::string_view{Src.data(), Src.size()}, std::move(host));
 	}
 };
 
-CTLL_EXPORT template <ctll::fixed_string Src> inline constexpr script_t<Src> script{};
+CTC_EXPORT template <ctc::string Src> inline constexpr script_t<Src> script{};
 
 // one-shot convenience: validity proven at compile time, run now
-CTLL_EXPORT template <ctll::fixed_string Src> run_result run(std::vector<binding> host = {}) {
+CTC_EXPORT template <ctc::string Src> run_result run(std::vector<binding> host = {}) {
 	return script_t<Src>::run(std::move(host));
 }
 
@@ -10928,7 +11257,7 @@ CTLL_EXPORT template <ctll::fixed_string Src> run_result run(std::vector<binding
 // is identical to the type-based path, because the value interpreter reuses the
 // same value/environment/context machinery; the backing vm is kept alive so the
 // script's functions stay callable (event handlers, onFrame, ...).
-inline run_result run_value(std::string_view src, std::vector<binding> host = {}) {
+inline run_result run_value(std::string_view src, std::vector<binding> host) {
 	auto machine = std::make_shared<vp::vm>(vp::parse(src));
 	for (binding & b : host) { machine->globals->declare(b.name, std::move(b.v)); }
 	auto cx = rc<context>::make();

@@ -1,10 +1,9 @@
 #ifndef CTJS__SCRIPT__HPP
 #define CTJS__SCRIPT__HPP
 
-#include "../ctll/fixed_string.hpp" // the NTTP string carrier for script<Src>
-#include "vinterp.hpp"              // the value parser + interpreter
+#include "ctc/string.hpp" // the NTTP string carrier for script<Src> (quoted: quom inlines it)
+#include "vinterp.hpp"    // the value parser + interpreter
 #ifndef CTJS_IN_A_MODULE
-#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -124,35 +123,20 @@ private:
 };
 
 // --- the NTTP surface, value-backed ---------------------------------
-// The source rides as a ctll::fixed_string template argument; validity
-// is proven during compilation by the CONSTEXPR value parser, and run()
-// executes through the same run_value machinery as a runtime string.
+// The source rides as a ctc::string template argument - a structural
+// byte string, so the template parameter object IS the script text
+// (static storage; view it directly). Validity is proven during
+// compilation by the CONSTEXPR value parser, and run() executes
+// through the same run_value machinery as a runtime string.
 
-namespace detail {
-
-// ctll::fixed_string stores wide code units; materialize the script's
-// bytes once per Src as a static char array
-template <ctll::fixed_string Src> struct src_bytes {
-	static constexpr auto compute() noexcept {
-		std::array<char, Src.size() + 1> out{};
-		for (std::size_t i = 0; i < Src.size(); ++i) {
-			out[i] = static_cast<char>(Src.content[i]);
-		}
-		return out;
-	}
-	static constexpr std::array<char, Src.size() + 1> storage = compute();
-	static constexpr std::string_view view() noexcept {
-		return std::string_view{storage.data(), Src.size()};
-	}
-};
-
-} // namespace detail
+// declared ahead of the NTTP surface, defined below
+inline run_result run_value(std::string_view src, std::vector<binding> host = {});
 
 // does the source parse as ctjs's JavaScript subset?
-CTLL_EXPORT template <ctll::fixed_string Src>
-inline constexpr bool is_valid = vp::is_valid(detail::src_bytes<Src>::view());
+CTC_EXPORT template <ctc::string Src>
+inline constexpr bool is_valid = vp::is_valid(std::string_view{Src.data(), Src.size()});
 
-CTLL_EXPORT template <ctll::fixed_string Src> struct script_t {
+CTC_EXPORT template <ctc::string Src> struct script_t {
 	// queryable without error (v8diff skips parse gaps through it)
 	static constexpr bool valid = is_valid<Src>;
 
@@ -161,14 +145,14 @@ CTLL_EXPORT template <ctll::fixed_string Src> struct script_t {
 		              "ctjs: the script is not valid JavaScript (within the "
 		              "supported subset) - run vp::parse on the source at "
 		              "runtime for the offending token");
-		return run_value(detail::src_bytes<Src>::view(), std::move(host));
+		return run_value(std::string_view{Src.data(), Src.size()}, std::move(host));
 	}
 };
 
-CTLL_EXPORT template <ctll::fixed_string Src> inline constexpr script_t<Src> script{};
+CTC_EXPORT template <ctc::string Src> inline constexpr script_t<Src> script{};
 
 // one-shot convenience: validity proven at compile time, run now
-CTLL_EXPORT template <ctll::fixed_string Src> run_result run(std::vector<binding> host = {}) {
+CTC_EXPORT template <ctc::string Src> run_result run(std::vector<binding> host = {}) {
 	return script_t<Src>::run(std::move(host));
 }
 
@@ -180,7 +164,7 @@ CTLL_EXPORT template <ctll::fixed_string Src> run_result run(std::vector<binding
 // is identical to the type-based path, because the value interpreter reuses the
 // same value/environment/context machinery; the backing vm is kept alive so the
 // script's functions stay callable (event handlers, onFrame, ...).
-inline run_result run_value(std::string_view src, std::vector<binding> host = {}) {
+inline run_result run_value(std::string_view src, std::vector<binding> host) {
 	auto machine = std::make_shared<vp::vm>(vp::parse(src));
 	for (binding & b : host) { machine->globals->declare(b.name, std::move(b.v)); }
 	auto cx = rc<context>::make();

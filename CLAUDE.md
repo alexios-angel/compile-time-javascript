@@ -38,13 +38,15 @@ warning-clean. Raised budget: `-fconstexpr-steps=500000000`.
 - `include/ctjs/builtins.hpp` — get/set_member (accessor-aware),
   call_value, make_globals (console/Math/JSON/Object/Date/Promise/...),
   the regex engine (backtracking; no lookaround/backrefs).
-- `include/ctjs/script.hpp` — NTTP bridge: `src_bytes` re-materializes
-  `ctll::fixed_string`'s wide code units as bytes; `is_valid<Src>`,
-  `script<Src>` (`.valid`, `.run()`), `run<Src>`, `run_value`.
+- `include/ctjs/script.hpp` — NTTP bridge: `ctc::string` carries the
+  script as a structural BYTE string (the template parameter object IS
+  the text; no materialization step); `is_valid<Src>`, `script<Src>`
+  (`.valid`, `.run()`), `run<Src>`, `run_value`.
 - `include/ctjs/rc.hpp` + `gc.hpp` + `cfunction.hpp` — constexpr
   refcount pointer, cycle collector, constexpr callable.
-- `external/compile-time-lark/` — git SUBMODULE; only
-  `ctll/fixed_string.hpp` + `ctll/utilities.hpp` are consumed now.
+- `external/compile-time-containers/` — git SUBMODULE (ctc):
+  `ctc::string` (NTTP scripts) + `ctc::cfunction` (native_fn's
+  type-erased callable; `using ctc::cfunction` keeps the ctjs:: name).
 - `tests/`: `parse.cpp` (static_assert validity contract),
   `runtime.cpp` (behavior vs node), `vparse.cpp`/`vinterp.cpp` (unit),
   `v8diff.cpp` (GENERATED differential suite — regen via tools/).
@@ -77,11 +79,12 @@ warning-clean. Raised budget: `-fconstexpr-steps=500000000`.
   named+alive for the walk — a temporary is use-after-free.
 - **eval_call resolves indexed callees via get_index** (`xs[0]()` is
   the ELEMENT); name-based get_member would find array methods only.
-- **ctlark and ctll are a git SUBMODULE**: `git submodule update
-  --init` once; bump = checkout in submodule + commit gitlink. Build
-  adds `<sub>/include` + `/ctlark` + `/ctll` to -I (quoted-include
-  fallback).
+- **ctc is a git SUBMODULE**: `git submodule update --init` once;
+  bump = checkout in submodule + commit gitlink. ctc headers are
+  included QUOTED ("ctc/...") so quom can inline them into the
+  single-header.
 - **single-header** — `cmake --build build --target single-header`
   (needs `quom`); prepends LICENSE.
-- **Attribution** — CTLL is Hana Dusíková's (via `notre`, from CTRE).
-  Preserve `NOTICE` and `LICENSE` (Apache-2.0 w/ LLVM Exceptions).
+- **Attribution** — ctc is MIT; the repo's CTLL/CTRE heritage is
+  recorded in `NOTICE`. Preserve `NOTICE` and `LICENSE` (Apache-2.0
+  w/ LLVM Exceptions).

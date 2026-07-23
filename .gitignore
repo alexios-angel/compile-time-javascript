@@ -10,4 +10,5 @@ tests/runtime
 tests/v8diff
 tests/vinterp
 tests/vparse
-*.logbuild-clang/
+*.log
+build-clang/

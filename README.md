@@ -1,8 +1,7 @@
-> **Attribution:** this library uses `ctll::fixed_string` from
-> [CTRE](https://github.com/hanickadot/compile-time-regular-expressions)
-> by Hana Dusíková, via the [notre](https://github.com/alexios-angel/notre)
-> fork and the [compile-time-lark](https://github.com/alexios-angel/compile-time-lark)
-> submodule, and follows the architecture of its siblings
+> **Attribution:** this library builds on
+> [compile-time-containers](https://github.com/alexios-angel/compile-time-containers)
+> (`ctc::string` carries NTTP scripts, `ctc::cfunction` type-erases
+> native functions) and follows the architecture of its siblings
 > [compile-time-html](https://github.com/alexios-angel/compile-time-html),
 > [compile-time-python](https://github.com/alexios-angel/compile-time-python) and
 > [compile-time-json](https://github.com/alexios-angel/compile-time-json).
@@ -157,7 +156,7 @@ and rerun the tests.
 
 ```c++
 // syntax as a value (never a compile error):
-template <ctll::fixed_string Src> constexpr bool ctjs::is_valid;
+template <ctc::string Src> constexpr bool ctjs::is_valid;
 ctjs::script<Src>.valid;            // same fact on the reusable form
 ctjs::vp::is_valid(std::string_view);   // the runtime spelling
 ctjs::vp::parse(std::string_view);      // the AST, with error + offset on failure
@@ -211,23 +210,24 @@ values, and array/string methods materialized as receiver-bound native
 functions (`arr.push` is itself a value).
 
 [`script.hpp`](include/ctjs/script.hpp) is the thin NTTP bridge:
-`ctll::fixed_string` carries the source as a template argument (its
-wide code units are re-materialized as bytes), `is_valid`/`script<>`
-prove syntax during compilation, and `run<Src>()` executes through the
-same `run_value` machinery as any runtime string.
+`ctc::string` carries the source as a template argument - a structural
+BYTE string, so the template parameter object IS the script text and
+is viewed directly - `is_valid`/`script<>` prove syntax during
+compilation, and `run<Src>()` executes through the same `run_value`
+machinery as any runtime string.
 
 (History: the original type-level path — a ctlark Earley grammar
 producing the parse tree as a TYPE, lowered to a type-level AST with a
 per-script-specialized interpreter — was removed in 2026-07 after the
 value parser reproduced its behavior; the differential suite carried
 the equivalence proof. The 10-minute grammar PCH bake died with it:
-builds take seconds now.)
+builds take seconds now. The ctlark/ctll submodule went with it in
+2026-07 — ctc supplies the NTTP string.)
 
-ctlark and ctll come in as a git submodule
-(`external/compile-time-lark` — clone with `--recurse-submodules` or
-run `git submodule update --init`); only `ctll::fixed_string` and the
-`CTLL_EXPORT` utility header are consumed. Never edit under
-`external/`.
+[compile-time-containers](https://github.com/alexios-angel/compile-time-containers)
+(ctc) comes in as a git submodule (`external/compile-time-containers`
+— clone with `--recurse-submodules` or run
+`git submodule update --init`). Never edit under `external/`.
 
 ## Building and integrating
 
@@ -260,8 +260,8 @@ clang: -fconstexpr-steps=500000000 -fconstexpr-depth=1024
 ```
 
 **No build system:** add `include/` plus the submodule's
-`external/compile-time-lark/include` (and its `ctlark`/`ctll`
-subdirectories) to your include path, or copy the amalgamated
+`external/compile-time-containers/include` to your include path, or
+copy the amalgamated
 [`single-header/ctjs.hpp`](single-header/ctjs.hpp)
 (regenerate with `cmake --build build --target single-header`, which needs the
 [quom](https://pypi.org/project/quom/) tool).
@@ -270,7 +270,7 @@ Run the tests — scripts parse during compilation, then the binaries
 execute their checks:
 
 ```bash
-git submodule update --init            # ctlark + ctll (once, after cloning)
+git submodule update --init            # ctc (once, after cloning)
 cmake --preset default                 # Ninja + Release (--preset clang for clang++)
 cmake --build --preset default         # compiles + RUNS via ctest below (seconds)
 ctest --preset default
@@ -295,4 +295,5 @@ exactly where the browser's DOM API plugs in.
 ## License
 
 Apache License 2.0 with LLVM Exceptions (see [LICENSE](LICENSE)).
-CTLL is Hana Dusíková's work, via notre; see [NOTICE](NOTICE).
+ctc (compile-time-containers) is MIT-licensed; historical CTLL/CTRE
+lineage is recorded in [NOTICE](NOTICE).

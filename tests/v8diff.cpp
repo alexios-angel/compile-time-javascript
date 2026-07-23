@@ -7,7 +7,7 @@
 static int failures = 0;
 static int parse_gaps = 0;
 
-template <ctll::fixed_string Src>
+template <ctc::string Src>
 static void run_case(const char * name, const char * expected) {
 	if constexpr (!ctjs::script_t<Src>::valid) {
 		std::printf("PARSE-GAP %s\n", name);

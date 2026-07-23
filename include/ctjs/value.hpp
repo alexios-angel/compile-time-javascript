@@ -2,7 +2,7 @@
 #define CTJS__VALUE__HPP
 
 #include "rc.hpp"
-#include "cfunction.hpp"
+#include "ctc/cfunction.hpp"
 #ifndef CTJS_IN_A_MODULE
 #include <charconv>
 #include <cmath>
@@ -67,6 +67,7 @@ struct object_t {
 
 // one representation for JS functions and native (C++) functions: the
 // closure environment, if any, is captured inside the cfunction
+using ctc::cfunction; // the shared constexpr callable now lives in ctc
 using native_fn = cfunction<value(context &, const std::vector<value> &)>;
 struct function_t {
 	native_fn fn;

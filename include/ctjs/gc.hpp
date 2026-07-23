@@ -167,7 +167,9 @@ inline void collect() {
 		// (releasing live children properly, decrementing pinned dying ones
 		// harmlessly), then deallocate every dying node unconditionally - by now
 		// nothing (live or dying) still references any of them.
-		constexpr long PIN = 1L << 40;
+		// 2^30 fits a 32-bit long (Windows is LLP64) and still dwarfs any
+		// possible cascade of decrements - a node would need >10^9 in-refs.
+		constexpr long PIN = 1L << 30;
 		for (header * s : dead) { s->count += PIN; }
 		for (header * s : dead) {
 			if (s->clear != nullptr) { s->clear(s->obj); }

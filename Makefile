@@ -17,7 +17,9 @@ CXX_IS_CLANG := yes
 
 # Earley at compile time needs more constexpr budget than the defaults;
 # trunk clang also needs the deeper bracket limit AND a big stack
-# (recipes run ulimit -s unlimited - 8 MB default segfaults)
+# (recipes raise the stack to a FINITE 4 GB: with RLIM_INFINITY clang
+# parses on a default ~8 MB worker thread and -Wstack-exhausted fires;
+# a finite large limit keeps the deep ctll recursion on a real stack)
 CONSTEXPR_FLAGS := -fconstexpr-steps=500000000 -fconstexpr-depth=1024 -fbracket-depth=16384
 
 # ctlark and ctll come from a git submodule (run `git submodule update --init`
@@ -53,7 +55,7 @@ DEPENDENCY_FILES := $(TESTS:%.cpp=%.d)
 all: run-tests
 
 $(BINARIES): %: %.cpp $(PCH)
-	@ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
+	@ulimit -s 4194304 2>/dev/null || ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) $(PCH_USE) -MMD $< -o $@
 
 run-tests: $(BINARIES)
 	@for t in $(BINARIES); do printf '== %s\n' "$$t"; ./$$t || exit 1; done
@@ -61,7 +63,7 @@ run-tests: $(BINARIES)
 pch: $(PCH)
 
 $(PCH): include/ctjs.hpp $(wildcard include/ctjs/*.hpp)
-	@ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) -x c++-header $< -o $@
+	@ulimit -s 4194304 2>/dev/null || ulimit -s unlimited 2>/dev/null; $(CXX) $(CXXFLAGS) -x c++-header $< -o $@
 
 -include $(DEPENDENCY_FILES)
 

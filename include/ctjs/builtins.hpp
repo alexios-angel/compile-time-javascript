@@ -1106,7 +1106,7 @@ inline constexpr value string_member(const value & recv, std::string_view name) 
 		return bound("charCodeAt", [s](context &, const std::vector<value> & a) {
 			const double d = a.empty() ? 0 : a[0].to_number();
 			if (std::isnan(d) || d < 0 || d >= static_cast<double>(s.size())) {
-				return value{std::nan("")};
+				return value{std::numeric_limits<double>::quiet_NaN()};
 			}
 			return value{static_cast<double>(
 			    static_cast<unsigned char>(s[static_cast<std::size_t>(d)]))};
@@ -1716,20 +1716,20 @@ inline constexpr double parse_date_ms(std::string_view s) {
 		}
 		return v;
 	};
-	if (s.size() < 10 || s[4] != '-' || s[7] != '-') { return std::nan(""); }
+	if (s.size() < 10 || s[4] != '-' || s[7] != '-') { return std::numeric_limits<double>::quiet_NaN(); }
 	const std::int32_t Y = num(0, 4), Mo = num(5, 2), D = num(8, 2);
-	if (Y < 0 || Mo < 1 || Mo > 12 || D < 1 || D > 31) { return std::nan(""); }
+	if (Y < 0 || Mo < 1 || Mo > 12 || D < 1 || D > 31) { return std::numeric_limits<double>::quiet_NaN(); }
 	std::int32_t hh = 0, mm = 0, ss = 0, ms = 0;
 	std::size_t i = 10;
 	if (s.size() > 10 && (s[10] == 'T' || s[10] == ' ')) {
-		if (s.size() < 16 || s[13] != ':') { return std::nan(""); }
+		if (s.size() < 16 || s[13] != ':') { return std::numeric_limits<double>::quiet_NaN(); }
 		hh = num(11, 2);
 		mm = num(14, 2);
-		if (hh < 0 || mm < 0) { return std::nan(""); }
+		if (hh < 0 || mm < 0) { return std::numeric_limits<double>::quiet_NaN(); }
 		i = 16;
 		if (s.size() > i && s[i] == ':') {
 			ss = num(i + 1, 2);
-			if (ss < 0) { return std::nan(""); }
+			if (ss < 0) { return std::numeric_limits<double>::quiet_NaN(); }
 			i += 3;
 		}
 		if (s.size() > i && s[i] == '.') {
@@ -1746,7 +1746,7 @@ inline constexpr double parse_date_ms(std::string_view s) {
 			i = j;
 		}
 	}
-	if (i < s.size() && s[i] != 'Z') { return std::nan(""); } // only UTC ('Z' or bare)
+	if (i < s.size() && s[i] != 'Z') { return std::numeric_limits<double>::quiet_NaN(); } // only UTC ('Z' or bare)
 	const std::int64_t days = days_from_civil(Y, static_cast<std::uint32_t>(Mo), static_cast<std::uint32_t>(D));
 	return static_cast<double>(days) * 86400000.0 + static_cast<double>(hh) * 3600000.0 +
 	       static_cast<double>(mm) * 60000.0 + static_cast<double>(ss) * 1000.0 +
@@ -1816,7 +1816,7 @@ inline constexpr env_ptr make_globals() {
 	auto g = rc<environment>::make();
 	g->function_scope = true; // the global scope is where top-level var lands
 	g->declare("undefined", value{});
-	g->declare("NaN", value{std::nan("")});
+	g->declare("NaN", value{std::numeric_limits<double>::quiet_NaN()});
 	g->declare("Infinity", value{INFINITY});
 	g->declare("console", detail::make_console());
 	g->declare("Math", detail::make_math());
@@ -1864,7 +1864,7 @@ inline constexpr env_ptr make_globals() {
 		date_fn.as_function()->props->set(
 		    "parse", value::function(
 		                 [](context &, const std::vector<value> & a) {
-			                 return value{a.empty() ? std::nan("")
+			                 return value{a.empty() ? std::numeric_limits<double>::quiet_NaN()
 			                                        : parse_date_ms(a[0].to_string())};
 		                 },
 		                 "parse"));
@@ -2046,7 +2046,7 @@ inline constexpr env_ptr make_globals() {
 			                           out = out * r + d;
 			                           ++digits;
 		                           }
-		                           if (digits == 0) { return value{std::nan("")}; }
+		                           if (digits == 0) { return value{std::numeric_limits<double>::quiet_NaN()}; }
 		                           return value{static_cast<double>(neg ? -out : out)};
 	                           },
 	                           "parseInt"));
@@ -2057,7 +2057,7 @@ inline constexpr env_ptr make_globals() {
 		                             double d = 0;
 		                             const auto r =
 		                                 std::from_chars(s.data(), s.data() + s.size(), d);
-		                             if (r.ptr == s.data()) { return value{std::nan("")}; }
+		                             if (r.ptr == s.data()) { return value{std::numeric_limits<double>::quiet_NaN()}; }
 		                             return value{d};
 	                             },
 	                             "parseFloat"));

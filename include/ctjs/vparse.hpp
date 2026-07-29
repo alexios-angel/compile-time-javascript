@@ -479,6 +479,12 @@ struct parser {
 				return a.add(nd);                          // postfix() continues for `.m()` on the result
 			}
 			if (c.s == "function") { return func(true); }
+			// A CLASS EXPRESSION. `const X = class {...}` is as ordinary as a
+			// function expression, and without this the `class` fell through to
+			// the bare-identifier path: the declaration became a read of a
+			// global named `class`, and the body's members leaked out as
+			// top-level statements. Nothing said so.
+			if (c.s == "class") { return class_decl(true); }
 			if (c.s == "async") {
 				if (nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(true, true); }
 				// AN ASYNC ARROW. `async` fell through to being a bare

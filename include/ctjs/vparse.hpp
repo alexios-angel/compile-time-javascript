@@ -110,10 +110,21 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 		}
 		std::size_t start = i;
 		// identifier / keyword
-		if (is_id_start(static_cast<unsigned char>(c))) {
+		//
+		// A PRIVATE NAME lexes as one identifier, `#` and all. It was skipped as
+		// an unknown byte, which is worse than an error: `this.#count` became
+		// `this.count`, so a private field silently aliased a public one of the
+		// same name and nothing anywhere said so. Keeping the `#` in the lexeme
+		// makes the two distinct names again, which is all the privacy any
+		// program here actually depends on. `#` leads and never follows, so it
+		// stays out of is_id_part and `a#b` is still two tokens.
+		const bool private_name =
+		    c == '#' && i + 1 < n && is_id_start(static_cast<unsigned char>(src[i + 1]));
+		if (private_name || is_id_start(static_cast<unsigned char>(c))) {
+			if (private_name) { ++i; }
 			while (i < n && is_id_part(static_cast<unsigned char>(src[i]))) { ++i; }
 			std::string_view w = src.substr(start, i - start);
-			out.push_back({is_keyword(w) ? tk::kw : tk::ident, w});
+			out.push_back({!private_name && is_keyword(w) ? tk::kw : tk::ident, w});
 			continue;
 		}
 		// number

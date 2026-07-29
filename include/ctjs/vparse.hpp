@@ -81,8 +81,18 @@ constexpr bool div_follows(const token & t) {
 	return false;
 }
 
+// What the lexer had to throw away. A byte matching no operator is SKIPPED
+// rather than reported, which keeps the lexer total - but it also means `#x`
+// silently becomes `x`, and a caller that never hears about it cannot tell a
+// private field from a public one. Counting them costs nothing and turns a
+// silent aliasing bug into a number.
+struct lex_report {
+	std::size_t skipped = 0;      // bytes matching no token at all
+	std::size_t first_skip = 0;   // offset of the first one
+};
+
 // Lex the whole source into a token vector (comments and whitespace dropped).
-constexpr std::vector<token> lex(std::string_view src) {
+constexpr std::vector<token> lex(std::string_view src, lex_report * report = nullptr) {
 	std::vector<token> out;
 	const std::size_t n = src.size();
 	std::size_t i = 0;
@@ -164,7 +174,14 @@ constexpr std::vector<token> lex(std::string_view src) {
 		for (std::string_view op : operators) {
 			if (i + op.size() <= n && src.substr(i, op.size()) == op) { matched = op; break; }
 		}
-		if (matched.empty()) { ++i; continue; }   // skip unknown byte
+		if (matched.empty()) {   // skip unknown byte, but say so
+			if (report != nullptr) {
+				if (report->skipped == 0) { report->first_skip = i; }
+				++report->skipped;
+			}
+			++i;
+			continue;
+		}
 		out.push_back({tk::punct, src.substr(i, matched.size())});
 		i += matched.size();
 	}
@@ -204,6 +221,13 @@ struct ast {
 	bool ok = true;
 	std::string_view error;
 	std::size_t error_tok = 0;
+	// `error_tok` indexes a token vector the caller never sees, so on its own it
+	// cannot be turned into a line and column. The offset can: every token's
+	// lexeme is a view INTO the source, so parse() resolves it once and a
+	// caller holding only the source can say where it stopped.
+	std::size_t error_offset = 0;
+	std::size_t skipped_bytes = 0;    // see lex_report
+	std::size_t first_skip_offset = 0;
 
 	constexpr std::int32_t add(node nd) { nodes.push_back(nd); return static_cast<std::int32_t>(nodes.size()) - 1; }
 	constexpr std::int32_t add_list(const std::vector<std::int32_t> & kids) {
@@ -727,9 +751,21 @@ struct parser {
 // Parse a source string into a flat value AST (constexpr or runtime).
 constexpr ast parse(std::string_view src) {
 	ast a;
-	std::vector<token> toks = lex(src);
+	lex_report report;
+	std::vector<token> toks = lex(src, &report);
 	parser ps{toks, a, 0};
 	a.root = ps.program();
+	a.skipped_bytes = report.skipped;
+	a.first_skip_offset = report.first_skip;
+	// Resolve the failing token to a source offset while the token vector is
+	// still in scope - it is the last moment anyone can. The end token has an
+	// empty lexeme pointing nowhere, so fall back to the end of the source.
+	if (!a.ok && a.error_tok < toks.size()) {
+		const std::string_view lexeme = toks[a.error_tok].s;
+		a.error_offset = lexeme.data() == nullptr
+		                     ? src.size()
+		                     : static_cast<std::size_t>(lexeme.data() - src.data());
+	}
 	return a;
 }
 

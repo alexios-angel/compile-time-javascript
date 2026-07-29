@@ -243,6 +243,17 @@ struct node {
 	std::string_view text;                 // op / name / literal lexeme / flag
 	std::int32_t a = -1, b = -1, c = -1, d = -1;    // fixed child slots
 	std::int32_t list = -1, list_len = 0;           // variable-arity children (into ast::pool)
+	// WHERE IT CAME FROM, as byte offsets into the source.
+	//
+	// Set for FUNCTIONS only, because that is what needs it: `f.toString()`
+	// has to hand back the text a function was written as, and an engine with
+	// no answer to that cannot run a library that reads its own source - which
+	// p5.js's error system does. The same span is what an Error's stack needs
+	// to name a line.
+	//
+	// Zero on every other kind. A token's lexeme is already a view INTO the
+	// source, so both ends are a subtraction rather than any bookkeeping.
+	std::uint32_t begin = 0, end = 0;
 };
 
 struct ast {
@@ -277,6 +288,23 @@ struct parser {
 	const std::vector<token> & t;
 	ast & a;
 	std::size_t p = 0;
+	std::string_view src{};   // for node spans; see node::begin
+
+	// The offset a token starts at, and the offset just past the one before
+	// the current position - which together bound everything consumed so far.
+	constexpr std::uint32_t offset_at(std::size_t token_index) const {
+		if (src.empty() || token_index >= t.size()) { return 0; }
+		const std::string_view lexeme = t[token_index].s;
+		if (lexeme.data() == nullptr) { return static_cast<std::uint32_t>(src.size()); }
+		return static_cast<std::uint32_t>(lexeme.data() - src.data());
+	}
+	constexpr std::uint32_t offset_consumed() const {
+		if (src.empty() || p == 0) { return 0; }
+		const std::string_view lexeme = t[p - 1].s;
+		if (lexeme.data() == nullptr) { return static_cast<std::uint32_t>(src.size()); }
+		return static_cast<std::uint32_t>(
+		    static_cast<std::size_t>(lexeme.data() - src.data()) + lexeme.size());
+	}
 
 	constexpr const token & cur() const { return t[p]; }
 	constexpr const token & nxt() const { return p + 1 < t.size() ? t[p + 1] : t.back(); }
@@ -530,11 +558,14 @@ struct parser {
 	}
 
 	constexpr std::int32_t arrow_single() {
+		const std::uint32_t span_begin = offset_at(p);
 		std::vector<std::int32_t> ps;
 		node pn{nk::param, cur().s}; ps.push_back(a.add(pn)); advance();   // ident
 		expect_p("=>");
 		node nd{nk::arrow, ""}; nd.list = a.add_list(ps); nd.list_len = 1;
 		nd.a = arrow_body();
+		nd.begin = span_begin;
+		nd.end = offset_consumed();
 		return a.add(nd);
 	}
 
@@ -552,10 +583,13 @@ struct parser {
 
 	constexpr std::int32_t paren_or_arrow() {
 		if (arrow_ahead()) {
+			const std::uint32_t span_begin = offset_at(p);
 			node nd{nk::arrow, ""};
 			std::int32_t len = 0; nd.list = params(len); nd.list_len = len;
 			expect_p("=>");
 			nd.a = arrow_body();
+			nd.begin = span_begin;
+			nd.end = offset_consumed();
 			return a.add(nd);
 		}
 		advance();                       // '('
@@ -680,7 +714,8 @@ struct parser {
 		while (!is_p("}") && !at_end()) {
 			if (is_p("...")) { advance(); node sp{nk::spread, ""}; sp.a = expr(2); props.push_back(a.add(sp)); }
 			else {
-				node pr{nk::prop, ""};
+				const std::uint32_t member_begin = offset_at(p);
+			node pr{nk::prop, ""};
 				pr.d = 0;   // bit0 = computed key, bit2 = accessor is a SETTER
 				// key ("quoted" and 1-numeric keys ride the computed path -
 				// evaluating the literal cooks quotes/escapes into the name)
@@ -698,11 +733,13 @@ struct parser {
 					std::int32_t len = 0; std::int32_t pl = params(len);
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
+					fn.begin = member_begin; fn.end = offset_consumed();
 					pr.b = a.add(fn); pr.c = 3; /*accessor*/ if (is_setter) { pr.d |= 4; }
 				} else if (is_p("(")) {                 // method shorthand
 					std::int32_t len = 0; std::int32_t pl = params(len);
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
+					fn.begin = member_begin; fn.end = offset_consumed();
 					pr.b = a.add(fn); pr.c = 1; /*method*/
 				} else if (eat_p(":")) {
 					pr.b = expr(2);
@@ -721,6 +758,9 @@ struct parser {
 	// function expression/declaration; `expr` true => expression context;
 	// `is_async` records `async` so the interpreter wraps the return in a promise
 	constexpr std::int32_t func(bool is_expr, bool is_async = false) {
+		// The span starts at `function`, or at the `async` before it - the
+		// caller has already consumed that, so it passes the offset in.
+		const std::uint32_t span_begin = offset_at(p);
 		eat_kw("function");
 		const bool is_gen = eat_p("*");
 		std::string_view name;
@@ -733,6 +773,8 @@ struct parser {
 		nd.list = pl; nd.list_len = len; nd.a = body;
 		// c: bit0 = async, bit1 = generator
 		if (is_async || is_gen) { nd.c = (is_async ? 1 : 0) | (is_gen ? 2 : 0); }
+		nd.begin = span_begin;
+		nd.end = offset_consumed();
 		return a.add(nd);
 	}
 
@@ -775,6 +817,7 @@ struct parser {
 		std::vector<std::int32_t> members;
 		while (!is_p("}") && !at_end()) {
 			if (eat_p(";")) { continue; }
+			const std::uint32_t member_begin = offset_at(p);
 			node m{nk::class_member, ""};
 			m.d = 0;   // bit0 = static, bit1 = computed key, bit2 = accessor is a SETTER
 			if (is_kw("static")) { advance(); m.d |= 1; }
@@ -798,6 +841,7 @@ struct parser {
 				std::int32_t len = 0; std::int32_t pl = params(len);
 				std::int32_t body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
+				fn.begin = member_begin; fn.end = offset_consumed();
 				if (masync) { fn.c = 1; }             // async method -> promise-wrapped return
 				m.b = a.add(fn);
 				if (is_getter || is_setter) { m.c = 2; if (is_setter) { m.d |= 4; } } // accessor
@@ -955,7 +999,7 @@ constexpr ast parse(std::string_view src) {
 	ast a;
 	lex_report report;
 	std::vector<token> toks = lex(src, &report);
-	parser ps{toks, a, 0};
+	parser ps{toks, a, 0, src};
 	a.root = ps.program();
 	a.skipped_bytes = report.skipped;
 	a.first_skip_offset = report.first_skip;

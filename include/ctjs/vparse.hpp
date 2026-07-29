@@ -53,6 +53,16 @@ inline constexpr std::string_view keywords[] = {
     "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
     "yield", "async", "of", "static", "get", "set"};
 
+// CONTEXTUAL keywords: reserved only in the position that gives them meaning,
+// and an ordinary identifier everywhere else. `function set(...)` and
+// `const of = 1` are both legal JavaScript, and p5.js has both. Each of these
+// is recognised by the construct that cares BEFORE anything general looks at
+// it - for..of checks `of`, a class body checks `static`/`get`/`set` - so by
+// the time a name is being read, it is a name.
+constexpr bool is_contextual_keyword(std::string_view w) {
+	return w == "get" || w == "set" || w == "of" || w == "static";
+}
+
 constexpr bool is_keyword(std::string_view w) {
 	for (std::string_view k : keywords) { if (k == w) { return true; } }
 	return false;
@@ -215,7 +225,17 @@ enum class nk : std::uint8_t {
 	if_stmt, for_stmt, forof_stmt, while_stmt, do_stmt,
 	return_stmt, break_stmt, continue_stmt, throw_stmt, labeled,
 	try_stmt, catch_clause, switch_stmt, case_clause,
-	func_decl, class_decl, class_member, param, yield_expr
+	func_decl, class_decl, class_member, param, yield_expr,
+	// destructuring patterns. APPENDED, not inserted: the interpreter in this
+	// repo switches on these values, and a consumer that does not know a kind
+	// should fall through its default rather than silently mean something else.
+	//
+	//   array_pattern   list = elements, -1 for a hole
+	//   object_pattern  list = entries (pattern_prop or rest_element)
+	//   pattern_prop    text = key, a = computed key (d & 2), b = target
+	//   assign_pattern  a = target, b = the default
+	//   rest_element    a = target
+	array_pattern, object_pattern, pattern_prop, assign_pattern, rest_element
 };
 
 struct node {
@@ -288,6 +308,16 @@ struct parser {
 		}
 		if (cur().kind != tk::punct) { return -1; }
 		std::string_view o = cur().s;
+		// THE COMMA OPERATOR, at the loosest binding power there is.
+		//
+		// This is safe precisely because every comma-SEPARATED context already
+		// parses its elements at 2 or tighter - argument lists, array elements,
+		// object values, parameter defaults, declarator initialisers - so a
+		// comma there still ends the element instead of joining it to the next.
+		// Only the positions that parse at 0 see a sequence, and those are the
+		// ones where JavaScript says it is one: a for clause, an expression
+		// statement, a parenthesised group.
+		if (o == ",") { return 1; }
 		if (is_assign_op(o)) { return 2; }
 		if (o == "?") { return 4; }
 		if (o == "??") { return 6; }
@@ -325,6 +355,12 @@ struct parser {
 				advance();
 				std::int32_t right = expr(bp);
 				node nd{nk::assign, o}; nd.a = left; nd.b = right;
+				left = a.add(nd);
+				continue;
+			}
+			if (cur().kind == tk::punct && o == ",") {           // sequence
+				advance();
+				node nd{nk::seq, ","}; nd.a = left; nd.b = expr(2);
 				left = a.add(nd);
 				continue;
 			}
@@ -391,6 +427,11 @@ struct parser {
 		advance();
 		std::vector<std::int32_t> kids;
 		while (!is_p(close) && !at_end()) {
+			// An ELISION: `[, ref]` and `[a, , b]` are legal array literals with
+			// a hole, and the hole is a real element position - which matters
+			// most when the literal is being used as an assignment pattern and
+			// the hole means "skip this one".
+			if (close == "]" && is_p(",")) { advance(); kids.push_back(-1); continue; }
 			if (is_p("...")) { advance(); node nd{nk::spread, ""}; nd.a = expr(2); kids.push_back(a.add(nd)); }
 			else { kids.push_back(expr(2)); }
 			if (!eat_p(",")) { break; }
@@ -440,7 +481,36 @@ struct parser {
 			if (c.s == "function") { return func(true); }
 			if (c.s == "async") {
 				if (nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(true, true); }
-				// async arrow: fall through to arrow handling below
+				// AN ASYNC ARROW. `async` fell through to being a bare
+				// identifier, so `async (a, b) => {}` parsed as a CALL to
+				// something named `async` and then met a `=>` it had nowhere to
+				// put. Both spellings are checked by lookahead and the position
+				// is restored if it turns out to be an ordinary use of the name.
+				if (nxt().kind == tk::punct && nxt().s == "(") {
+					const std::size_t save = p;
+					advance();
+					if (arrow_ahead()) {
+						const std::int32_t r = paren_or_arrow();
+						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }   // async
+						return r;
+					}
+					p = save;
+				}
+				if (nxt().kind == tk::ident) {
+					const std::size_t save = p;
+					advance();
+					if (nxt().kind == tk::punct && nxt().s == "=>") {
+						const std::int32_t r = arrow_single();
+						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }
+						return r;
+					}
+					p = save;
+				}
+			}
+			// A contextual keyword can be an arrow's single parameter too:
+			// `swizzleSets.some(set => ...)` names one `set`.
+			if (is_contextual_keyword(c.s) && nxt().kind == tk::punct && nxt().s == "=>") {
+				return arrow_single();
 			}
 			// keyword used as a bare identifier (property contexts) - be lenient
 			node nd{nk::ident, c.s}; advance(); return a.add(nd);
@@ -492,14 +562,102 @@ struct parser {
 		return expr(2);
 	}
 
-	// parameter list at '(' -> pool; supports defaults and rest
+	// --- destructuring patterns ---------------------------------------------
+	//
+	// A binding position may hold a whole shape rather than a name. Everywhere
+	// one is accepted used to take exactly one identifier token, so `const {a} =
+	// o` read `{` AS THE NAME and the parser desynchronised from there - which
+	// is what stopped seventeen of p5.js's modules, all of them at the first
+	// destructuring in the file.
+	[[nodiscard]] constexpr bool at_pattern() const { return is_p("[") || is_p("{"); }
+
+	constexpr std::int32_t pattern() {
+		if (is_p("[")) { return array_pattern(); }
+		if (is_p("{")) { return object_pattern(); }
+		node id{nk::ident, cur().s}; advance();
+		return a.add(id);
+	}
+
+	// A target that may carry a default: `[a = 1]`, `{b: c = 2}`.
+	constexpr std::int32_t pattern_target() {
+		const std::int32_t target = pattern();
+		if (eat_p("=")) {
+			node nd{nk::assign_pattern, ""}; nd.a = target; nd.b = expr(2);
+			return a.add(nd);
+		}
+		return target;
+	}
+
+	constexpr std::int32_t array_pattern() {
+		expect_p("[");
+		std::vector<std::int32_t> elements;
+		while (!is_p("]") && !at_end()) {
+			if (is_p(",")) { advance(); elements.push_back(-1); continue; }   // a hole
+			if (is_p("...")) {
+				advance();
+				node r{nk::rest_element, ""}; r.a = pattern(); elements.push_back(a.add(r));
+			} else {
+				elements.push_back(pattern_target());
+			}
+			if (!eat_p(",")) { break; }
+		}
+		expect_p("]");
+		node nd{nk::array_pattern, ""};
+		nd.list = a.add_list(elements); nd.list_len = static_cast<std::int32_t>(elements.size());
+		return a.add(nd);
+	}
+
+	constexpr std::int32_t object_pattern() {
+		expect_p("{");
+		std::vector<std::int32_t> entries;
+		while (!is_p("}") && !at_end()) {
+			if (is_p("...")) {
+				advance();
+				node r{nk::rest_element, ""}; r.a = pattern(); entries.push_back(a.add(r));
+			} else {
+				node e{nk::pattern_prop, ""}; e.d = 0;   // d defaults to -1; zero it first
+				if (is_p("[")) { advance(); e.a = expr(0); expect_p("]"); e.d |= 2; }
+				else if (cur().kind == tk::str || cur().kind == tk::num) {
+					// a quoted or numeric key rides the computed path, the same
+					// way an object LITERAL's does - evaluating the literal is
+					// what cooks the quotes and escapes
+					node k{cur().kind == tk::str ? nk::str : nk::num, cur().s}; advance();
+					e.a = a.add(k); e.d |= 2;
+				} else { e.text = cur().s; advance(); }
+				if (eat_p(":")) { e.b = pattern_target(); }
+				else {
+					// shorthand: `{a}` and `{a = 1}` both bind the key's own name
+					node id{nk::ident, e.text}; std::int32_t t = a.add(id);
+					if (eat_p("=")) { node d{nk::assign_pattern, ""}; d.a = t; d.b = expr(2); t = a.add(d); }
+					e.b = t;
+				}
+				entries.push_back(a.add(e));
+			}
+			if (!eat_p(",")) { break; }
+		}
+		expect_p("}");
+		node nd{nk::object_pattern, ""};
+		nd.list = a.add_list(entries); nd.list_len = static_cast<std::int32_t>(entries.size());
+		return a.add(nd);
+	}
+
+	// parameter list at '(' -> pool; supports defaults, rest and patterns
 	constexpr std::int32_t params(std::int32_t & len) {
 		expect_p("(");
 		std::vector<std::int32_t> ps;
 		while (!is_p(")") && !at_end()) {
-			if (is_p("...")) { advance(); node nd{nk::param, cur().s}; nd.text = cur().s; nd.d = 1; /*rest*/ advance(); ps.push_back(a.add(nd)); }
+			if (is_p("...")) {
+				advance();
+				node nd{nk::param, ""}; nd.d = 1; /*rest*/
+				if (at_pattern()) { nd.b = pattern(); } else { nd.text = cur().s; advance(); }
+				ps.push_back(a.add(nd));
+			}
 			else {
-				node nd{nk::param, cur().s}; advance();
+				// `b` is the pattern when the parameter is a shape rather than a
+				// name; `text` stays empty in that case and the compiler binds
+				// through the pattern instead.
+				node nd{nk::param, ""};
+				if (at_pattern()) { nd.b = pattern(); } else { nd.text = cur().s; advance(); }
 				if (eat_p("=")) { nd.a = expr(2); }
 				ps.push_back(a.add(nd));
 			}
@@ -560,7 +718,9 @@ struct parser {
 		eat_kw("function");
 		const bool is_gen = eat_p("*");
 		std::string_view name;
-		if (cur().kind == tk::ident) { name = cur().s; advance(); }
+		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
+			name = cur().s; advance();
+		}
 		std::int32_t len = 0; std::int32_t pl = params(len);
 		std::int32_t body = block();
 		node nd{is_expr ? nk::func_expr : nk::func_decl, name};
@@ -584,7 +744,10 @@ struct parser {
 		std::string_view kw = cur().s; advance();      // let/const/var
 		std::vector<std::int32_t> decls;
 		for (;;) {
-			node d{nk::declarator, cur().s}; advance();  // name (destructuring TODO)
+			// `b` is the pattern when the declarator binds a shape rather than a
+			// name. This line used to take `{` AS THE NAME and desynchronise.
+			node d{nk::declarator, ""};
+			if (at_pattern()) { d.b = pattern(); } else { d.text = cur().s; advance(); }
 			if (eat_p("=")) { d.a = expr(2); }
 			decls.push_back(a.add(d));
 			if (!eat_p(",")) { break; }
@@ -597,7 +760,9 @@ struct parser {
 	constexpr std::int32_t class_decl(bool /*is_expr*/) {
 		eat_kw("class");
 		std::string_view name;
-		if (cur().kind == tk::ident) { name = cur().s; advance(); }
+		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
+			name = cur().s; advance();
+		}
 		std::int32_t super = -1;
 		if (eat_kw("extends")) { super = unary(); }
 		expect_p("{");
@@ -697,21 +862,41 @@ struct parser {
 		std::int32_t init = -1; std::string_view forkw;
 		if (is_kw("let") || is_kw("const") || is_kw("var")) {
 			forkw = cur().s; advance();
-			node d{nk::declarator, cur().s}; advance();
+			node d{nk::declarator, ""};
+			if (at_pattern()) { d.b = pattern(); } else { d.text = cur().s; advance(); }
 			// for-of / for-in?
 			if (is_kw("of") || is_kw("in")) {
 				std::string_view rel = cur().s; advance();
 				node nd{nk::forof_stmt, rel}; nd.text = rel;
-				node dd{nk::declarator, d.text}; dd.text = d.text;
+				// `for (const [k, v] of pairs)` - the item is a shape too
+				node dd{nk::declarator, d.text}; dd.text = d.text; dd.b = d.b;
 				nd.a = a.add(dd); nd.d = (forkw == "const"); nd.b = expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}
 			if (eat_p("=")) { d.a = expr(2); }
 			std::vector<std::int32_t> decls; decls.push_back(a.add(d));
-			while (eat_p(",")) { node d2{nk::declarator, cur().s}; advance(); if (eat_p("=")) { d2.a = expr(2); } decls.push_back(a.add(d2)); }
+			while (eat_p(",")) {
+				node d2{nk::declarator, ""};
+				if (at_pattern()) { d2.b = pattern(); } else { d2.text = cur().s; advance(); }
+				if (eat_p("=")) { d2.a = expr(2); }
+				decls.push_back(a.add(d2));
+			}
 			node vd{nk::var_decl, forkw}; vd.list = a.add_list(decls); vd.list_len = static_cast<std::int32_t>(decls.size());
 			init = a.add(vd);
 		} else if (!is_p(";")) {
+			// `for (prop in obj)` with NO declaration keyword: the loop variable
+			// is a binding that already exists. Without this the head parses as
+			// a binary `in` expression and then wants the `;` of a classic for.
+			// d bit1 says so, since there is nothing to declare.
+			if ((cur().kind == tk::ident || cur().kind == tk::kw) && nxt().kind == tk::kw &&
+			    (nxt().s == "in" || nxt().s == "of")) {
+				node dd{nk::declarator, cur().s}; advance();
+				std::string_view rel = cur().s; advance();
+				node nd{nk::forof_stmt, rel};
+				nd.a = a.add(dd); nd.d = 2;
+				nd.b = expr(0); expect_p(")"); nd.c = stmt();
+				return a.add(nd);
+			}
 			init = expr(0);
 		}
 		expect_p(";");

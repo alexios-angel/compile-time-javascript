@@ -57,7 +57,8 @@ warning-clean. Raised budget: `-fconstexpr-steps=500000000`.
   ("Assignment to constant variable."); classic for+let PER-ITERATION
   bindings (step runs in the next copy); method calls bind `this`
   (plain calls: undefined). v8diff byte-compares against node;
-  PARSE-GAP = accepted grammar hole (comma operator, destructuring).
+  the comma operator and destructuring were PARSE-GAPs and are
+  now supported end to end (parser + vinterp); no gaps remain.
 - LENIENCY CONTRACT (tests/parse.cpp): `"let x = 1"` (no semi) and
   `let let = 1;` ARE valid; structural breaks (`"if (a { b(); }"`,
   `"let o = { a: };"`) are not. A failed runtime parse still runs its

@@ -150,7 +150,9 @@ and rerun the tests.
 - optional chaining short-circuits PER LINK — `a?.b.c` still throws when `a?.b` is undefined (write `a?.b?.c`)
 - the regex engine has no lookaround, backreferences or named groups; `exec` results carry no `.index`/`.input`; `replace` takes string templates (`$&`, `$1`…), not callbacks
 - **`Date` is UTC-only** — no setters, local-time getters alias UTC; `Date.now()` is the one impure global besides `console`, so hosts wanting determinism rebind it
-- **parse gaps** (accepted, tracked by the differential suite): the comma operator inside expressions, and array/object destructuring patterns
+- ~~**parse gaps**: the comma operator inside expressions, and array/object destructuring patterns~~ **CLOSED.** Both parse and both run: `nk::seq` at the loosest binding power (safe because every comma-SEPARATED context already parses its elements at 2 or tighter), and `array_pattern`/`object_pattern`/`assign_pattern`/`rest_element` in declarations, parameters, for-of heads and assignment targets. The two cases the differential suite carried as PARSE-GAP now byte-compare against node instead.
+- **private names** lex as one identifier, `#` and all. `#` used to match no operator and be skipped, so `this.#count` silently became `this.count` and a private field aliased a public one. Brand checks (`#x in obj`) are still not modelled - what is fixed is that the two names are distinct.
+- **contextual keywords** (`get`, `set`, `of`, `static`) are ordinary identifiers outside the position that gives them meaning, so `function set(...)` and `xs.some(set => ...)` parse
 
 ## API
 

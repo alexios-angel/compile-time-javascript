@@ -146,6 +146,14 @@ struct vm {
 			if (s.text == "var") {
 				for (std::int32_t k = 0; k < s.list_len; ++k) {
 					const node & d2 = N(child(s.list, k));
+					if (d2.b >= 0) {
+						std::vector<std::string_view> names;
+						pattern_names(d2.b, names);
+						for (std::string_view nm : names) {
+							if (env->local(nm) == nullptr) { env->declare(nm, value{}); }
+						}
+						continue;
+					}
 					if (env->local(d2.text) == nullptr) { env->declare(d2.text, value{}); }
 				}
 			}
@@ -378,6 +386,111 @@ struct vm {
 		else { res = eval_binary(bin, cur, rhs); }
 		store(n.a, res, env, cx);
 		return res;
+	}
+
+	// --- destructuring -------------------------------------------------------
+	//
+	// The parser accepts patterns now, so the interpreter has to mean something
+	// by them. How a name is BOUND differs by the position the pattern is in -
+	// `var`/`let`/`const` declare, an assignment writes - so the caller says
+	// which, and everything below is the same walk either way.
+	enum class bind_as { declare, hoisted_var, assign };
+
+	// Every name a pattern binds. Hoisting and the TDZ list both need this
+	// before the pattern itself is walked.
+	void pattern_names(std::int32_t pi, std::vector<std::string_view> & out) const {
+		if (pi < 0) { return; }
+		const node & n = N(pi);
+		switch (n.kind) {
+		case nk::ident: out.push_back(n.text); return;
+		case nk::assign_pattern: pattern_names(n.a, out); return;
+		case nk::rest_element: pattern_names(n.a, out); return;
+		case nk::pattern_prop: pattern_names(n.b, out); return;
+		case nk::array_pattern:
+		case nk::object_pattern:
+			for (std::int32_t k = 0; k < n.list_len; ++k) { pattern_names(child(n.list, k), out); }
+			return;
+		default: return;
+		}
+	}
+
+	void bind_one(std::string_view name, value v, const env_ptr & env, bind_as how) {
+		if (how == bind_as::hoisted_var) { env->hoist_target().declare(name, std::move(v)); }
+		else if (how == bind_as::declare) { env->declare(name, std::move(v)); }
+		else {
+			if (environment * o = env->owner(name)) {
+				if (o->is_const(name)) {
+					ctjs::throw_error("TypeError", "Assignment to constant variable.");
+				}
+				o->declare(name, std::move(v));
+			} else {
+				env->hoist_target().declare(name, std::move(v));
+			}
+		}
+	}
+
+	void bind_pattern(std::int32_t pi, const value & v, const env_ptr & env, context & cx,
+	                  bind_as how) {
+		if (pi < 0) { return; }
+		const node & n = N(pi);
+		switch (n.kind) {
+		case nk::ident: bind_one(n.text, v, env, how); return;
+
+		case nk::assign_pattern: {
+			// a default applies to `undefined` only - `null` is a value
+			value used = v.is_undefined() ? eval(n.b, env, cx) : v;
+			bind_pattern(n.a, used, env, cx, how);
+			return;
+		}
+
+		case nk::array_pattern: {
+			const array_t empty;
+			const array_t & items = v.is_array() ? *v.as_array() : empty;
+			for (std::int32_t k = 0; k < n.list_len; ++k) {
+				const std::int32_t element = child(n.list, k);
+				if (element < 0) { continue; } // a hole binds nothing
+				const std::size_t at = static_cast<std::size_t>(k);
+				if (N(element).kind == nk::rest_element) {
+					array_t rest;
+					for (std::size_t j = at; j < items.size(); ++j) { rest.push_back(items[j]); }
+					bind_pattern(N(element).a, value::array(std::move(rest)), env, cx, how);
+					continue;
+				}
+				bind_pattern(element, at < items.size() ? items[at] : value{}, env, cx, how);
+			}
+			return;
+		}
+
+		case nk::object_pattern: {
+			std::vector<std::string> taken;
+			for (std::int32_t k = 0; k < n.list_len; ++k) {
+				const node & e = N(child(n.list, k));
+				if (e.kind == nk::rest_element) {
+					// every own property except the ones already named
+					value rest = value::object();
+					if (v.is_object()) {
+						for (const auto & [key, item] : v.as_object()->props) {
+							bool skip = false;
+							for (const std::string & t : taken) { if (t == key) { skip = true; } }
+							if (!skip) { rest.as_object()->set(key, item); }
+						}
+					}
+					bind_pattern(e.a, rest, env, cx, how);
+					continue;
+				}
+				if ((e.d & 2) != 0 && e.a >= 0) { // a computed key
+					bind_pattern(e.b, get_index(const_cast<value &>(v), eval(e.a, env, cx), cx), env,
+					             cx, how);
+					continue;
+				}
+				taken.emplace_back(e.text);
+				bind_pattern(e.b, ctjs::get_member(cx, v, e.text), env, cx, how);
+			}
+			return;
+		}
+
+		default: return;
+		}
 	}
 
 	// assign `v` into the lvalue at node `t`
@@ -820,7 +933,16 @@ struct vm {
 		for (std::int32_t k = 0; k < b.list_len; ++k) {
 			const node & s = N(child(b.list, k));
 			if (s.kind == nk::var_decl && s.text != "var") {
-				for (std::int32_t j = 0; j < s.list_len; ++j) { env->tdz.push_back(std::string{N(child(s.list, j)).text}); }
+				for (std::int32_t j = 0; j < s.list_len; ++j) {
+					const node & d3 = N(child(s.list, j));
+					if (d3.b >= 0) {
+						std::vector<std::string_view> names;
+						pattern_names(d3.b, names);
+						for (std::string_view nm : names) { env->tdz.push_back(std::string{nm}); }
+					} else {
+						env->tdz.push_back(std::string{d3.text});
+					}
+				}
 			}
 		}
 		for (std::int32_t k = 0; k < b.list_len; ++k) {
@@ -841,6 +963,16 @@ struct vm {
 			for (std::int32_t k = 0; k < n.list_len; ++k) {
 				const node & dcl = N(child(n.list, k));
 				value v = (dcl.a >= 0) ? eval(dcl.a, env, cx) : value{};
+				const bind_as how = n.text == "var" ? bind_as::hoisted_var : bind_as::declare;
+				if (dcl.b >= 0) {   // a shape rather than a name
+					bind_pattern(dcl.b, v, env, cx, how);
+					if (n.text == "const") {
+						std::vector<std::string_view> names;
+						pattern_names(dcl.b, names);
+						for (std::string_view nm : names) { env->consts.push_back(std::string{nm}); }
+					}
+					continue;
+				}
 				if (n.text == "var") { env->hoist_target().declare(dcl.text, std::move(v)); }
 				else { env->declare(dcl.text, std::move(v)); }
 				if (n.text == "const") { env->consts.push_back(std::string{dcl.text}); }

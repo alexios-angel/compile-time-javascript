@@ -193,6 +193,8 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 		// punctuator: longest match among ctjs's operators
 		std::string_view matched;
 		for (std::string_view op : operators) {
+			// FIRST BYTE FIRST. substr() + compare on all 56 was the cost.
+			if (op[0] != src[i]) { continue; }
 			if (i + op.size() <= n && src.substr(i, op.size()) == op) { matched = op; break; }
 		}
 		if (matched.empty()) {   // skip unknown byte, but say so

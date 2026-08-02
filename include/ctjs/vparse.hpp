@@ -237,7 +237,18 @@ enum class nk : std::uint8_t {
 	//   pattern_prop    text = key, a = computed key (d & 2), b = target
 	//   assign_pattern  a = target, b = the default
 	//   rest_element    a = target
-	array_pattern, object_pattern, pattern_prop, assign_pattern, rest_element
+	array_pattern, object_pattern, pattern_prop, assign_pattern, rest_element,
+	//   new_target      `new.target`, the meta-property. No children: it reads
+	//                   the constructor the enclosing frame was invoked with,
+	//                   or undefined outside a construct call.
+	//
+	// APPENDED for the same reason the note above gives. `new.target` reached
+	// this parser as a parse error - `new` was followed by `.`, which is not a
+	// callee, and the message was "expression" - and it is not exotic: every
+	// transpiler emits it, and Babylon.js 9.18.2 uses it in its decorator
+	// metadata support, which is the first thing in that bundle this parser
+	// stopped on.
+	new_target
 };
 
 struct node {
@@ -503,6 +514,27 @@ struct parser {
 			if (c.s == "super") { advance(); return a.add({nk::super_lit, "super"}); }
 			if (c.s == "new") {
 				advance();
+				// `new.target` BEFORE the callee, because `.` is not one. The
+				// meta-property is the only place a `.` may follow `new`, so
+				// this is a lookahead of exactly one token with no ambiguity to
+				// resolve - and without it the callee parser met a `.` and
+				// reported "expression", which is where Babylon.js stopped.
+				if (is_p(".")) {
+					advance();
+					// `new.` may only be followed by `target`. Anything else is
+					// a real error and says which word it got, rather than
+					// falling back to the callee path and failing further on
+					// with a message about something unrelated.
+					// `cur()`, NOT `c`: that is a reference bound when primary()
+					// was entered and two advances ago by now. The branch above
+					// uses is_p() for the same reason.
+					if (cur().kind != tk::ident || cur().s != "target") {
+						fail("new. must be followed by target");
+						return -1;
+					}
+					advance();
+					return a.add({nk::new_target, "new.target"});
+				}
 				node nd{nk::new_expr, ""};
 				nd.a = new_callee();                       // member-expr only (no trailing call)
 				if (is_p("(")) { nd.list = args(nd.list_len); nd.d = 1; }

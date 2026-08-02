@@ -751,6 +751,15 @@ struct parser {
 				const std::uint32_t member_begin = offset_at(p);
 			node pr{nk::prop, ""};
 				pr.d = 0;   // bit0 = computed key, bit2 = accessor is a SETTER
+				// `{ *g() {} }` and `{ async *g() {} }`. Neither parsed: the
+				// star was not expected anywhere in an object literal, so the
+				// key parse took `*` as the property name and the `(` after it
+				// was a syntax error.
+				const bool pasync = is_kw("async") && !(nxt().kind == tk::punct &&
+				                                        (nxt().s == "(" || nxt().s == ":" ||
+				                                         nxt().s == "," || nxt().s == "}"));
+				if (pasync) { advance(); }
+				const bool pgen = eat_p("*");
 				// key ("quoted" and 1-numeric keys ride the computed path -
 				// evaluating the literal cooks quotes/escapes into the name)
 				if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; /*computed*/ }
@@ -774,6 +783,7 @@ struct parser {
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
 					fn.begin = member_begin; fn.end = offset_consumed();
+					if (pasync || pgen) { fn.c = (pasync ? 1 : 0) | (pgen ? 2 : 0); }
 					pr.b = a.add(fn); pr.c = 1; /*method*/
 				} else if (eat_p(":")) {
 					pr.b = expr(2);
@@ -863,7 +873,12 @@ struct parser {
 				advance();
 			}
 			const bool masync = is_kw("async");
-			eat_kw("async"); eat_p("*");
+			eat_kw("async");
+			// `*method() {}` IS A GENERATOR, and the star used to be eaten and
+			// thrown away - so a class generator method parsed cleanly and then
+			// compiled as an ordinary function, whose `yield` had nowhere to go.
+			// Babylon.js has 162 of them.
+			const bool mgen = eat_p("*");
 			// member name
 			std::string_view mname;
 			if (is_p("[")) { advance(); m.a = expr(0); expect_p("]"); m.d |= 2; /*computed*/ }
@@ -876,7 +891,8 @@ struct parser {
 				std::int32_t body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
 				fn.begin = member_begin; fn.end = offset_consumed();
-				if (masync) { fn.c = 1; }             // async method -> promise-wrapped return
+				// c: bit0 = async, bit1 = generator - the same encoding func() uses
+				if (masync || mgen) { fn.c = (masync ? 1 : 0) | (mgen ? 2 : 0); }
 				m.b = a.add(fn);
 				if (is_getter || is_setter) { m.c = 2; if (is_setter) { m.d |= 4; } } // accessor
 				else { m.c = 1; }                     // plain method

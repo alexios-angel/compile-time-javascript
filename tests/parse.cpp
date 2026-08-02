@@ -33,6 +33,22 @@ static_assert(ctjs::is_valid<"let n = x instanceof C;">);
 static_assert(ctjs::is_valid<
     "class B extends A { static n = 1; #p = 2; get v() { return 1; } set v(x) {} constructor() { super(); } m() { return super.m(); } }">);
 
+// --- generator methods, in both places they can be written. The star used to
+// be EATEN AND DISCARDED in a class body (so `*m() {}` parsed and then compiled
+// as an ordinary method, whose `yield` had nowhere to go) and to break the
+// parse outright in an object literal, where nothing expected it at all.
+// Babylon.js has 162 generator methods.
+static_assert(ctjs::is_valid<"class C { *m() { yield 1; } }">);
+static_assert(ctjs::is_valid<"class C { static *m() { yield 1; } }">);
+static_assert(ctjs::is_valid<"class C { async *m() { yield 1; } }">);
+static_assert(ctjs::is_valid<"let o = { *m() { yield 1; } };">);
+static_assert(ctjs::is_valid<"let o = { async *m() { yield 1; } };">);
+static_assert(ctjs::is_valid<"let o = { *[k]() { yield 1; } };">);
+// `async` is still a usable property name, which is what the lookahead in the
+// object-literal path is for - `{ async: 1 }` must not read as an async method.
+static_assert(ctjs::is_valid<"let o = { async: 1 };">);
+static_assert(ctjs::is_valid<"let o = { async() { return 1; } };">);
+
 // --- contextual keywords stay usable as names (the old Earley grammar
 // choked on these; the value parser is lenient by design)
 static_assert(ctjs::is_valid<"let letter = of + async;">);

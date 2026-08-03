@@ -49,6 +49,37 @@ static_assert(ctjs::is_valid<"let o = { *[k]() { yield 1; } };">);
 static_assert(ctjs::is_valid<"let o = { async: 1 };">);
 static_assert(ctjs::is_valid<"let o = { async() { return 1; } };">);
 
+// --- ES modules. Every form docs/modules-plan.md lists, because "no shims"
+// means a page is not rewritten to avoid one. ctbrowser refuses these by name
+// at COMPILE time for now; parsing them is this parser's half.
+static_assert(ctjs::is_valid<"import d from './m.js';">);
+static_assert(ctjs::is_valid<"import { a, b as c } from './m.js';">);
+static_assert(ctjs::is_valid<"import * as ns from './m.js';">);
+static_assert(ctjs::is_valid<"import './side-effect.js';">);
+static_assert(ctjs::is_valid<"import d, { a } from './m.js';">);
+static_assert(ctjs::is_valid<"import d, * as ns from './m.js';">);
+static_assert(ctjs::is_valid<"export const x = 1;">);
+static_assert(ctjs::is_valid<"export function f() {}">);
+static_assert(ctjs::is_valid<"export class C {}">);
+static_assert(ctjs::is_valid<"const a = 1; export { a };">);
+static_assert(ctjs::is_valid<"const a = 1; export { a as b };">);
+static_assert(ctjs::is_valid<"export default 42;">);
+static_assert(ctjs::is_valid<"export default function () {};">);
+static_assert(ctjs::is_valid<"export * from './m.js';">);
+static_assert(ctjs::is_valid<"export * as ns from './m.js';">);
+static_assert(ctjs::is_valid<"export { x } from './m.js';">);
+static_assert(ctjs::is_valid<"const u = import.meta.url;">);
+static_assert(ctjs::is_valid<"const p = import('./m.js');">);
+static_assert(ctjs::is_valid<"const p = await import('./m.js');">);
+
+// `from` and `as` ARE NOT KEYWORDS - they mean something only inside an import
+// or export, and must stay usable as ordinary names. This is why the parser
+// matches them by SPELLING rather than by token kind.
+static_assert(ctjs::is_valid<"let from = 1; let as = 2; from = as;">);
+static_assert(ctjs::is_valid<"o.from(); o.as;">);
+// `import` and `export` are RESERVED, but a property may still be named either.
+static_assert(ctjs::is_valid<"o.import; o.export; let q = { import: 1, export: 2 };">);
+
 // --- contextual keywords stay usable as names (the old Earley grammar
 // choked on these; the value parser is lenient by design)
 static_assert(ctjs::is_valid<"let letter = of + async;">);

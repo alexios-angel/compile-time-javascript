@@ -51,7 +51,7 @@ inline constexpr std::string_view keywords[] = {
     "delete", "do", "else", "extends", "false", "finally", "for", "function",
     "if", "in", "instanceof", "let", "new", "null", "return", "super", "switch",
     "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
-    "yield", "async", "of", "static", "get", "set"};
+    "yield", "async", "of", "static", "get", "set", "import", "export"};
 
 // CONTEXTUAL keywords: reserved only in the position that gives them meaning,
 // and an ordinary identifier everywhere else. `function set(...)` and
@@ -228,6 +228,20 @@ enum class nk : std::uint8_t {
 	return_stmt, break_stmt, continue_stmt, throw_stmt, labeled,
 	try_stmt, catch_clause, switch_stmt, case_clause,
 	func_decl, class_decl, class_member, param, yield_expr,
+	// ES modules. APPENDED, like the destructuring kinds below and for the same
+	// reason: a consumer that does not know a kind must fall through its
+	// default rather than silently mean something else.
+	//
+	//   import_decl   text = specifier, list = import_spec
+	//   import_spec   text = LOCAL name, c: 0 named, 1 default, 2 namespace,
+	//                 a = a str node holding the IMPORTED name when renamed
+	//   export_decl   a = the declaration, list = export_spec,
+	//                 text = specifier for a re-export, c: 1 = default
+	//   export_spec   text = LOCAL name, a = a str node holding the EXPORTED
+	//                 name when renamed
+	//   import_meta   `import.meta`
+	//   dynamic_import  a = the specifier expression
+	import_decl, import_spec, export_decl, export_spec, import_meta, dynamic_import,
 	// destructuring patterns. APPENDED, not inserted: the interpreter in this
 	// repo switches on these values, and a consumer that does not know a kind
 	// should fall through its default rather than silently mean something else.
@@ -327,6 +341,17 @@ struct parser {
 	constexpr void advance() { if (p + 1 < t.size()) { ++p; } }
 	constexpr bool eat_p(std::string_view s) { if (is_p(s)) { advance(); return true; } return false; }
 	constexpr bool eat_kw(std::string_view s) { if (is_kw(s)) { advance(); return true; } return false; }
+	// `from` and `as` are NOT keywords - they are ordinary identifiers that mean
+	// something only inside an import or export, which is why `from` stays
+	// usable as a variable name. So they are matched by SPELLING rather than by
+	// token kind; eat_kw would never see them.
+	constexpr bool is_word(std::string_view s) const {
+		return (cur().kind == tk::ident || cur().kind == tk::kw) && cur().s == s;
+	}
+	constexpr bool eat_word(std::string_view s) {
+		if (is_word(s)) { advance(); return true; }
+		return false;
+	}
 
 	constexpr std::int32_t fail(std::string_view msg) {
 		if (a.ok) { a.ok = false; a.error = msg; a.error_tok = p; }
@@ -423,6 +448,35 @@ struct parser {
 			}
 			if (o == "++" || o == "--") {
 				advance(); node nd{nk::update, o}; nd.a = unary(); nd.b = 1; /*prefix*/ return a.add(nd);
+			}
+		}
+		// `import(...)` and `import.meta` are the two places `import` is an
+		// EXPRESSION rather than a declaration. Both have to be recognised here
+		// or `import` reads as an ordinary identifier - which is exactly what it
+		// did, and why `import('./m.js')` failed at run time with "`import` is
+		// undefined, not a function".
+		if (cur().kind == tk::kw && cur().s == "import") {
+			if (nxt().kind == tk::punct && nxt().s == "(") {
+				advance();
+				expect_p("(");
+				node nd{nk::dynamic_import, ""};
+				nd.a = expr(2);
+				// A trailing comma and an options argument are both legal; the
+				// specifier is what matters and the rest is skipped rather than
+				// refused.
+				while (eat_p(",") && !is_p(")") && !at_end()) { (void)expr(2); }
+				expect_p(")");
+				return a.add(nd);
+			}
+			if (nxt().kind == tk::punct && nxt().s == ".") {
+				advance();
+				advance();
+				if (cur().s != "meta") {
+					fail("import. must be followed by meta");
+					return -1;
+				}
+				advance();
+				return a.add({nk::import_meta, "import.meta"});
 			}
 		}
 		if (cur().kind == tk::kw && cur().s == "yield") {
@@ -909,6 +963,132 @@ struct parser {
 		return a.add(nd);
 	}
 
+	// --- ES module declarations ------------------------------------------
+	//
+	// `import` in STATEMENT position. The expression forms - `import(...)` and
+	// `import.meta` - are handled in primary(), and this must not swallow them,
+	// which is why the caller checks the token after `import` first.
+	constexpr std::int32_t import_decl_stmt() {
+		eat_kw("import");
+		node nd{nk::import_decl, ""};
+		std::vector<std::int32_t> specs;
+		// `import "./side-effect.js"` - no bindings at all.
+		if (cur().kind == tk::str) {
+			nd.text = cur().s;
+			advance();
+			semi();
+			nd.list = a.add_list(specs);
+			nd.list_len = 0;
+			return a.add(nd);
+		}
+		// `import d from ...`
+		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
+			node spec{nk::import_spec, cur().s};
+			spec.c = 1; // default
+			advance();
+			specs.push_back(a.add(spec));
+			eat_p(",");
+		}
+		// `import * as ns from ...`
+		if (eat_p("*")) {
+			if (!eat_word("as")) { fail("import * must be followed by as"); return -1; }
+			node spec{nk::import_spec, cur().s};
+			spec.c = 2; // namespace
+			advance();
+			specs.push_back(a.add(spec));
+		} else if (eat_p("{")) {
+			// `import { a, b as c } from ...`
+			while (!is_p("}") && !at_end()) {
+				const std::string_view imported = cur().s;
+				advance();
+				node spec{nk::import_spec, imported};
+				spec.c = 0; // named
+				if (eat_word("as")) {
+					// RENAMED: text becomes the LOCAL name and the imported one
+					// is kept beside it, because the local name is what the body
+					// refers to and the imported name is what the module exports.
+					spec.a = a.add({nk::str, imported});
+					spec.text = cur().s;
+					advance();
+				}
+				specs.push_back(a.add(spec));
+				if (!eat_p(",")) { break; }
+			}
+			expect_p("}");
+		}
+		if (!eat_word("from")) { fail("import needs `from`"); return -1; }
+		if (cur().kind != tk::str) { fail("import needs a module specifier"); return -1; }
+		nd.text = cur().s;
+		advance();
+		semi();
+		nd.list = a.add_list(specs);
+		nd.list_len = static_cast<std::int32_t>(specs.size());
+		return a.add(nd);
+	}
+
+	constexpr std::int32_t export_decl_stmt() {
+		eat_kw("export");
+		node nd{nk::export_decl, ""};
+		std::vector<std::int32_t> specs;
+		// `export default <expr>`
+		if (is_kw("default")) {
+			advance();
+			nd.c = 1;
+			nd.a = expr(2);
+			semi();
+			nd.list = a.add_list(specs);
+			nd.list_len = 0;
+			return a.add(nd);
+		}
+		// `export * from "./m.js"` and `export * as ns from "./m.js"`
+		if (eat_p("*")) {
+			if (eat_word("as")) {
+				node spec{nk::export_spec, cur().s};
+				advance();
+				specs.push_back(a.add(spec));
+			}
+			nd.c = 2; // star
+			if (!eat_word("from")) { fail("export * needs `from`"); return -1; }
+			if (cur().kind != tk::str) { fail("export * needs a module specifier"); return -1; }
+			nd.text = cur().s;
+			advance();
+			semi();
+			nd.list = a.add_list(specs);
+			nd.list_len = static_cast<std::int32_t>(specs.size());
+			return a.add(nd);
+		}
+		// `export { a, b as c }` and the same with `from`
+		if (eat_p("{")) {
+			while (!is_p("}") && !at_end()) {
+				const std::string_view local = cur().s;
+				advance();
+				node spec{nk::export_spec, local};
+				if (eat_word("as")) {
+					spec.a = a.add({nk::str, cur().s});
+					advance();
+				}
+				specs.push_back(a.add(spec));
+				if (!eat_p(",")) { break; }
+			}
+			expect_p("}");
+			if (eat_word("from")) {
+				if (cur().kind != tk::str) { fail("export from needs a module specifier"); return -1; }
+				nd.text = cur().s;
+				advance();
+			}
+			semi();
+			nd.list = a.add_list(specs);
+			nd.list_len = static_cast<std::int32_t>(specs.size());
+			return a.add(nd);
+		}
+		// `export const x = 1`, `export function f() {}`, `export class C {}` -
+		// the declaration is parsed as itself and simply hangs off the export.
+		nd.a = stmt();
+		nd.list = a.add_list(specs);
+		nd.list_len = 0;
+		return a.add(nd);
+	}
+
 	constexpr std::int32_t stmt() {
 		const token & c = cur();
 		if (c.kind == tk::punct && c.s == "{") { return block(); }
@@ -919,6 +1099,12 @@ struct parser {
 			if (k == "function") { return func(false); }
 			if (k == "async" && nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(false, true); }
 			if (k == "class") { return class_decl(false); }
+			// `import` is a declaration UNLESS it is `import(` or `import.`,
+			// which are the expression forms and belong to primary().
+			if (k == "import" && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "."))) {
+				return import_decl_stmt();
+			}
+			if (k == "export") { return export_decl_stmt(); }
 			if (k == "if") { return if_stmt(); }
 			if (k == "for") { return for_stmt(); }
 			if (k == "while") { return while_stmt(); }

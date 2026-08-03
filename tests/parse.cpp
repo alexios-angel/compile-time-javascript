@@ -71,6 +71,13 @@ static_assert(ctjs::is_valid<"export { x } from './m.js';">);
 static_assert(ctjs::is_valid<"const u = import.meta.url;">);
 static_assert(ctjs::is_valid<"const p = import('./m.js');">);
 static_assert(ctjs::is_valid<"const p = await import('./m.js');">);
+// POSTFIX AFTER BOTH EXPRESSION FORMS, which is how they are actually written.
+// These failed while the handling sat in unary() instead of primary(): unary()
+// returns before postfix() can apply a `.` or a call, so `import.meta` parsed
+// and `import.meta.url` did not.
+static_assert(ctjs::is_valid<"const u = import.meta.url;">);
+static_assert(ctjs::is_valid<"import('./m.js').then(f);">);
+static_assert(ctjs::is_valid<"const x = (await import('./m.js')).default;">);
 
 // `from` and `as` ARE NOT KEYWORDS - they mean something only inside an import
 // or export, and must stay usable as ordinary names. This is why the parser

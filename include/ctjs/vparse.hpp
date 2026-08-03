@@ -450,35 +450,6 @@ struct parser {
 				advance(); node nd{nk::update, o}; nd.a = unary(); nd.b = 1; /*prefix*/ return a.add(nd);
 			}
 		}
-		// `import(...)` and `import.meta` are the two places `import` is an
-		// EXPRESSION rather than a declaration. Both have to be recognised here
-		// or `import` reads as an ordinary identifier - which is exactly what it
-		// did, and why `import('./m.js')` failed at run time with "`import` is
-		// undefined, not a function".
-		if (cur().kind == tk::kw && cur().s == "import") {
-			if (nxt().kind == tk::punct && nxt().s == "(") {
-				advance();
-				expect_p("(");
-				node nd{nk::dynamic_import, ""};
-				nd.a = expr(2);
-				// A trailing comma and an options argument are both legal; the
-				// specifier is what matters and the rest is skipped rather than
-				// refused.
-				while (eat_p(",") && !is_p(")") && !at_end()) { (void)expr(2); }
-				expect_p(")");
-				return a.add(nd);
-			}
-			if (nxt().kind == tk::punct && nxt().s == ".") {
-				advance();
-				advance();
-				if (cur().s != "meta") {
-					fail("import. must be followed by meta");
-					return -1;
-				}
-				advance();
-				return a.add({nk::import_meta, "import.meta"});
-			}
-		}
 		if (cur().kind == tk::kw && cur().s == "yield") {
 			// yield [expr] - only meaningful inside a generator body; the
 			// interpreter enforces that at run time. yield* delegates in the
@@ -550,6 +521,35 @@ struct parser {
 	}
 
 	constexpr std::int32_t primary() {
+		// `import(...)` and `import.meta` are the two places `import` is an
+		// EXPRESSION rather than a declaration. Both have to be recognised here
+		// or `import` reads as an ordinary identifier - which is exactly what it
+		// did, and why `import('./m.js')` failed at run time with "`import` is
+		// undefined, not a function".
+		if (cur().kind == tk::kw && cur().s == "import") {
+			if (nxt().kind == tk::punct && nxt().s == "(") {
+				advance();
+				expect_p("(");
+				node nd{nk::dynamic_import, ""};
+				nd.a = expr(2);
+				// A trailing comma and an options argument are both legal; the
+				// specifier is what matters and the rest is skipped rather than
+				// refused.
+				while (eat_p(",") && !is_p(")") && !at_end()) { (void)expr(2); }
+				expect_p(")");
+				return a.add(nd);
+			}
+			if (nxt().kind == tk::punct && nxt().s == ".") {
+				advance();
+				advance();
+				if (cur().s != "meta") {
+					fail("import. must be followed by meta");
+					return -1;
+				}
+				advance();
+				return a.add({nk::import_meta, "import.meta"});
+			}
+		}
 		const token & c = cur();
 		if (c.kind == tk::num) { node nd{nk::num, c.s}; advance(); return a.add(nd); }
 		if (c.kind == tk::str) { node nd{nk::str, c.s}; advance(); return a.add(nd); }

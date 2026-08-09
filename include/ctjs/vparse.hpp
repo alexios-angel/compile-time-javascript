@@ -157,6 +157,14 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 					while (i < n && (is_digit(src[i]) || src[i] == '_')) { ++i; }
 				}
 			}
+			// THE BigInt SUFFIX. `1n` is one token, not the number 1 followed
+			// by the identifier `n` - and getting that wrong is not a local
+			// failure: the parse breaks at that point, so a bundle carrying a
+			// single BigInt literal anywhere fails as a WHOLE and the page goes
+			// blank. It rides on the number token because whether the digits
+			// are a valid BigInt (they must be an integer - `1.5n` is not) is a
+			// question for the consumer, not the lexer.
+			if (i < n && src[i] == 'n') { ++i; }
 			out.push_back({tk::num, src.substr(start, i - start)});
 			continue;
 		}

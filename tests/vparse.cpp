@@ -43,6 +43,20 @@ static_assert(vp::is_valid("let i = 1e1_0;"));
 static_assert(vp::is_valid("f(0o17, 0b11, 1_000);"));
 static_assert(vp::is_valid("let j = [0o17, 0b11][0];"));
 
+// The BigInt suffix rides on the number token: `1n` is ONE token, and a bundle
+// carrying a single BigInt literal anywhere fails to parse as a whole without
+// this - not just the expression.
+static_assert(vp::is_valid("let a = 1n;"));
+static_assert(vp::is_valid("let b = 0n;"));
+static_assert(vp::is_valid("let c = 9007199254740993n;"));
+static_assert(vp::is_valid("let d = 0xFFn;"));
+static_assert(vp::is_valid("let e = 0b101n;"));
+static_assert(vp::is_valid("let f = 0o17n;"));
+static_assert(vp::is_valid("let g = 1_000n;"));
+static_assert(vp::is_valid("f(1n, 2n);"));
+static_assert(vp::is_valid("let h = 1n + 2n;"));
+static_assert(vp::is_valid("let i2 = [1n, 2n][0];"));
+
 // --- statements --------------------------------------------------------------
 static_assert(vp::is_valid("if (a) { b(); } else if (c) d(); else { e(); }"));
 static_assert(vp::is_valid("for (let i = 0; i < 10; i++) { sum += i; }"));

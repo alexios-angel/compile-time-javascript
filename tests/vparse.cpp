@@ -23,6 +23,26 @@ static_assert(vp::is_valid("let s = `x=${1 + 2} y=${z}`;"));
 static_assert(vp::is_valid("let e = new Foo(1, 2).method();"));
 static_assert(vp::is_valid("let u = !-+~a; b++; --c;"));
 
+// --- numeric literal forms ---------------------------------------------------
+// The lexer special-cased 0x alone, so `0o17` came out as the number `0`
+// followed by the identifier `o17` and the parse failed on ordinary modern
+// code; and a number token stopped at `_`, so `1_000` was `1` then `_000`.
+// Both prefixes and the ES2021 separator lex as ONE token now.
+static_assert(vp::is_valid("let a = 0o17;"));
+static_assert(vp::is_valid("let b = 0O17;"));
+static_assert(vp::is_valid("let c = 0b1010;"));
+static_assert(vp::is_valid("let d = 0B1010;"));
+static_assert(vp::is_valid("let e = 0xFF;"));
+static_assert(vp::is_valid("let f = 1_000_000;"));
+static_assert(vp::is_valid("let g = 0xFF_FF;"));
+static_assert(vp::is_valid("let h = 1_0.5;"));
+static_assert(vp::is_valid("let i = 1e1_0;"));
+// One token, not two: an expression statement of two numbers in a row would
+// still "parse" under a lenient reading, so the shape that proves it is a
+// literal used where only ONE operand fits.
+static_assert(vp::is_valid("f(0o17, 0b11, 1_000);"));
+static_assert(vp::is_valid("let j = [0o17, 0b11][0];"));
+
 // --- statements --------------------------------------------------------------
 static_assert(vp::is_valid("if (a) { b(); } else if (c) d(); else { e(); }"));
 static_assert(vp::is_valid("for (let i = 0; i < 10; i++) { sum += i; }"));

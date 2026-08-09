@@ -139,13 +139,22 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 		}
 		// number
 		if (is_digit(c) || (c == '.' && i + 1 < n && is_digit(src[i + 1]))) {
-			if (c == '0' && i + 1 < n && (src[i + 1] == 'x' || src[i + 1] == 'X')) {
+			// 0x, 0o AND 0b, which all take the same shape: a two-character
+			// prefix and then id-part characters, which covers the digits, the
+			// a-f of hex and the `_` separators alike. Only 0x was recognised
+			// before, so `0o17` lexed as the number `0` followed by the
+			// identifier `o17` and the parse failed on ordinary modern code.
+			const char p = i + 1 < n ? src[i + 1] : '\0';
+			if (c == '0' && (p == 'x' || p == 'X' || p == 'o' || p == 'O' || p == 'b' || p == 'B')) {
 				i += 2; while (i < n && is_id_part(static_cast<unsigned char>(src[i]))) { ++i; }
 			} else {
-				while (i < n && (is_digit(src[i]) || src[i] == '.')) { ++i; }
+				// `_` IS A NUMERIC SEPARATOR (ES2021): 1_000_000. It belongs to
+				// the token here and is stripped before the value is read, so
+				// `1_000` no longer lexes as `1` and the identifier `_000`.
+				while (i < n && (is_digit(src[i]) || src[i] == '.' || src[i] == '_')) { ++i; }
 				if (i < n && (src[i] == 'e' || src[i] == 'E')) {
 					++i; if (i < n && (src[i] == '+' || src[i] == '-')) { ++i; }
-					while (i < n && is_digit(src[i])) { ++i; }
+					while (i < n && (is_digit(src[i]) || src[i] == '_')) { ++i; }
 				}
 			}
 			out.push_back({tk::num, src.substr(start, i - start)});

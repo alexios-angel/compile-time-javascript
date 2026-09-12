@@ -584,11 +584,13 @@ struct parser {
 		}
 		if (cur().kind == tk::kw && cur().s == "yield") {
 			// yield [expr] - only meaningful inside a generator body; the
-			// interpreter enforces that at run time. yield* delegates in the
-			// eager engine by yielding the operand value itself.
+			// interpreter enforces that at run time. `yield*` is DELEGATION
+			// (27.5.3.7 / 14.4.14): d = 1 says so, and the operand is then
+			// required and iterated by the consumer rather than yielded.
 			advance();
-			eat_p("*");
+			const bool delegate = eat_p("*");
 			node y{nk::yield_expr, ""};
+			if (delegate) { y.d = 1; }
 			if (!is_p(";") && !is_p(")") && !is_p("}") && !is_p(",") && !is_p("]") && !at_end()) { y.a = expr(2); }
 			return a.add(y);
 		}

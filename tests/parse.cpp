@@ -44,6 +44,8 @@ static_assert(ctjs::is_valid<"class C { async *m() { yield 1; } }">);
 static_assert(ctjs::is_valid<"let o = { *m() { yield 1; } };">);
 static_assert(ctjs::is_valid<"let o = { async *m() { yield 1; } };">);
 static_assert(ctjs::is_valid<"let o = { *[k]() { yield 1; } };">);
+// `yield*` is delegation, not a yield of the operand: the node says so.
+static_assert(ctjs::is_valid<"function* g() { yield* other(); const r = yield* h; }">);
 // `async` is still a usable property name, which is what the lookahead in the
 // object-literal path is for - `{ async: 1 }` must not read as an async method.
 static_assert(ctjs::is_valid<"let o = { async: 1 };">);

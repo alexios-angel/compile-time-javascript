@@ -14,6 +14,9 @@ static_assert(vp::is_valid("1 + 2 * 3 - 4 / 5 % 6 ** 7;"));
 static_assert(vp::is_valid("a = b || c && d | e ^ f & g == h < i << j;"));
 static_assert(vp::is_valid("let x = cond ? yes : no;"));
 static_assert(vp::is_valid("foo.bar.baz(1, 2)(3)[k].m;"));
+// A unicode escape in an identifier is decoded into the ast's arena - still
+// constant-evaluable, the arena being a transient allocation here.
+static_assert(vp::is_valid("var \\u{6F}bj = 1; obj;"));
 static_assert(vp::is_valid("a?.b?.(x)?.[y] ?? fallback;"));
 static_assert(vp::is_valid("let f = x => x * 2;"));
 static_assert(vp::is_valid("let g = (a, b = 1, ...rest) => { return a + b; };"));
@@ -93,6 +96,14 @@ int main() {
 	// class members counted
 	vp::ast cls = vp::parse("class C { a = 1; b() {} static c = 3; }");
 	CHECK(cls.ok);
+
+	// `\u{6F}bj` IS `obj`: the token views the decoded spelling, and a private
+	// name keeps its `#`.
+	vp::ast esc = vp::parse("var \\u{6F}bj = 1; class C { #\\u{6F} = 2; }");
+	CHECK(esc.ok);
+	CHECK(esc.decoded.size() == 2);
+	CHECK(*esc.decoded[0] == "obj");
+	CHECK(*esc.decoded[1] == "#o");
 
 	if (failures == 0) { std::printf("vparse suite: all checks passed\n"); }
 	return failures ? 1 : 0;

@@ -2,6 +2,7 @@
 #define CTJS__VPARSE__HPP
 
 #include <cstddef>
+#include <memory>
 
 #include <cstdint>
 #include <string_view>
@@ -38,9 +39,11 @@ struct token {
 	std::string_view s;    // the lexeme (a view into the source)
 };
 
+// A BYTE OR A CODE POINT: the byte-at-a-time scan passes UTF-8 lead and
+// continuation bytes (all > 127, all accepted, so any non-ASCII spelling is an
+// identifier), and the escape decoder passes the code point it read.
 constexpr bool is_id_start(char32_t c) {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$' ||
-	       static_cast<unsigned char>(c) > 127;
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$' || c > 127;
 }
 constexpr bool is_id_part(char32_t c) { return is_id_start(c) || (c >= '0' && c <= '9'); }
 constexpr bool is_digit(char c) { return c >= '0' && c <= '9'; }
@@ -101,12 +104,86 @@ struct lex_report {
 	std::size_t first_skip = 0;   // offset of the first one
 };
 
+// WHERE A DECODED IDENTIFIER LIVES. A token's lexeme is a view into the
+// source, and an identifier written with a unicode escape - `\u{6F}bj`,
+// `#\u2118` - has no spelling in the source that names it: `obj` is the name,
+// and `obj` must compare equal to `\u{6F}bj`. So the lexer decodes such an
+// identifier into a string it appends here, and the token views THAT. The
+// vector is the ast's, so the views live as long as the tree; unique_ptr so
+// the vector may grow without moving the bytes a view points at.
+using decoded_names = std::vector<std::unique_ptr<std::string>>;
+
+// The UTF-8 of one code point, appended.
+constexpr void append_utf8(std::string & out, char32_t cp) {
+	if (cp < 0x80) { out.push_back(static_cast<char>(cp)); return; }
+	if (cp < 0x800) {
+		out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+		out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+		return;
+	}
+	if (cp < 0x10000) {
+		out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+		out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+		out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+		return;
+	}
+	out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+	out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+	out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+	out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+}
+
+// `\uXXXX` or `\u{X...}` at src[i] (the backslash). Answers the code point and
+// moves i past it, or answers false and leaves i alone.
+constexpr bool read_unicode_escape(std::string_view src, std::size_t & i, char32_t & cp) {
+	const std::size_t n = src.size();
+	if (i + 1 >= n || src[i] != '\\' || src[i + 1] != 'u') { return false; }
+	auto hex = [](char c) -> int {
+		if (c >= '0' && c <= '9') { return c - '0'; }
+		if (c >= 'a' && c <= 'f') { return c - 'a' + 10; }
+		if (c >= 'A' && c <= 'F') { return c - 'A' + 10; }
+		return -1;
+	};
+	std::size_t j = i + 2;
+	char32_t v = 0;
+	if (j < n && src[j] == '{') {
+		++j;
+		std::size_t digits = 0;
+		while (j < n && src[j] != '}') {
+			const int h = hex(src[j]);
+			if (h < 0 || ++digits > 8) { return false; }
+			v = v * 16 + static_cast<char32_t>(h);
+			++j;
+		}
+		if (j >= n || digits == 0 || v > 0x10FFFF) { return false; }
+		++j;
+	} else {
+		for (int k = 0; k < 4; ++k, ++j) {
+			const int h = j < n ? hex(src[j]) : -1;
+			if (h < 0) { return false; }
+			v = v * 16 + static_cast<char32_t>(h);
+		}
+	}
+	i = j;
+	cp = v;
+	return true;
+}
+
 // Lex the whole source into a token vector (comments and whitespace dropped).
-constexpr std::vector<token> lex(std::string_view src, lex_report * report = nullptr) {
+// `names` receives identifiers that needed decoding (see decoded_names);
+// without it an escaped identifier keeps its raw spelling.
+constexpr std::vector<token> lex(std::string_view src, lex_report * report = nullptr,
+                                 decoded_names * names = nullptr) {
 	std::vector<token> out;
 	const std::size_t n = src.size();
 	std::size_t i = 0;
 	auto has_div = [&]() { return !out.empty() && div_follows(out.back()); };
+	// An identifier may START with an escape: `\u{6F}bj`.
+	auto escape_starts_id = [&](std::size_t at) {
+		std::size_t j = at;
+		char32_t cp = 0;
+		return read_unicode_escape(src, j, cp) && is_id_start(cp);
+	};
 
 	while (i < n) {
 		char c = src[i];
@@ -129,11 +206,35 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 		// program here actually depends on. `#` leads and never follows, so it
 		// stays out of is_id_part and `a#b` is still two tokens.
 		const bool private_name =
-		    c == '#' && i + 1 < n && is_id_start(static_cast<unsigned char>(src[i + 1]));
-		if (private_name || is_id_start(static_cast<unsigned char>(c))) {
+		    c == '#' && i + 1 < n &&
+		    (is_id_start(static_cast<unsigned char>(src[i + 1])) || escape_starts_id(i + 1));
+		if (private_name || is_id_start(static_cast<unsigned char>(c)) || escape_starts_id(i)) {
 			if (private_name) { ++i; }
-			while (i < n && is_id_part(static_cast<unsigned char>(src[i]))) { ++i; }
+			// The decoded spelling, built only if an escape turns up.
+			std::string decoded;
+			bool escaped = false;
+			while (i < n) {
+				if (src[i] == '\\') {
+					std::size_t j = i;
+					char32_t cp = 0;
+					if (!read_unicode_escape(src, j, cp) || !is_id_part(cp)) { break; }
+					if (!escaped) {
+						decoded.assign(src.substr(start, i - start));
+						escaped = true;
+					}
+					append_utf8(decoded, cp);
+					i = j;
+					continue;
+				}
+				if (!is_id_part(static_cast<unsigned char>(src[i]))) { break; }
+				if (escaped) { decoded.push_back(src[i]); }
+				++i;
+			}
 			std::string_view w = src.substr(start, i - start);
+			if (escaped && names != nullptr) {
+				names->push_back(std::make_unique<std::string>(std::move(decoded)));
+				w = *names->back();
+			}
 			out.push_back({!private_name && is_keyword(w) ? tk::kw : tk::ident, w});
 			continue;
 		}
@@ -314,6 +415,9 @@ struct ast {
 	std::size_t error_offset = 0;
 	std::size_t skipped_bytes = 0;    // see lex_report
 	std::size_t first_skip_offset = 0;
+	// Identifiers the lexer had to decode (unicode escapes); their tokens - and
+	// so the nodes' `text` - view into these. See decoded_names.
+	decoded_names decoded;
 
 	constexpr std::int32_t add(node nd) { nodes.push_back(nd); return static_cast<std::int32_t>(nodes.size()) - 1; }
 	constexpr std::int32_t add_list(const std::vector<std::int32_t> & kids) {
@@ -336,16 +440,27 @@ struct parser {
 
 	// The offset a token starts at, and the offset just past the one before
 	// the current position - which together bound everything consumed so far.
+	// A DECODED identifier's lexeme is not in the source (decoded_names): the
+	// nearest in-source token stands in for it, searching back then forward.
+	constexpr bool in_source(std::string_view lexeme) const {
+		return lexeme.data() != nullptr && lexeme.data() >= src.data() &&
+		       lexeme.data() <= src.data() + src.size();
+	}
 	constexpr std::uint32_t offset_at(std::size_t token_index) const {
 		if (src.empty() || token_index >= t.size()) { return 0; }
-		const std::string_view lexeme = t[token_index].s;
+		std::string_view lexeme = t[token_index].s;
 		if (lexeme.data() == nullptr) { return static_cast<std::uint32_t>(src.size()); }
+		for (std::size_t k = token_index; !in_source(lexeme) && k > 0; --k) { lexeme = t[k - 1].s; }
+		for (std::size_t k = token_index; !in_source(lexeme) && k + 1 < t.size(); ++k) { lexeme = t[k + 1].s; }
+		if (!in_source(lexeme)) { return 0; }
 		return static_cast<std::uint32_t>(lexeme.data() - src.data());
 	}
 	constexpr std::uint32_t offset_consumed() const {
 		if (src.empty() || p == 0) { return 0; }
-		const std::string_view lexeme = t[p - 1].s;
+		std::string_view lexeme = t[p - 1].s;
 		if (lexeme.data() == nullptr) { return static_cast<std::uint32_t>(src.size()); }
+		for (std::size_t k = p - 1; !in_source(lexeme) && k > 0; --k) { lexeme = t[k - 1].s; }
+		if (!in_source(lexeme)) { return 0; }
 		return static_cast<std::uint32_t>(
 		    static_cast<std::size_t>(lexeme.data() - src.data()) + lexeme.size());
 	}
@@ -1256,7 +1371,7 @@ struct parser {
 constexpr ast parse(std::string_view src) {
 	ast a;
 	lex_report report;
-	std::vector<token> toks = lex(src, &report);
+	std::vector<token> toks = lex(src, &report, &a.decoded);
 	parser ps{toks, a, 0, src};
 	a.root = ps.program();
 	a.skipped_bytes = report.skipped;
@@ -1264,12 +1379,7 @@ constexpr ast parse(std::string_view src) {
 	// Resolve the failing token to a source offset while the token vector is
 	// still in scope - it is the last moment anyone can. The end token has an
 	// empty lexeme pointing nowhere, so fall back to the end of the source.
-	if (!a.ok && a.error_tok < toks.size()) {
-		const std::string_view lexeme = toks[a.error_tok].s;
-		a.error_offset = lexeme.data() == nullptr
-		                     ? src.size()
-		                     : static_cast<std::size_t>(lexeme.data() - src.data());
-	}
+	if (!a.ok && a.error_tok < toks.size()) { a.error_offset = ps.offset_at(a.error_tok); }
 	return a;
 }
 

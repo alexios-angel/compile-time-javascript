@@ -1036,6 +1036,8 @@ struct parser {
 	}
 
 	constexpr std::int32_t class_decl(bool /*is_expr*/) {
+		// The span is the whole class text, which is what `String(C)` gives.
+		const std::uint32_t span_begin = offset_at(p);
 		eat_kw("class");
 		std::string_view name;
 		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
@@ -1092,6 +1094,8 @@ struct parser {
 		expect_p("}");
 		node nd{nk::class_decl, name}; nd.a = super;
 		nd.list = a.add_list(members); nd.list_len = static_cast<std::int32_t>(members.size());
+		nd.begin = span_begin;
+		nd.end = offset_consumed();
 		return a.add(nd);
 	}
 

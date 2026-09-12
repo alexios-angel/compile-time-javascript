@@ -252,7 +252,14 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 				// `_` IS A NUMERIC SEPARATOR (ES2021): 1_000_000. It belongs to
 				// the token here and is stripped before the value is read, so
 				// `1_000` no longer lexes as `1` and the identifier `_000`.
-				while (i < n && (is_digit(src[i]) || src[i] == '.' || src[i] == '_')) { ++i; }
+				// ONE DOT. `0..toString(2)` is the number `0.` and then a
+				// member access, which a loop that ate every dot lexed as one
+				// token `0..` and refused; the second dot ends the literal.
+				bool dotted = false;
+				while (i < n && (is_digit(src[i]) || (src[i] == '.' && !dotted) || src[i] == '_')) {
+					dotted = dotted || src[i] == '.';
+					++i;
+				}
 				if (i < n && (src[i] == 'e' || src[i] == 'E')) {
 					++i; if (i < n && (src[i] == '+' || src[i] == '-')) { ++i; }
 					while (i < n && (is_digit(src[i]) || src[i] == '_')) { ++i; }

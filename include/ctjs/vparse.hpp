@@ -1135,7 +1135,11 @@ struct parser {
 			// member name
 			std::string_view mname;
 			if (is_p("[")) { advance(); m.a = expr(0); expect_p("]"); m.d |= 2; /*computed*/ }
-			else if (cur().kind == tk::str) { node k{nk::str, cur().s}; advance(); m.a = a.add(k); m.d |= 2; }
+			// A string-literal name is filed as a computed key holding the str
+			// node, and its quoted text is kept in `text` so a checker can tell
+			// `'prototype'` (a PropName, an early error when static) from
+			// `['prototype']` (a computed key, a runtime TypeError).
+			else if (cur().kind == tk::str) { node k{nk::str, cur().s}; mname = cur().s; advance(); m.a = a.add(k); m.d |= 2; }
 			else if (cur().kind == tk::num) { node k{nk::num, cur().s}; advance(); m.a = a.add(k); m.d |= 2; }
 			else { mname = cur().s; advance(); }
 			m.text = mname;                            // always the property name

@@ -538,12 +538,26 @@ struct parser {
 		if (!is_kw("with") && !is_word("assert")) { return; }
 		advance();
 		if (!eat_p("{")) { fail("import attributes need `{`"); return; }
-		std::int32_t depth = 1;
-		while (depth > 0 && !at_end()) {
-			if (is_p("{")) { ++depth; }
-			else if (is_p("}")) { --depth; }
+		// WithEntries: `key : "value"` pairs, the key a name or a string, the
+		// value a string; a key twice is the early error of 16.2.2.1.
+		std::vector<std::string_view> keys;
+		while (!is_p("}") && !at_end()) {
+			if (cur().kind != tk::ident && cur().kind != tk::kw && cur().kind != tk::str) {
+				fail("an import attribute key is a name or a string"); return;
+			}
+			std::string_view key = cur().s;
+			if (cur().kind == tk::str && key.size() >= 2) { key = key.substr(1, key.size() - 2); }
+			for (std::string_view seen : keys) {
+				if (seen == key) { fail("an import attribute key may appear only once"); return; }
+			}
+			keys.push_back(key);
 			advance();
+			if (!eat_p(":")) { fail("an import attribute needs `:`"); return; }
+			if (cur().kind != tk::str) { fail("an import attribute value is a string"); return; }
+			advance();
+			if (!eat_p(",")) { break; }
 		}
+		if (!eat_p("}")) { fail("import attributes need `}`"); }
 	}
 
 	// --- binding powers ------------------------------------------------------

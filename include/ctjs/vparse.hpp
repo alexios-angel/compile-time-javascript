@@ -826,6 +826,23 @@ struct parser {
 		return after < t.size() && t[after].kind == tk::punct && t[after].s == "=>";
 	}
 
+	// `for ([a, b] of xs)` / `for ({x} in o)`: a bracketed head followed by
+	// `of`/`in` is an assignment PATTERN over existing bindings, not an array
+	// or object literal starting a classic for. Same one-token-past-the-close
+	// look arrow_ahead takes, over the matching bracket kind.
+	constexpr bool for_pattern_ahead() const {
+		const std::string_view open = t[p].s;
+		const std::string_view close = open == "[" ? "]" : "}";
+		std::size_t q = p; std::int32_t depth = 0;
+		for (; q < t.size(); ++q) {
+			if (t[q].kind == tk::punct && t[q].s == open) { ++depth; }
+			else if (t[q].kind == tk::punct && t[q].s == close) { if (--depth == 0) { break; } }
+			else if (t[q].kind == tk::end) { return false; }
+		}
+		std::size_t after = q + 1;
+		return after < t.size() && t[after].kind == tk::kw && (t[after].s == "of" || t[after].s == "in");
+	}
+
 	constexpr std::int32_t paren_or_arrow() {
 		if (arrow_ahead()) {
 			const std::uint32_t span_begin = offset_at(p);
@@ -1349,6 +1366,14 @@ struct parser {
 				nd.b = expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}
+			if (at_pattern() && for_pattern_ahead()) {
+				node dd{nk::declarator, ""}; dd.b = pattern();
+				std::string_view rel = cur().s; advance();
+				node nd{nk::forof_stmt, rel};
+				nd.a = a.add(dd); nd.d = 2 | (is_await ? 4 : 0);
+				nd.b = expr(0); expect_p(")"); nd.c = stmt();
+				return a.add(nd);
+			}
 			init = expr(0);
 		}
 		expect_p(";");
@@ -1363,7 +1388,12 @@ struct parser {
 		node nd{nk::try_stmt, ""}; nd.a = block();
 		if (eat_kw("catch")) {
 			node cc{nk::catch_clause, ""};
-			if (eat_p("(")) { cc.text = cur().s; advance(); expect_p(")"); }
+			// `catch ({message})` and `catch ([first])` bind a pattern (b),
+			// as a declarator does; a name is the text.
+			if (eat_p("(")) {
+				if (at_pattern()) { cc.b = pattern(); } else { cc.text = cur().s; advance(); }
+				expect_p(")");
+			}
 			cc.a = block(); nd.b = a.add(cc);
 		}
 		if (eat_kw("finally")) { nd.c = block(); }

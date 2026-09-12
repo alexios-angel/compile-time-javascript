@@ -444,6 +444,16 @@ struct parser {
 	ast & a;
 	std::size_t p = 0;
 	std::string_view src{};   // for node spans; see node::begin
+	// INSIDE A GENERATOR'S PARAMETERS OR BODY, `yield` is the YieldExpression;
+	// anywhere else - a plain function, an arrow (its body is
+	// FunctionBody[~Yield]), the top level - it is an identifier in sloppy
+	// code, which `var yield = 23` in test262 and old bundles rely on.
+	bool in_generator = false;
+	struct generator_scope {
+		bool & flag; bool saved;
+		constexpr generator_scope(bool & f, bool on) : flag(f), saved(f) { flag = on; }
+		constexpr ~generator_scope() { flag = saved; }
+	};
 
 	// The offset a token starts at, and the offset just past the one before
 	// the current position - which together bound everything consumed so far.
@@ -589,9 +599,9 @@ struct parser {
 				advance(); node nd{nk::update, o}; nd.a = unary(); nd.b = 1; /*prefix*/ return a.add(nd);
 			}
 		}
-		if (cur().kind == tk::kw && cur().s == "yield") {
-			// yield [expr] - only meaningful inside a generator body; the
-			// interpreter enforces that at run time. `yield*` is DELEGATION
+		if (cur().kind == tk::kw && cur().s == "yield" && in_generator) {
+			// yield [expr] - inside a generator (see in_generator; outside one
+			// the keyword falls through to primary() as a name). `yield*` is DELEGATION
 			// (27.5.3.7 / 14.4.14): d = 1 says so, and the operand is then
 			// required and iterated by the consumer rather than yielded.
 			advance();
@@ -865,6 +875,9 @@ struct parser {
 		return e;
 	}
 	constexpr std::int32_t arrow_body() {
+		// ConciseBody is FunctionBody[~Yield]: an arrow inside a generator
+		// reads `yield` as a name again (a yield in an arrow is not one).
+		const generator_scope inside{in_generator, false};
 		if (is_p("{")) { return block(); }
 		return expr(2);
 	}
@@ -1012,6 +1025,7 @@ struct parser {
 					fn.begin = member_begin; fn.end = offset_consumed();
 					pr.b = a.add(fn); pr.c = 3; /*accessor*/ if (is_setter) { pr.d |= 4; }
 				} else if (is_p("(")) {                 // method shorthand
+					const generator_scope inside{in_generator, pgen};
 					std::int32_t len = 0; std::int32_t pl = params(len);
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
@@ -1044,8 +1058,12 @@ struct parser {
 		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
 			name = cur().s; advance();
 		}
-		std::int32_t len = 0; std::int32_t pl = params(len);
-		std::int32_t body = block();
+		std::int32_t len = 0; std::int32_t pl = -1; std::int32_t body = -1;
+		{
+			const generator_scope inside{in_generator, is_gen};
+			pl = params(len);
+			body = block();
+		}
 		node nd{is_expr ? nk::func_expr : nk::func_decl, name};
 		nd.list = pl; nd.list_len = len; nd.a = body;
 		// c: bit0 = async, bit1 = generator
@@ -1122,6 +1140,7 @@ struct parser {
 			else { mname = cur().s; advance(); }
 			m.text = mname;                            // always the property name
 			if (is_p("(")) {                          // method or accessor
+				const generator_scope inside{in_generator, mgen};
 				std::int32_t len = 0; std::int32_t pl = params(len);
 				std::int32_t body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;

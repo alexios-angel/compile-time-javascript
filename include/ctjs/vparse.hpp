@@ -1160,7 +1160,11 @@ struct parser {
 		return a.add(nd);
 	}
 	constexpr std::int32_t for_stmt() {
-		eat_kw("for"); expect_p("(");
+		eat_kw("for");
+		// `for await (x of y)`: d bit2 on the forof node. Only meaningful in an
+		// async function; the compiler is where that is enforced.
+		const bool is_await = eat_kw("await");
+		expect_p("(");
 		// init: var decl or expr or empty
 		std::int32_t init = -1; std::string_view forkw;
 		if (is_kw("let") || is_kw("const") || is_kw("var")) {
@@ -1173,7 +1177,8 @@ struct parser {
 				node nd{nk::forof_stmt, rel}; nd.text = rel;
 				// `for (const [k, v] of pairs)` - the item is a shape too
 				node dd{nk::declarator, d.text}; dd.text = d.text; dd.b = d.b;
-				nd.a = a.add(dd); nd.d = (forkw == "const"); nd.b = expr(0); expect_p(")"); nd.c = stmt();
+				nd.a = a.add(dd); nd.d = (forkw == "const") | (is_await ? 4 : 0);
+				nd.b = expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}
 			if (eat_p("=")) { d.a = expr(2); }
@@ -1196,7 +1201,7 @@ struct parser {
 				node dd{nk::declarator, cur().s}; advance();
 				std::string_view rel = cur().s; advance();
 				node nd{nk::forof_stmt, rel};
-				nd.a = a.add(dd); nd.d = 2;
+				nd.a = a.add(dd); nd.d = 2 | (is_await ? 4 : 0);
 				nd.b = expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}

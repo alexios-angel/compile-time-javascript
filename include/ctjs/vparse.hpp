@@ -744,9 +744,14 @@ struct parser {
 				nd.a = new_callee();                       // member-expr only (no trailing call)
 				// `new import(x)` is not in the grammar: ImportCall is a CallExpression,
 				// never a MemberExpression a `new` could apply to.
-				if (nd.a >= 0 && a.nodes[static_cast<std::size_t>(nd.a)].kind == nk::dynamic_import) {
-					fail("`new` cannot be applied to import()");
-					return -1;
+				for (std::int32_t base = nd.a; base >= 0;) {
+					const node & callee = a.nodes[static_cast<std::size_t>(base)];
+					if (callee.kind == nk::dynamic_import) {
+						fail("`new` cannot be applied to import()");
+						return -1;
+					}
+					if (callee.kind != nk::member && callee.kind != nk::index) { break; }
+					base = callee.a;   // `new import(x).prop`: down the member chain
 				}
 				if (is_p("(")) { nd.list = args(nd.list_len); nd.d = 1; }
 				return a.add(nd);                          // postfix() continues for `.m()` on the result

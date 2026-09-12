@@ -177,6 +177,11 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 	std::vector<token> out;
 	const std::size_t n = src.size();
 	std::size_t i = 0;
+	// A HASHBANG COMMENT (12.5): `#!` as the very first two bytes runs to the
+	// end of its line. Only there - anywhere else `#` is what it always was.
+	if (n >= 2 && src[0] == '#' && src[1] == '!') {
+		while (i < n && src[i] != '\n') { ++i; }
+	}
 	auto has_div = [&]() { return !out.empty() && div_follows(out.back()); };
 	// An identifier may START with an escape: `\u{6F}bj`.
 	auto escape_starts_id = [&](std::size_t at) {
@@ -387,7 +392,11 @@ enum class nk : std::uint8_t {
 	// transpiler emits it, and Babylon.js 9.18.2 uses it in its decorator
 	// metadata support, which is the first thing in that bundle this parser
 	// stopped on.
-	new_target
+	new_target,
+	//   with_stmt   `with (a) b` - a = the object expression, b = the body.
+	//               The keyword was lexed and never parsed, so the statement
+	//               read as a CALL of a name `with` and threw at run time.
+	with_stmt
 };
 
 struct node {
@@ -482,6 +491,19 @@ struct parser {
 		    static_cast<std::size_t>(lexeme.data() - src.data()) + lexeme.size());
 	}
 
+	// IS THERE A LINE TERMINATOR between the previous token and this one? The
+	// restricted productions - `return`, `break`, `continue` - end at a line
+	// break ([no LineTerminator here], 12.10.1), which no token records.
+	constexpr bool newline_before_cur() const {
+		if (src.empty() || p == 0) { return false; }
+		const std::uint32_t from = offset_consumed();
+		const std::uint32_t to = offset_at(p);
+		for (std::uint32_t i = from; i < to && i < src.size(); ++i) {
+			if (src[i] == '\n' || src[i] == '\r') { return true; }
+		}
+		return false;
+	}
+
 	constexpr const token & cur() const { return t[p]; }
 	constexpr const token & nxt() const { return p + 1 < t.size() ? t[p + 1] : t.back(); }
 	constexpr bool at_end() const { return cur().kind == tk::end; }
@@ -508,6 +530,21 @@ struct parser {
 	}
 	constexpr void expect_p(std::string_view s) { if (!eat_p(s)) { fail(s); } }
 	constexpr void semi() { eat_p(";"); }   // optional (ASI)
+	// `with { type: "json" }` after a module specifier (16.2.2 WithClause).
+	// The attributes are the loader's to read; nothing here consumes them
+	// yet, so the clause is skipped whole. Before `with` was a statement the
+	// clause read, by accident, as a name followed by a labelled block.
+	constexpr void import_attributes() {
+		if (!is_kw("with") && !is_word("assert")) { return; }
+		advance();
+		if (!eat_p("{")) { fail("import attributes need `{`"); return; }
+		std::int32_t depth = 1;
+		while (depth > 0 && !at_end()) {
+			if (is_p("{")) { ++depth; }
+			else if (is_p("}")) { --depth; }
+			advance();
+		}
+	}
 
 	// --- binding powers ------------------------------------------------------
 	static constexpr bool is_assign_op(std::string_view o) {
@@ -1182,6 +1219,7 @@ struct parser {
 		if (cur().kind == tk::str) {
 			nd.text = cur().s;
 			advance();
+			import_attributes();
 			semi();
 			nd.list = a.add_list(specs);
 			nd.list_len = 0;
@@ -1226,6 +1264,7 @@ struct parser {
 		if (cur().kind != tk::str) { fail("import needs a module specifier"); return -1; }
 		nd.text = cur().s;
 		advance();
+		import_attributes();
 		semi();
 		nd.list = a.add_list(specs);
 		nd.list_len = static_cast<std::int32_t>(specs.size());
@@ -1258,6 +1297,7 @@ struct parser {
 			if (cur().kind != tk::str) { fail("export * needs a module specifier"); return -1; }
 			nd.text = cur().s;
 			advance();
+			import_attributes();
 			semi();
 			nd.list = a.add_list(specs);
 			nd.list_len = static_cast<std::int32_t>(specs.size());
@@ -1281,6 +1321,7 @@ struct parser {
 				if (cur().kind != tk::str) { fail("export from needs a module specifier"); return -1; }
 				nd.text = cur().s;
 				advance();
+				import_attributes();
 			}
 			semi();
 			nd.list = a.add_list(specs);
@@ -1315,12 +1356,21 @@ struct parser {
 			if (k == "for") { return for_stmt(); }
 			if (k == "while") { return while_stmt(); }
 			if (k == "do") { return do_stmt(); }
-			if (k == "return") { advance(); node nd{nk::return_stmt, ""}; if (!is_p(";") && !is_p("}") && !at_end()) { nd.a = expr(0); } semi(); return a.add(nd); }
-			if (k == "break") { advance(); node nd{nk::break_stmt, ""}; if (cur().kind == tk::ident) { nd.text = cur().s; advance(); } semi(); return a.add(nd); }
-			if (k == "continue") { advance(); node nd{nk::continue_stmt, ""}; if (cur().kind == tk::ident) { nd.text = cur().s; advance(); } semi(); return a.add(nd); }
+			// `return`, `break` and `continue` end at a line break: what follows
+			// on the next line is the next statement, not the operand or label
+			// (p5.js has `if (x) return\n const y = ...`, which read `const` as
+			// the returned name).
+			if (k == "return") { advance(); node nd{nk::return_stmt, ""}; if (!is_p(";") && !is_p("}") && !at_end() && !newline_before_cur()) { nd.a = expr(0); } semi(); return a.add(nd); }
+			if (k == "break") { advance(); node nd{nk::break_stmt, ""}; if (cur().kind == tk::ident && !newline_before_cur()) { nd.text = cur().s; advance(); } semi(); return a.add(nd); }
+			if (k == "continue") { advance(); node nd{nk::continue_stmt, ""}; if (cur().kind == tk::ident && !newline_before_cur()) { nd.text = cur().s; advance(); } semi(); return a.add(nd); }
 			if (k == "throw") { advance(); node nd{nk::throw_stmt, ""}; nd.a = expr(0); semi(); return a.add(nd); }
 			if (k == "try") { return try_stmt(); }
 			if (k == "switch") { return switch_stmt(); }
+			if (k == "with") {
+				advance(); expect_p("(");
+				node nd{nk::with_stmt, ""}; nd.a = expr(0); expect_p(")"); nd.b = stmt();
+				return a.add(nd);
+			}
 		}
 		// labeled statement:  ident ':'
 		if (c.kind == tk::ident && nxt().kind == tk::punct && nxt().s == ":") {

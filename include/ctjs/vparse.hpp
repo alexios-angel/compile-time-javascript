@@ -673,10 +673,16 @@ struct parser {
 				expect_p("(");
 				node nd{nk::dynamic_import, ""};
 				nd.a = expr(2);
-				// A trailing comma and an options argument are both legal; the
-				// specifier is what matters and the rest is skipped rather than
-				// refused.
-				while (eat_p(",") && !is_p(")") && !at_end()) { (void)expr(2); }
+				// The options argument (import attributes) is `b`; a trailing
+				// comma after either is legal, a third argument is not
+				// (ImportCall takes at most two).
+				if (eat_p(",") && !is_p(")") && !at_end()) {
+					nd.b = expr(2);
+					if (eat_p(",") && !is_p(")") && !at_end()) {
+						fail("import() takes a specifier and at most an options argument");
+						return -1;
+					}
+				}
 				expect_p(")");
 				return a.add(nd);
 			}
@@ -690,6 +696,10 @@ struct parser {
 				advance();
 				return a.add({nk::import_meta, "import.meta"});
 			}
+			// Bare `import` in expression position - `typeof import` - is
+			// neither of the two and not an identifier either.
+			fail("`import` is only an expression as import(...) or import.meta");
+			return -1;
 		}
 		const token & c = cur();
 		if (c.kind == tk::num) { node nd{nk::num, c.s}; advance(); return a.add(nd); }
@@ -732,6 +742,12 @@ struct parser {
 				}
 				node nd{nk::new_expr, ""};
 				nd.a = new_callee();                       // member-expr only (no trailing call)
+				// `new import(x)` is not in the grammar: ImportCall is a CallExpression,
+				// never a MemberExpression a `new` could apply to.
+				if (nd.a >= 0 && a.nodes[static_cast<std::size_t>(nd.a)].kind == nk::dynamic_import) {
+					fail("`new` cannot be applied to import()");
+					return -1;
+				}
 				if (is_p("(")) { nd.list = args(nd.list_len); nd.d = 1; }
 				return a.add(nd);                          // postfix() continues for `.m()` on the result
 			}

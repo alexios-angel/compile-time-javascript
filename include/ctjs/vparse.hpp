@@ -1356,8 +1356,43 @@ struct parser {
 		return a.add(nd);
 	}
 
+	// IS THERE A LINE TERMINATOR between tokens i and i + 1?
+	constexpr bool newline_between(std::size_t i) const {
+		if (src.empty() || i + 1 >= t.size()) { return false; }
+		const std::string_view a = t[i].s, b = t[i + 1].s;
+		if (!in_source(a) || !in_source(b)) { return false; }
+		const std::size_t from = static_cast<std::size_t>(a.data() - src.data()) + a.size();
+		const std::size_t to = static_cast<std::size_t>(b.data() - src.data());
+		for (std::size_t k = from; k < to; ++k) {
+			if (line_terminator_at(src, k) != 0) { return true; }
+		}
+		return false;
+	}
+	// IS A `using` DECLARATION AT TOKEN i (ES2026 explicit resource
+	// management)? `using` is an ordinary identifier everywhere else, so the
+	// shape decides: `using` [no LineTerminator here] BindingIdentifier -
+	// `using x`, not `using (x)`, `using.x`, `using = x` or `using of`.
+	constexpr bool using_decl_at(std::size_t i) const {
+		if (i + 1 >= t.size() || t[i].kind != tk::ident || t[i].s != "using") { return false; }
+		const token & n = t[i + 1];
+		const bool name = n.kind == tk::ident ||
+		                  (n.kind == tk::kw && (n.s == "get" || n.s == "set" || n.s == "static" ||
+		                                        n.s == "async" || n.s == "let" || n.s == "yield" || n.s == "await"));
+		return name && !newline_between(i);
+	}
+	constexpr bool at_using_decl() const { return using_decl_at(p); }
+	// `await using x`, only where `await` is the keyword and on one line.
+	constexpr bool at_await_using_decl() const {
+		return is_kw("await") && in_async && !newline_between(p) && using_decl_at(p + 1);
+	}
+
 	constexpr std::int32_t var_decl() {
-		std::string_view kw = cur().s; advance();      // let/const/var
+		// `using` / `await using`: the kind is kept as the declaration's text,
+		// as let/const/var are. The initialiser is required and the target
+		// must be a name (14.3.2.1); the checker refuses the rest.
+		std::string_view kw = cur().s;
+		if (is_kw("await")) { advance(); kw = "await using"; }
+		advance();      // let/const/var/using
 		std::vector<std::int32_t> decls;
 		for (;;) {
 			// `b` is the pattern when the declarator binds a shape rather than a
@@ -1620,7 +1655,15 @@ struct parser {
 		if (c.kind == tk::punct && c.s == ";") { advance(); return a.add({nk::empty, ""}); }
 		if (c.kind == tk::kw) {
 			std::string_view k = c.s;
+			// `let` opens a declaration only before a name, `[` or `{` (14.3.1
+			// with the ExpressionStatement lookahead); `let = 1` and `let.x`
+			// are the identifier in sloppy code.
+			if (k == "let" && !(nxt().kind == tk::ident || (nxt().kind == tk::kw && nxt().s != "in" && nxt().s != "instanceof") ||
+			                    (nxt().kind == tk::punct && (nxt().s == "[" || nxt().s == "{")))) {
+				node nd{nk::expr_stmt, ""}; nd.a = expr(0); semi(); return a.add(nd);
+			}
 			if (k == "let" || k == "const" || k == "var") { return var_decl(); }
+			if (at_await_using_decl()) { return var_decl(); }
 			if (k == "function") { return func(false); }
 			if (k == "async" && nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(false, true); }
 			if (k == "class") { return class_decl(false); }
@@ -1650,6 +1693,7 @@ struct parser {
 				return a.add(nd);
 			}
 		}
+		if (at_using_decl()) { return var_decl(); }
 		// labeled statement:  ident ':'
 		if (c.kind == tk::ident && nxt().kind == tk::punct && nxt().s == ":") {
 			node nd{nk::labeled, c.s}; advance(); advance(); nd.a = stmt(); return a.add(nd);
@@ -1684,8 +1728,14 @@ struct parser {
 		expect_p("(");
 		// init: var decl or expr or empty
 		std::int32_t init = -1; std::string_view forkw;
-		if (is_kw("let") || is_kw("const") || is_kw("var")) {
-			forkw = cur().s; advance();
+		// `for (using x of xs)` / `for (await using x of xs)`: d bit4 says
+		// `using`, bit5 `await using`; the binding is disposed per iteration.
+		// `for (using x = a; ;)` is a using declaration as the init.
+		const bool head_using = at_using_decl() || at_await_using_decl();
+		if (head_using || is_kw("let") || is_kw("const") || is_kw("var")) {
+			forkw = cur().s;
+			if (head_using && is_kw("await")) { advance(); forkw = "await using"; }
+			advance();
 			node d{nk::declarator, ""};
 			if (at_pattern()) { d.b = pattern(); } else { d.text = cur().s; advance(); }
 			// for-of / for-in?
@@ -1697,7 +1747,8 @@ struct parser {
 				// so a checker can tell `let` from `var` (14.7.5.1 has rules
 				// for the lexical heads only).
 				node dd{nk::declarator, d.text}; dd.text = d.text; dd.b = d.b;
-				nd.a = a.add(dd); nd.d = (forkw == "const") | (is_await ? 4 : 0) | (forkw == "let" ? 8 : 0);
+				nd.a = a.add(dd); nd.d = (forkw == "const") | (is_await ? 4 : 0) | (forkw == "let" ? 8 : 0) |
+				                  (forkw == "using" ? 16 : 0) | (forkw == "await using" ? 32 : 0);
 				// `for (x of a, b)` is not in the grammar: `of` takes an
 				// AssignmentExpression (14.7.5), `in` an Expression.
 				nd.b = rel == "of" ? expr(2) : expr(0); expect_p(")"); nd.c = stmt();

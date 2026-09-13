@@ -107,7 +107,7 @@ inline constexpr std::string_view keywords[] = {
     "delete", "do", "else", "extends", "false", "finally", "for", "function",
     "if", "in", "instanceof", "let", "new", "null", "return", "super", "switch",
     "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
-    "yield", "async", "of", "static", "get", "set", "import", "export"};
+    "yield", "async", "of", "static", "get", "set", "import", "export", "debugger"};
 
 // CONTEXTUAL keywords: reserved only in the position that gives them meaning,
 // and an ordinary identifier everywhere else. `function set(...)` and
@@ -760,6 +760,12 @@ struct parser {
 		for (;;) {
 			std::int32_t bp = lbp();
 			if (bp < 0 || bp < min_bp) { break; }
+			// A YieldExpression is an AssignmentExpression (15.5): it is no
+			// operand of anything tighter than `,` unless parenthesised (c = 1).
+			if (left >= 0 && a.nodes[static_cast<std::size_t>(left)].kind == nk::yield_expr &&
+			    a.nodes[static_cast<std::size_t>(left)].c != 1 && bp > 1) {
+				fail("`yield` is not an operand; parenthesise it"); return -1;
+			}
 			std::string_view o = cur().s;
 			if (cur().kind == tk::punct && o == "?") {           // ternary
 				advance();
@@ -864,6 +870,7 @@ struct parser {
 			else if (is_p("?.")) {
 				optional_chain = true;
 				advance();
+				if (cur().kind == tk::tmpl_full) { fail("a template literal cannot follow `?.`"); return -1; }
 				if (is_p("(")) { node nd{nk::opt_call, ""}; nd.a = e; nd.list = args(nd.list_len); e = a.add(nd); }
 				else if (is_p("[")) { advance(); node nd{nk::opt_index, ""}; nd.a = e; nd.b = expr(0); expect_p("]"); e = a.add(nd); }
 				else { node nd{nk::opt_member, cur().s}; nd.a = e; advance(); e = a.add(nd); }
@@ -959,7 +966,7 @@ struct parser {
 					expect_p(")");
 					return a.add(nd);
 				}
-				if (cur().s != "meta") {
+				if (cur().s != "meta" || !in_source(cur().s)) {
 					fail("import. must be followed by meta");
 					return -1;
 				}
@@ -1003,7 +1010,7 @@ struct parser {
 					// `cur()`, NOT `c`: that is a reference bound when primary()
 					// was entered and two advances ago by now. The branch above
 					// uses is_p() for the same reason.
-					if (cur().kind != tk::ident || cur().s != "target") {
+					if (cur().kind != tk::ident || cur().s != "target" || !in_source(cur().s)) {
 						fail("new. must be followed by target");
 						return -1;
 					}
@@ -1147,6 +1154,7 @@ struct parser {
 		if (e >= 0) {
 			node & inner = a.nodes[static_cast<std::size_t>(e)];
 			if (inner.kind == nk::unary || inner.kind == nk::logical || inner.kind == nk::dynamic_import) { inner.d = 1; }
+			if (inner.kind == nk::yield_expr) { inner.c = 1; }
 		}
 		return e;
 	}
@@ -1726,6 +1734,8 @@ struct parser {
 			if (k == "break") { advance(); node nd{nk::break_stmt, ""}; if (cur().kind == tk::ident && !newline_before_cur()) { nd.text = cur().s; advance(); } semi(); return a.add(nd); }
 			if (k == "continue") { advance(); node nd{nk::continue_stmt, ""}; if (cur().kind == tk::ident && !newline_before_cur()) { nd.text = cur().s; advance(); } semi(); return a.add(nd); }
 			if (k == "throw") { advance(); node nd{nk::throw_stmt, ""}; nd.a = expr(0); semi(); return a.add(nd); }
+			// `debugger;` (14.16): a statement that does nothing here.
+			if (k == "debugger") { advance(); semi(); return a.add({nk::empty, ""}); }
 			if (k == "try") { return try_stmt(); }
 			if (k == "switch") { return switch_stmt(); }
 			if (k == "with") {

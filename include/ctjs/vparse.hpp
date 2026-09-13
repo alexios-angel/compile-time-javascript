@@ -42,10 +42,16 @@ struct token {
 // A BYTE OR A CODE POINT: the byte-at-a-time scan passes UTF-8 lead and
 // continuation bytes (all > 127, all accepted, so any non-ASCII spelling is an
 // identifier), and the escape decoder passes the code point it read.
+// U+2E2F VERTICAL TILDE is Pattern_Syntax and in neither ID set; ZWNJ and
+// ZWJ (U+200C, U+200D) are ID_Continue and not ID_Start (12.7). Only a
+// decoded escape reaches here as a code point; the byte scan passes bytes.
 constexpr bool is_id_start(char32_t c) {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$' || c > 127;
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$' ||
+	       (c > 127 && c != 0x200C && c != 0x200D && c != 0x2E2F);
 }
-constexpr bool is_id_part(char32_t c) { return is_id_start(c) || (c >= '0' && c <= '9'); }
+constexpr bool is_id_part(char32_t c) {
+	return is_id_start(c) || (c >= '0' && c <= '9') || c == 0x200C || c == 0x200D;
+}
 constexpr std::size_t unicode_space_at(std::string_view src, std::size_t i);
 constexpr std::size_t line_terminator_at(std::string_view src, std::size_t i);
 // The byte at src[i] continues an identifier: is_id_part on the byte, except
@@ -293,7 +299,10 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 				names->push_back(std::make_unique<std::string>(std::move(decoded)));
 				w = *names->back();
 			}
-			out.push_back({!private_name && is_keyword(w) ? tk::kw : tk::ident, w});
+			// AN ESCAPED WORD IS NEVER A KEYWORD (12.7.2): `\u0067et m() {}` is
+			// not an accessor and `\u0061sync () => {}` is not an async arrow -
+			// both are the identifier, and the parse fails on what follows.
+			out.push_back({!private_name && !escaped && is_keyword(w) ? tk::kw : tk::ident, w});
 			continue;
 		}
 		// number
@@ -380,11 +389,17 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			if (op[0] != src[i]) { continue; }
 			if (i + op.size() <= n && src.substr(i, op.size()) == op) { matched = op; break; }
 		}
-		if (matched.empty()) {   // skip unknown byte, but say so
+		if (matched.empty()) {
+			// AN UNKNOWN BYTE IS A TOKEN OF ITS OWN, which no rule of the parser
+			// accepts - so `# x`, a stray `@` or a `\` outside an identifier is
+			// the SyntaxError it should be. It used to be skipped, so `# x` in
+			// a class body declared a public `x`. The count is kept for the
+			// callers that read it.
 			if (report != nullptr) {
 				if (report->skipped == 0) { report->first_skip = i; }
 				++report->skipped;
 			}
+			out.push_back({tk::punct, src.substr(i, 1)});
 			++i;
 			continue;
 		}
@@ -735,10 +750,13 @@ struct parser {
 			// (27.5.3.7 / 14.4.14): d = 1 says so, and the operand is then
 			// required and iterated by the consumer rather than yielded.
 			advance();
+			// `yield` [no LineTerminator here] `*`/operand (15.5): what follows a
+			// line break is the next statement, and this yield has no operand.
+			if (newline_before_cur()) { return a.add({nk::yield_expr, ""}); }
 			const bool delegate = eat_p("*");
 			node y{nk::yield_expr, ""};
 			if (delegate) { y.d = 1; }
-			if (!is_p(";") && !is_p(")") && !is_p("}") && !is_p(",") && !is_p("]") && !at_end()) { y.a = expr(2); }
+			if (!is_p(";") && !is_p(")") && !is_p("}") && !is_p(",") && !is_p("]") && !is_p(":") && !at_end()) { y.a = expr(2); }
 			return a.add(y);
 		}
 		if (cur().kind == tk::kw) {
@@ -973,6 +991,7 @@ struct parser {
 		const std::uint32_t span_begin = offset_at(p);
 		std::vector<std::int32_t> ps;
 		node pn{nk::param, cur().s}; ps.push_back(a.add(pn)); advance();   // ident
+		if (newline_before_cur()) { fail("no line break is allowed before `=>`"); return -1; }
 		expect_p("=>");
 		node nd{nk::arrow, ""}; nd.list = a.add_list(ps); nd.list_len = 1;
 		nd.a = arrow_body();
@@ -1015,6 +1034,7 @@ struct parser {
 			const std::uint32_t span_begin = offset_at(p);
 			node nd{nk::arrow, ""};
 			std::int32_t len = 0; nd.list = params(len); nd.list_len = len;
+			if (newline_before_cur()) { fail("no line break is allowed before `=>`"); return -1; }
 			expect_p("=>");
 			nd.a = arrow_body();
 			nd.begin = span_begin;
@@ -1158,15 +1178,24 @@ struct parser {
 				const bool pasync = is_kw("async") && !(nxt().kind == tk::punct &&
 				                                        (nxt().s == "(" || nxt().s == ":" ||
 				                                         nxt().s == "," || nxt().s == "}"));
-				if (pasync) { advance(); }
+				if (pasync) {
+					advance();
+					// `async` [no LineTerminator here] (15.6): on its own line it
+					// would have to be a shorthand property, and then the next
+					// thing is not the `,` a shorthand needs.
+					if (newline_before_cur()) { fail("no line break is allowed after `async` here"); return -1; }
+				}
 				const bool pgen = eat_p("*");
 				// key ("quoted" and 1-numeric keys ride the computed path -
-				// evaluating the literal cooks quotes/escapes into the name)
+				// evaluating the literal cooks quotes/escapes into the name).
+				// `get`/`set` are the accessor words only as the unescaped
+				// keyword the lexer marks; `\u0067et` is a name.
+				bool accessor_word = false;
 				if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; /*computed*/ }
 				else if (cur().kind == tk::str) { node k{nk::str, cur().s}; advance(); pr.a = a.add(k); pr.d = 1; }
 				else if (cur().kind == tk::num) { node k{nk::num, cur().s}; advance(); pr.a = a.add(k); pr.d = 1; }
-				else { pr.text = cur().s; advance(); }
-				if ((pr.text == "get" || pr.text == "set") &&
+				else { pr.text = cur().s; accessor_word = cur().kind == tk::kw; advance(); }
+				if (accessor_word && (pr.text == "get" || pr.text == "set") &&
 				    !is_p("(") && !is_p(":") && !is_p(",") && !is_p("}")) {
 					// accessor:  get name() {...} / set name(v) {...}  (the
 					// name may itself be computed) - mirrors the class path
@@ -1288,7 +1317,9 @@ struct parser {
 			const std::uint32_t member_begin = offset_at(p);
 			node m{nk::class_member, ""};
 			m.d = 0;   // bit0 = static, bit1 = computed key, bit2 = accessor is a SETTER
-			if (is_kw("static")) {
+			// `static` is the modifier only when a member follows it; `static = 1`,
+			// `static;`, `static() {}` and `static }` name a member `static`.
+			if (is_kw("static") && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";" || nxt().s == "}"))) {
 				advance(); m.d |= 1;
 				// A STATIC BLOCK, `static { ... }` (15.7.1 ClassStaticBlock): a
 				// body run once with `this` = the class, in order with the
@@ -1311,13 +1342,29 @@ struct parser {
 				is_setter = cur().s == "set";
 				advance();
 			}
-			const bool masync = is_kw("async");
-			eat_kw("async");
+			// `async` [no LineTerminator here] (15.7): followed by a line break
+			// it is a FIELD named async and the next line is the next member.
+			bool masync = false;
+			if (is_kw("async") && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";" || nxt().s == "}"))) {
+				const std::size_t save = p;
+				advance();
+				if (newline_before_cur()) { p = save; } else { masync = true; }
+			}
 			// `*method() {}` IS A GENERATOR, and the star used to be eaten and
 			// thrown away - so a class generator method parsed cleanly and then
 			// compiled as an ordinary function, whose `yield` had nowhere to go.
 			// Babylon.js has 162 of them.
 			const bool mgen = eat_p("*");
+			// `accessor` [no LineTerminator here] ClassElementName (the decorators
+			// proposal's auto-accessor): read as a plain field of that name.
+			// ponytail: a field, not a getter/setter pair over private storage;
+			// upgrade when decorators land.
+			if (is_word("accessor") && !masync && !mgen && !is_getter && !is_setter &&
+			    !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";" || nxt().s == "}"))) {
+				const std::size_t save = p;
+				advance();
+				if (newline_before_cur()) { p = save; }
+			}
 			// member name
 			std::string_view mname;
 			if (is_p("[")) { advance(); m.a = expr(0); expect_p("]"); m.d |= 2; /*computed*/ }
@@ -1343,7 +1390,13 @@ struct parser {
 				else { m.c = 1; }                     // plain method
 			} else {                                   // field
 				if (eat_p("=")) { m.b = expr(2); }
-				m.c = 0; semi();
+				m.c = 0;
+				// A field ends at `;`, at `}`, or at a line break (ASI, 12.10):
+				// `x y` on one line is not two fields.
+				if (!eat_p(";") && !is_p("}") && !newline_before_cur()) {
+					fail("a class field needs a `;` or a line break after it");
+					return -1;
+				}
 			}
 			members.push_back(a.add(m));
 			if (!a.ok) { break; }

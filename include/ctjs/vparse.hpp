@@ -141,7 +141,10 @@ constexpr bool div_follows(const token & t) {
 	}
 	if (t.kind == tk::ident) { return true; }
 	if (t.kind == tk::kw) {
-		return t.s == "this" || t.s == "super" || t.s == "true" || t.s == "false" || t.s == "null";
+		// The contextual keywords are names outside their one position, and a
+		// name is followed by division: `instance/of/g` is not a regex.
+		return t.s == "this" || t.s == "super" || t.s == "true" || t.s == "false" || t.s == "null" ||
+		       is_contextual_keyword(t.s) || t.s == "let" || t.s == "async";
 	}
 	if (t.kind == tk::punct) { return t.s == ")" || t.s == "]" || t.s == "++" || t.s == "--"; }
 	return false;
@@ -235,7 +238,33 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 	if (n >= 2 && src[0] == '#' && src[1] == '!') {
 		while (i < n && line_terminator_at(src, i) == 0) { ++i; }
 	}
-	auto has_div = [&]() { return !out.empty() && div_follows(out.back()); };
+	// WHICH `{` A `}` CLOSES decides what a `/` after it is: an object
+	// literal's `}` is followed by division (`({a: 1} / 2)`), a block's by a
+	// regex (`} /re/.test(x)`). A brace opens an object literal when what
+	// precedes it wants an operand - an operator, `(`, `[`, `,`, `=`, `:`,
+	// `?`, `return`, `typeof`... - and a block after `)`, `=>`, `;`, `{`,
+	// `}`, `else`, `do`, `try`, `finally` or at the start.
+	std::vector<bool> brace_is_object;
+	auto opens_object = [&]() {
+		if (out.empty()) { return false; }
+		const token & prev = out.back();
+		if (prev.kind == tk::punct) {
+			return prev.s != ")" && prev.s != "}" && prev.s != ";" && prev.s != "{" && prev.s != "=>";
+		}
+		if (prev.kind == tk::kw) {
+			return prev.s == "return" || prev.s == "typeof" || prev.s == "void" || prev.s == "delete" ||
+			       prev.s == "in" || prev.s == "instanceof" || prev.s == "of" || prev.s == "await" ||
+			       prev.s == "yield" || prev.s == "throw" || prev.s == "case" || prev.s == "extends" ||
+			       prev.s == "new";
+		}
+		return false;   // a name, a literal: `x {` is not an expression anyway
+	};
+	bool last_brace_closed_object = false;
+	auto has_div = [&]() {
+		if (out.empty()) { return false; }
+		if (out.back().kind == tk::punct && out.back().s == "}") { return last_brace_closed_object; }
+		return div_follows(out.back());
+	};
 	// An identifier may START with an escape: `\u{6F}bj`.
 	auto escape_starts_id = [&](std::size_t at) {
 		std::size_t j = at;
@@ -414,6 +443,13 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			out.push_back({tk::punct, src.substr(i, 1)});
 			++i;
 			continue;
+		}
+		// `?.` followed by a digit is `?` and a decimal: `a ?.5 : b` (13.3).
+		if (matched == "?." && i + 2 < n && is_digit(src[i + 2])) { matched = "?"; }
+		if (matched == "{") { brace_is_object.push_back(opens_object()); }
+		if (matched == "}") {
+			last_brace_closed_object = !brace_is_object.empty() && brace_is_object.back();
+			if (!brace_is_object.empty()) { brace_is_object.pop_back(); }
 		}
 		out.push_back({tk::punct, src.substr(i, matched.size())});
 		i += matched.size();
@@ -976,7 +1012,7 @@ struct parser {
 				// never a MemberExpression a `new` could apply to.
 				for (std::int32_t base = nd.a; base >= 0;) {
 					const node & callee = a.nodes[static_cast<std::size_t>(base)];
-					if (callee.kind == nk::dynamic_import) {
+					if (callee.kind == nk::dynamic_import && callee.d != 1) {
 						fail("`new` cannot be applied to import()");
 						return -1;
 					}
@@ -1027,8 +1063,9 @@ struct parser {
 				}
 			}
 			// A contextual keyword can be an arrow's single parameter too:
-			// `swizzleSets.some(set => ...)` names one `set`.
-			if (is_contextual_keyword(c.s) && nxt().kind == tk::punct && nxt().s == "=>") {
+			// `swizzleSets.some(set => ...)` names one `set`, and `yield => 1`
+			// outside a generator names `yield`.
+			if (at_name() && nxt().kind == tk::punct && nxt().s == "=>") {
 				return arrow_single();
 			}
 			// keyword used as a bare identifier (property contexts) - be lenient
@@ -1105,7 +1142,7 @@ struct parser {
 		// unary and logical nodes.
 		if (e >= 0) {
 			node & inner = a.nodes[static_cast<std::size_t>(e)];
-			if (inner.kind == nk::unary || inner.kind == nk::logical) { inner.d = 1; }
+			if (inner.kind == nk::unary || inner.kind == nk::logical || inner.kind == nk::dynamic_import) { inner.d = 1; }
 		}
 		return e;
 	}
@@ -1694,8 +1731,9 @@ struct parser {
 			}
 		}
 		if (at_using_decl()) { return var_decl(); }
-		// labeled statement:  ident ':'
-		if (c.kind == tk::ident && nxt().kind == tk::punct && nxt().s == ":") {
+		// labeled statement:  ident ':' - a name, which `yield` and `await` are
+		// where they are not the keyword
+		if (at_name() && nxt().kind == tk::punct && nxt().s == ":") {
 			node nd{nk::labeled, c.s}; advance(); advance(); nd.a = stmt(); return a.add(nd);
 		}
 		// expression statement

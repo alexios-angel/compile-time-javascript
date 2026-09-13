@@ -285,8 +285,12 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 		// Unicode ones included (12.4 SingleLineComment)
 		if (c == '/' && i + 1 < n && src[i + 1] == '/') { i += 2; while (i < n && line_terminator_at(src, i) == 0) { ++i; } continue; }
 		if (c == '/' && i + 1 < n && src[i + 1] == '*') {
+			const std::size_t opened = i;
 			i += 2; while (i + 1 < n && !(src[i] == '*' && src[i + 1] == '/')) { ++i; }
-			i = (i + 1 < n) ? i + 2 : n; continue;
+			// UNTERMINATED: a `/*` that never closes is a SyntaxError (12.4),
+			// not a comment to the end of the file - a token nothing accepts.
+			if (i + 1 >= n) { out.push_back({tk::punct, src.substr(opened, 2)}); i = n; continue; }
+			i += 2; continue;
 		}
 		std::size_t start = i;
 		// identifier / keyword

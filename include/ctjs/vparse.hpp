@@ -46,7 +46,54 @@ constexpr bool is_id_start(char32_t c) {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == '$' || c > 127;
 }
 constexpr bool is_id_part(char32_t c) { return is_id_start(c) || (c >= '0' && c <= '9'); }
+constexpr std::size_t unicode_space_at(std::string_view src, std::size_t i);
+constexpr std::size_t line_terminator_at(std::string_view src, std::size_t i);
+// The byte at src[i] continues an identifier: is_id_part on the byte, except
+// that a non-ASCII whitespace or line terminator ends it - every byte over
+// 127 is an identifier byte to the scan, and `x\u00A0+= 1` must be three
+// tokens, not one name.
+constexpr bool id_part_at(std::string_view src, std::size_t i) {
+	const unsigned char c = static_cast<unsigned char>(src[i]);
+	if (c <= 127) { return is_id_part(c); }
+	return unicode_space_at(src, i) == 0 && line_terminator_at(src, i) == 0;
+}
 constexpr bool is_digit(char c) { return c >= '0' && c <= '9'; }
+
+// WHITESPACE AND LINE TERMINATORS BEYOND ASCII (12.2, 12.3). The byte scan
+// takes every byte over 127 as an identifier character, so U+00A0 between
+// two tokens glued them into one name and a U+2028 never ended a `//`
+// comment. Both are answered here on the UTF-8 bytes at src[i]: how many
+// bytes of whitespace start there (0 when none), and whether a line
+// terminator does. The set is the specification's: TAB VT FF SP NBSP ZWNBSP
+// and Zs for whitespace; LF CR LS PS for line terminators.
+constexpr std::size_t unicode_space_at(std::string_view src, std::size_t i) {
+	const std::size_t n = src.size();
+	const unsigned char c = static_cast<unsigned char>(src[i]);
+	if (c == 0xC2 && i + 1 < n && static_cast<unsigned char>(src[i + 1]) == 0xA0) { return 2; } // NBSP
+	if (c == 0xE1 && i + 2 < n && static_cast<unsigned char>(src[i + 1]) == 0x9A &&
+	    static_cast<unsigned char>(src[i + 2]) == 0x80) { return 3; } // U+1680 OGHAM SPACE MARK
+	if (c == 0xE2 && i + 2 < n) {
+		const unsigned char b = static_cast<unsigned char>(src[i + 1]);
+		const unsigned char d = static_cast<unsigned char>(src[i + 2]);
+		if (b == 0x80 && ((d >= 0x80 && d <= 0x8A) || d == 0xAF)) { return 3; } // U+2000..U+200A, U+202F
+		if (b == 0x81 && d == 0x9F) { return 3; }                              // U+205F
+	}
+	if (c == 0xE3 && i + 2 < n && static_cast<unsigned char>(src[i + 1]) == 0x80 &&
+	    static_cast<unsigned char>(src[i + 2]) == 0x80) { return 3; } // U+3000 IDEOGRAPHIC SPACE
+	if (c == 0xEF && i + 2 < n && static_cast<unsigned char>(src[i + 1]) == 0xBB &&
+	    static_cast<unsigned char>(src[i + 2]) == 0xBF) { return 3; } // U+FEFF ZWNBSP
+	return 0;
+}
+constexpr std::size_t line_terminator_at(std::string_view src, std::size_t i) {
+	const char c = src[i];
+	if (c == '\n' || c == '\r') { return 1; }
+	if (static_cast<unsigned char>(c) == 0xE2 && i + 2 < src.size() &&
+	    static_cast<unsigned char>(src[i + 1]) == 0x80 &&
+	    (static_cast<unsigned char>(src[i + 2]) == 0xA8 || static_cast<unsigned char>(src[i + 2]) == 0xA9)) {
+		return 3; // U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR
+	}
+	return 0;
+}
 
 // the reserved words ctjs recognises (matches grammar.hpp's IDENT exclusion)
 inline constexpr std::string_view keywords[] = {
@@ -180,7 +227,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 	// A HASHBANG COMMENT (12.5): `#!` as the very first two bytes runs to the
 	// end of its line. Only there - anywhere else `#` is what it always was.
 	if (n >= 2 && src[0] == '#' && src[1] == '!') {
-		while (i < n && src[i] != '\n') { ++i; }
+		while (i < n && line_terminator_at(src, i) == 0) { ++i; }
 	}
 	auto has_div = [&]() { return !out.empty() && div_follows(out.back()); };
 	// An identifier may START with an escape: `\u{6F}bj`.
@@ -194,8 +241,14 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 		char c = src[i];
 		// whitespace
 		if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f') { ++i; continue; }
-		// comments
-		if (c == '/' && i + 1 < n && src[i + 1] == '/') { i += 2; while (i < n && src[i] != '\n') { ++i; } continue; }
+		if (static_cast<unsigned char>(c) > 127) {
+			const std::size_t space = unicode_space_at(src, i);
+			const std::size_t terminator = space != 0 ? 0 : line_terminator_at(src, i);
+			if (space + terminator != 0) { i += space + terminator; continue; }
+		}
+		// comments - a `//` one ends at ANY line terminator, CR and the two
+		// Unicode ones included (12.4 SingleLineComment)
+		if (c == '/' && i + 1 < n && src[i + 1] == '/') { i += 2; while (i < n && line_terminator_at(src, i) == 0) { ++i; } continue; }
 		if (c == '/' && i + 1 < n && src[i + 1] == '*') {
 			i += 2; while (i + 1 < n && !(src[i] == '*' && src[i + 1] == '/')) { ++i; }
 			i = (i + 1 < n) ? i + 2 : n; continue;
@@ -231,7 +284,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 					i = j;
 					continue;
 				}
-				if (!is_id_part(static_cast<unsigned char>(src[i]))) { break; }
+				if (!id_part_at(src, i)) { break; }
 				if (escaped) { decoded.push_back(src[i]); }
 				++i;
 			}
@@ -252,7 +305,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			// identifier `o17` and the parse failed on ordinary modern code.
 			const char p = i + 1 < n ? src[i + 1] : '\0';
 			if (c == '0' && (p == 'x' || p == 'X' || p == 'o' || p == 'O' || p == 'b' || p == 'B')) {
-				i += 2; while (i < n && is_id_part(static_cast<unsigned char>(src[i]))) { ++i; }
+				i += 2; while (i < n && id_part_at(src, i)) { ++i; }
 			} else {
 				// `_` IS A NUMERIC SEPARATOR (ES2021): 1_000_000. It belongs to
 				// the token here and is stripped before the value is read, so
@@ -310,13 +363,13 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			while (i < n) {
 				char d = src[i];
 				if (d == '\\' && i + 1 < n) { i += 2; continue; }
-				if (d == '\n') { break; }
+				if (line_terminator_at(src, i) != 0) { break; }
 				if (d == '[') { cls = true; ++i; continue; }
 				if (d == ']') { cls = false; ++i; continue; }
 				if (d == '/' && !cls) { ++i; break; }
 				++i;
 			}
-			while (i < n && is_id_part(static_cast<unsigned char>(src[i]))) { ++i; }
+			while (i < n && id_part_at(src, i)) { ++i; }
 			out.push_back({tk::regex, src.substr(start, i - start)});
 			continue;
 		}
@@ -458,6 +511,18 @@ struct parser {
 	// FunctionBody[~Yield]), the top level - it is an identifier in sloppy
 	// code, which `var yield = 23` in test262 and old bundles rely on.
 	bool in_generator = false;
+	// INSIDE AN ASYNC FUNCTION `await` is the AwaitExpression; inside a plain
+	// function, generator or method it is an identifier in script code
+	// (`function f(await) { return await; }` is legal there). TRUE AT THE TOP
+	// LEVEL: this engine's embedding contract makes a script's top level an
+	// async body - `return await x;` is how unittests/js reads a promise -
+	// and a module's top level is [+Await] anyway. A plain arrow's body is
+	// ConciseBody[~Await], an async arrow's is [+Await] - see async_arrow.
+	bool in_async = true;
+	// Set by the `async` lookahead just before an arrow is parsed, read and
+	// cleared by arrow_body: a plain arrow's body is ConciseBody[~Await]
+	// (`await` is a name there), an async arrow's is [+Await].
+	bool async_arrow = false;
 	struct generator_scope {
 		bool & flag; bool saved;
 		constexpr generator_scope(bool & f, bool on) : flag(f), saved(f) { flag = on; }
@@ -499,11 +564,23 @@ struct parser {
 		const std::uint32_t from = offset_consumed();
 		const std::uint32_t to = offset_at(p);
 		for (std::uint32_t i = from; i < to && i < src.size(); ++i) {
-			if (src[i] == '\n' || src[i] == '\r') { return true; }
+			if (line_terminator_at(src, i) != 0) { return true; }
 		}
 		return false;
 	}
 
+	// MAY THE CURRENT TOKEN BE A BINDING NAME? An identifier, a contextual
+	// keyword, `async`/`let` (keywords to this lexer, identifiers to the
+	// grammar outside their one position), and `await`/`yield` where the
+	// enclosing function does not reserve them - `function f(await) {}` in a
+	// script, `class yield {}` outside a generator.
+	constexpr bool at_name() const {
+		if (cur().kind == tk::ident) { return true; }
+		if (cur().kind != tk::kw) { return false; }
+		const std::string_view w = cur().s;
+		return is_contextual_keyword(w) || w == "async" || w == "let" ||
+		       (w == "await" && !in_async) || (w == "yield" && !in_generator);
+	}
 	constexpr const token & cur() const { return t[p]; }
 	constexpr const token & nxt() const { return p + 1 < t.size() ? t[p + 1] : t.back(); }
 	constexpr bool at_end() const { return cur().kind == tk::end; }
@@ -602,8 +679,10 @@ struct parser {
 	}
 
 	// --- expressions ---------------------------------------------------------
-	constexpr std::int32_t expr(std::int32_t min_bp) {
-		std::int32_t left = unary();
+	constexpr std::int32_t expr(std::int32_t min_bp) { return expr_rest(unary(), min_bp); }
+	// The Pratt loop from an operand already read - for_stmt reads the head's
+	// first operand itself, to see whether `in`/`of` follows it.
+	constexpr std::int32_t expr_rest(std::int32_t left, std::int32_t min_bp) {
 		for (;;) {
 			std::int32_t bp = lbp();
 			if (bp < 0 || bp < min_bp) { break; }
@@ -664,7 +743,7 @@ struct parser {
 		}
 		if (cur().kind == tk::kw) {
 			std::string_view o = cur().s;
-			if (o == "typeof" || o == "delete" || o == "void" || o == "await") {
+			if (o == "typeof" || o == "delete" || o == "void" || (o == "await" && in_async)) {
 				advance(); node nd{nk::unary, o}; nd.a = unary(); return a.add(nd);
 			}
 		}
@@ -750,6 +829,26 @@ struct parser {
 			if (nxt().kind == tk::punct && nxt().s == ".") {
 				advance();
 				advance();
+				// `import.source(x)` and `import.defer(x)` (ES2026 source phase
+				// and deferred imports): an ImportCall with a phase, filed as
+				// the dynamic_import node with c = 1 (source) or 2 (defer).
+				// They take exactly one argument - no options, no spread.
+				if ((cur().s == "source" || cur().s == "defer") && nxt().kind == tk::punct &&
+				    nxt().s == "(") {
+					const std::int32_t phase = cur().s == "source" ? 1 : 2;
+					advance();
+					expect_p("(");
+					node nd{nk::dynamic_import, ""};
+					nd.c = phase;
+					if (is_p("...")) { fail("import.source/import.defer take one argument, not a spread"); return -1; }
+					nd.a = expr(2);
+					if (eat_p(",") && !is_p(")")) {
+						fail("import.source/import.defer take exactly one argument");
+						return -1;
+					}
+					expect_p(")");
+					return a.add(nd);
+				}
 				if (cur().s != "meta") {
 					fail("import. must be followed by meta");
 					return -1;
@@ -835,6 +934,7 @@ struct parser {
 					const std::size_t save = p;
 					advance();
 					if (arrow_ahead()) {
+						async_arrow = true;
 						const std::int32_t r = paren_or_arrow();
 						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }   // async
 						return r;
@@ -845,6 +945,7 @@ struct parser {
 					const std::size_t save = p;
 					advance();
 					if (nxt().kind == tk::punct && nxt().s == "=>") {
+						async_arrow = true;
 						const std::int32_t r = arrow_single();
 						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }
 						return r;
@@ -929,6 +1030,8 @@ struct parser {
 		// ConciseBody is FunctionBody[~Yield]: an arrow inside a generator
 		// reads `yield` as a name again (a yield in an arrow is not one).
 		const generator_scope inside{in_generator, false};
+		const generator_scope awaiting{in_async, async_arrow};
+		async_arrow = false;
 		if (is_p("{")) { return block(); }
 		return expr(2);
 	}
@@ -1070,6 +1173,8 @@ struct parser {
 					const bool is_setter = pr.text == "set";
 					if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; pr.text = ""; }
 					else { pr.text = cur().s; advance(); }
+					const generator_scope plain{in_generator, false};
+					const generator_scope sync{in_async, false};
 					std::int32_t len = 0; std::int32_t pl = params(len);
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
@@ -1077,6 +1182,7 @@ struct parser {
 					pr.b = a.add(fn); pr.c = 3; /*accessor*/ if (is_setter) { pr.d |= 4; }
 				} else if (is_p("(")) {                 // method shorthand
 					const generator_scope inside{in_generator, pgen};
+					const generator_scope awaiting{in_async, pasync};
 					std::int32_t len = 0; std::int32_t pl = params(len);
 					std::int32_t body = block();
 					node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
@@ -1087,6 +1193,18 @@ struct parser {
 					pr.b = expr(2);
 				} else {
 					pr.c = 2; /*shorthand*/
+					// `{ a = 1 }`: a CoverInitializedName (13.2.5), legal only
+					// where the literal is re-read as an assignment pattern -
+					// `({ a = 1 } = o)`, a for-of head - and an early error
+					// anywhere else. Filed as the shorthand's target with a
+					// default, the shape `[a = 1] = xs` already has; the
+					// checker refuses it in expression position.
+					if (is_p("=")) {
+						advance();
+						node id{nk::ident, pr.text};
+						node dflt{nk::assign, "="}; dflt.a = a.add(id); dflt.b = expr(2);
+						pr.b = a.add(dflt);
+					}
 				}
 				props.push_back(a.add(pr));
 			}
@@ -1106,12 +1224,16 @@ struct parser {
 		eat_kw("function");
 		const bool is_gen = eat_p("*");
 		std::string_view name;
-		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
-			name = cur().s; advance();
-		}
+		// The NAME of a declaration is bound outside the function, so it is
+		// read against the enclosing context; an expression's name is bound
+		// inside its own (`function* yield() {}` declares, `(function*
+		// yield() {})` is an error - 15.5.1) - so that one is read within.
 		std::int32_t len = 0; std::int32_t pl = -1; std::int32_t body = -1;
+		if (!is_expr && at_name()) { name = cur().s; advance(); }
 		{
 			const generator_scope inside{in_generator, is_gen};
+			const generator_scope awaiting{in_async, is_async};
+			if (is_expr && at_name()) { name = cur().s; advance(); }
 			pl = params(len);
 			body = block();
 		}
@@ -1156,9 +1278,7 @@ struct parser {
 		const std::uint32_t span_begin = offset_at(p);
 		eat_kw("class");
 		std::string_view name;
-		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
-			name = cur().s; advance();
-		}
+		if (at_name()) { name = cur().s; advance(); }
 		std::int32_t super = -1;
 		if (eat_kw("extends")) { super = unary(); }
 		expect_p("{");
@@ -1168,7 +1288,22 @@ struct parser {
 			const std::uint32_t member_begin = offset_at(p);
 			node m{nk::class_member, ""};
 			m.d = 0;   // bit0 = static, bit1 = computed key, bit2 = accessor is a SETTER
-			if (is_kw("static")) { advance(); m.d |= 1; }
+			if (is_kw("static")) {
+				advance(); m.d |= 1;
+				// A STATIC BLOCK, `static { ... }` (15.7.1 ClassStaticBlock): a
+				// body run once with `this` = the class, in order with the
+				// static fields. c = 3, the block in b. Its body is
+				// [~Yield, +Await]-shaped: `await` is refused by the checker,
+				// so it parses as the keyword rather than as a name.
+				if (is_p("{")) {
+					const generator_scope plain{in_generator, false};
+					const generator_scope awaiting{in_async, true};
+					m.b = block(); m.c = 3;
+					members.push_back(a.add(m));
+					if (!a.ok) { break; }
+					continue;
+				}
+			}
 			// get/set accessor: remember the kind, but the PROPERTY NAME follows
 			bool is_getter = false, is_setter = false;
 			if ((is_kw("get") || is_kw("set")) && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";"))) {
@@ -1196,6 +1331,7 @@ struct parser {
 			m.text = mname;                            // always the property name
 			if (is_p("(")) {                          // method or accessor
 				const generator_scope inside{in_generator, mgen};
+				const generator_scope awaiting{in_async, masync};
 				std::int32_t len = 0; std::int32_t pl = params(len);
 				std::int32_t body = block();
 				node fn{nk::func_expr, ""}; fn.list = pl; fn.list_len = len; fn.a = body;
@@ -1445,28 +1581,26 @@ struct parser {
 			node vd{nk::var_decl, forkw}; vd.list = a.add_list(decls); vd.list_len = static_cast<std::int32_t>(decls.size());
 			init = a.add(vd);
 		} else if (!is_p(";")) {
-			// `for (prop in obj)` with NO declaration keyword: the loop variable
-			// is a binding that already exists. Without this the head parses as
-			// a binary `in` expression and then wants the `;` of a classic for.
-			// d bit1 says so, since there is nothing to declare.
-			if ((cur().kind == tk::ident || cur().kind == tk::kw) && nxt().kind == tk::kw &&
-			    (nxt().s == "in" || nxt().s == "of")) {
-				node dd{nk::declarator, cur().s}; advance();
+			// `for (x in obj)`, `for (o.p of xs)`, `for ([a, b.c] of pairs)`
+			// with NO declaration keyword: the head is a LeftHandSideExpression
+			// (14.7.5) over bindings that already exist - a name, a member, or
+			// an array/object LITERAL the compiler re-reads as a pattern, as it
+			// does for `[a, b] = pair`. Read as an operand first; if `in`/`of`
+			// follows it is the loop's target, else it is the start of a
+			// classic for's init expression. d bit1 says there is nothing to
+			// declare. A name is kept in `text` as the declaration forms do.
+			const std::int32_t head = unary();
+			if (is_kw("in") || is_kw("of")) {
+				node dd{nk::declarator, ""};
+				const node & h = a.nodes[static_cast<std::size_t>(head)];
+				if (h.kind == nk::ident) { dd.text = h.text; } else { dd.b = head; }
 				std::string_view rel = cur().s; advance();
 				node nd{nk::forof_stmt, rel};
 				nd.a = a.add(dd); nd.d = 2 | (is_await ? 4 : 0);
 				nd.b = expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}
-			if (at_pattern() && for_pattern_ahead()) {
-				node dd{nk::declarator, ""}; dd.b = pattern();
-				std::string_view rel = cur().s; advance();
-				node nd{nk::forof_stmt, rel};
-				nd.a = a.add(dd); nd.d = 2 | (is_await ? 4 : 0);
-				nd.b = expr(0); expect_p(")"); nd.c = stmt();
-				return a.add(nd);
-			}
-			init = expr(0);
+			init = expr_rest(head, 0);
 		}
 		expect_p(";");
 		node nd{nk::for_stmt, ""}; nd.a = init;

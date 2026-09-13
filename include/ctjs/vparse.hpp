@@ -340,6 +340,18 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			// are a valid BigInt (they must be an integer - `1.5n` is not) is a
 			// question for the consumer, not the lexer.
 			if (i < n && src[i] == 'n') { ++i; }
+			// 12.9.3: "The SourceCharacter immediately following a NumericLiteral
+			// must not be an IdentifierStart or DecimalDigit" - `3in []` and
+			// `0\u00620` are errors. The offending characters ride along in the
+			// token, and the consumer that reads the literal refuses it.
+			while (i < n && (id_part_at(src, i) || src[i] == '\\')) {
+				if (src[i] == '\\') {
+					std::size_t j = i; char32_t cp = 0;
+					if (!read_unicode_escape(src, j, cp)) { break; }
+					i = j; continue;
+				}
+				++i;
+			}
 			out.push_back({tk::num, src.substr(start, i - start)});
 			continue;
 		}
@@ -621,7 +633,14 @@ struct parser {
 		return -1;
 	}
 	constexpr void expect_p(std::string_view s) { if (!eat_p(s)) { fail(s); } }
-	constexpr void semi() { eat_p(";"); }   // optional (ASI)
+	// THE END OF A STATEMENT (12.10 automatic semicolon insertion): a `;`,
+	// or nothing at all when the next token is `}`, the end of input, or on
+	// a new line. `a b` on one line is the SyntaxError ASI does not repair;
+	// a do-while's closing `)` takes a virtual `;` regardless (12.10.1).
+	constexpr void semi() {
+		if (eat_p(";") || is_p("}") || at_end() || newline_before_cur()) { return; }
+		fail("expected `;` or a line break before this token");
+	}
 	// `with { type: "json" }` after a module specifier (16.2.2 WithClause).
 	// The attributes are the loader's to read; nothing here consumes them
 	// yet, so the clause is skipped whole. Before `with` was a statement the
@@ -726,8 +745,28 @@ struct parser {
 			}
 			// binary / logical / relational (left-assoc; ** right-assoc)
 			bool logical = (o == "&&" || o == "||" || o == "??");
+			{
+				const node & l = a.nodes[static_cast<std::size_t>(left)];
+				// 13.6: the base of `**` is an UpdateExpression - `-a ** b` is
+				// not in the grammar, `(-a) ** b` is (see paren_or_arrow).
+				if (o == "**" && l.kind == nk::unary && l.d != 1) {
+					fail("a unary operator cannot be the base of `**`; parenthesise it"); return -1;
+				}
+				// 13.13: `??` does not mix with `&&`/`||` without parentheses.
+				if (l.kind == nk::logical && l.d != 1 &&
+				    ((o == "??" && l.text != "??") || (o != "??" && logical && l.text == "??"))) {
+					fail("`??` cannot be mixed with `&&` or `||` without parentheses"); return -1;
+				}
+			}
 			advance();
 			std::int32_t right = expr(o == "**" ? bp : bp + 1);
+			if (right >= 0) {
+				const node & r = a.nodes[static_cast<std::size_t>(right)];
+				if (r.kind == nk::logical && r.d != 1 &&
+				    ((o == "??" && r.text != "??") || (o != "??" && logical && r.text == "??"))) {
+					fail("`??` cannot be mixed with `&&` or `||` without parentheses"); return -1;
+				}
+			}
 			node nd{logical ? nk::logical : nk::binary, o}; nd.a = left; nd.b = right;
 			left = a.add(nd);
 		}
@@ -770,9 +809,20 @@ struct parser {
 
 	constexpr std::int32_t postfix() {
 		std::int32_t e = primary();
+		bool optional_chain = false;   // a `?.` was seen in this chain
 		for (;;) {
 			if (is_p(".")) { advance(); node nd{nk::member, cur().s}; nd.a = e; advance(); e = a.add(nd); }
+			else if (cur().kind == tk::tmpl_full) {
+				// A TAGGED TEMPLATE, `tag\`...\``: a call with the template as its
+				// argument. Not in an optional chain (13.3.1: `a?.b\`\`` is an
+				// error), and nothing else ends a template's tag.
+				if (optional_chain) { fail("a template literal cannot follow `?.` in a chain"); return -1; }
+				node nd{nk::tagged, ""}; nd.a = e;
+				node t{nk::tmpl, cur().s}; advance(); nd.b = a.add(t);
+				e = a.add(nd);
+			}
 			else if (is_p("?.")) {
+				optional_chain = true;
 				advance();
 				if (is_p("(")) { node nd{nk::opt_call, ""}; nd.a = e; nd.list = args(nd.list_len); e = a.add(nd); }
 				else if (is_p("[")) { advance(); node nd{nk::opt_index, ""}; nd.a = e; nd.b = expr(0); expect_p("]"); e = a.add(nd); }
@@ -780,7 +830,9 @@ struct parser {
 			}
 			else if (is_p("[")) { advance(); node nd{nk::index, ""}; nd.a = e; nd.b = expr(0); expect_p("]"); e = a.add(nd); }
 			else if (is_p("(")) { node nd{nk::call, ""}; nd.a = e; nd.list = args(nd.list_len); e = a.add(nd); }
-			else if (is_p("++") || is_p("--")) { node nd{nk::update, cur().s}; nd.a = e; nd.b = 0; /*postfix*/ advance(); e = a.add(nd); }
+			// A postfix `++`/`--` is [no LineTerminator here] (13.4): across a
+			// line break it is the next statement's prefix operator.
+			else if ((is_p("++") || is_p("--")) && !newline_before_cur()) { node nd{nk::update, cur().s}; nd.a = e; nd.b = 0; /*postfix*/ advance(); e = a.add(nd); }
 			else { break; }
 		}
 		return e;
@@ -951,7 +1003,10 @@ struct parser {
 				if (nxt().kind == tk::punct && nxt().s == "(") {
 					const std::size_t save = p;
 					advance();
-					if (arrow_ahead()) {
+					// `async` [no LineTerminator here] (15.9): on its own line it
+					// is a call of something named async, and the `=>` after
+					// the arguments is then the error it should be.
+					if (arrow_ahead() && !newline_before_cur()) {
 						async_arrow = true;
 						const std::int32_t r = paren_or_arrow();
 						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }   // async
@@ -962,7 +1017,7 @@ struct parser {
 				if (nxt().kind == tk::ident) {
 					const std::size_t save = p;
 					advance();
-					if (nxt().kind == tk::punct && nxt().s == "=>") {
+					if (nxt().kind == tk::punct && nxt().s == "=>" && !newline_before_cur()) {
 						async_arrow = true;
 						const std::int32_t r = arrow_single();
 						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }
@@ -1044,6 +1099,14 @@ struct parser {
 		advance();                       // '('
 		std::int32_t e = expr(0);
 		expect_p(")");
+		// PARENTHESES ARE NOT KEPT, except as a mark on the two kinds whose
+		// grammar turns on them: `(-a) ** b` and `(a ?? b) || c` are fine
+		// where `-a ** b` and `a ?? b || c` are not. d is otherwise unused on
+		// unary and logical nodes.
+		if (e >= 0) {
+			node & inner = a.nodes[static_cast<std::size_t>(e)];
+			if (inner.kind == nk::unary || inner.kind == nk::logical) { inner.d = 1; }
+		}
 		return e;
 	}
 	constexpr std::int32_t arrow_body() {
@@ -1221,6 +1284,14 @@ struct parser {
 				} else if (eat_p(":")) {
 					pr.b = expr(2);
 				} else {
+					// A shorthand is an IdentifierReference (13.2.5): a word, not a
+					// string, a number or a computed key - `({0})` and `({[x]})`
+					// are errors - and `async`/`*` announce a method that then
+					// has to follow.
+					if (pr.d != 0 || pr.text.empty() || pasync || pgen) {
+						fail("expected `:` or `(` after this property name");
+						return -1;
+					}
 					pr.c = 2; /*shorthand*/
 					// `{ a = 1 }`: a CoverInitializedName (13.2.5), legal only
 					// where the literal is re-read as an assignment pattern -
@@ -1482,8 +1553,12 @@ struct parser {
 		if (is_kw("default")) {
 			advance();
 			nd.c = 1;
+			// `export default class {}` / `function () {}` is a DECLARATION
+			// (16.2.3), which no `;` ends; anything else is an expression.
+			const bool declaration = is_kw("class") || is_kw("function") ||
+			                         (is_kw("async") && nxt().kind == tk::kw && nxt().s == "function");
 			nd.a = expr(2);
-			semi();
+			if (!declaration) { semi(); }
 			nd.list = a.add_list(specs);
 			nd.list_len = 0;
 			return a.add(nd);
@@ -1598,7 +1673,7 @@ struct parser {
 	constexpr std::int32_t do_stmt() {
 		eat_kw("do");
 		node nd{nk::do_stmt, ""}; nd.a = stmt();
-		eat_kw("while"); expect_p("("); nd.b = expr(0); expect_p(")"); semi();
+		eat_kw("while"); expect_p("("); nd.b = expr(0); expect_p(")"); eat_p(";");
 		return a.add(nd);
 	}
 	constexpr std::int32_t for_stmt() {
@@ -1617,10 +1692,15 @@ struct parser {
 			if (is_kw("of") || is_kw("in")) {
 				std::string_view rel = cur().s; advance();
 				node nd{nk::forof_stmt, rel}; nd.text = rel;
-				// `for (const [k, v] of pairs)` - the item is a shape too
+				// `for (const [k, v] of pairs)` - the item is a shape too.
+				// d: bit0 const, bit1 nothing to declare, bit2 await, bit3 let -
+				// so a checker can tell `let` from `var` (14.7.5.1 has rules
+				// for the lexical heads only).
 				node dd{nk::declarator, d.text}; dd.text = d.text; dd.b = d.b;
-				nd.a = a.add(dd); nd.d = (forkw == "const") | (is_await ? 4 : 0);
-				nd.b = expr(0); expect_p(")"); nd.c = stmt();
+				nd.a = a.add(dd); nd.d = (forkw == "const") | (is_await ? 4 : 0) | (forkw == "let" ? 8 : 0);
+				// `for (x of a, b)` is not in the grammar: `of` takes an
+				// AssignmentExpression (14.7.5), `in` an Expression.
+				nd.b = rel == "of" ? expr(2) : expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}
 			if (eat_p("=")) { d.a = expr(2); }
@@ -1650,7 +1730,7 @@ struct parser {
 				std::string_view rel = cur().s; advance();
 				node nd{nk::forof_stmt, rel};
 				nd.a = a.add(dd); nd.d = 2 | (is_await ? 4 : 0);
-				nd.b = expr(0); expect_p(")"); nd.c = stmt();
+				nd.b = rel == "of" ? expr(2) : expr(0); expect_p(")"); nd.c = stmt();
 				return a.add(nd);
 			}
 			init = expr_rest(head, 0);
@@ -1676,6 +1756,7 @@ struct parser {
 			cc.a = block(); nd.b = a.add(cc);
 		}
 		if (eat_kw("finally")) { nd.c = block(); }
+		if (nd.b < 0 && nd.c < 0) { fail("`try` needs a `catch` or a `finally`"); return -1; }
 		return a.add(nd);
 	}
 	constexpr std::int32_t switch_stmt() {

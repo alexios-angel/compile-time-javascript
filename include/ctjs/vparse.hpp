@@ -986,7 +986,10 @@ struct parser {
 		if (c.kind == tk::ident) {
 			// arrow with single param:  x => ...
 			if (nxt().kind == tk::punct && nxt().s == "=>") { return arrow_single(); }
-			node nd{nk::ident, c.s}; advance(); return a.add(nd);
+			// A NAME KNOWS WHERE IT WAS READ: the compiler's static temporal
+			// dead zone compares it against the declarator that initialises
+			// the binding (below).
+			node nd{nk::ident, c.s}; nd.begin = offset_at(p); advance(); nd.end = offset_consumed(); return a.add(nd);
 		}
 		if (c.kind == tk::kw) {
 			if (c.s == "true") { advance(); return a.add({nk::true_lit, "true"}); }
@@ -1092,7 +1095,7 @@ struct parser {
 				return arrow_single();
 			}
 			// keyword used as a bare identifier (property contexts) - be lenient
-			node nd{nk::ident, c.s}; advance(); return a.add(nd);
+			node nd{nk::ident, c.s}; nd.begin = offset_at(p); advance(); nd.end = offset_consumed(); return a.add(nd);
 		}
 		if (c.kind == tk::punct) {
 			if (c.s == "(") { return paren_or_arrow(); }
@@ -1462,8 +1465,12 @@ struct parser {
 			// `b` is the pattern when the declarator binds a shape rather than a
 			// name. This line used to take `{` AS THE NAME and desynchronise.
 			node d{nk::declarator, ""};
+			// The declarator's span: `end` is where its binding is initialised,
+			// which is what a read before it is measured against (TDZ).
+			d.begin = offset_at(p);
 			if (at_pattern()) { d.b = pattern(); } else { d.text = cur().s; advance(); }
 			if (eat_p("=")) { d.a = expr(2); }
+			d.end = offset_consumed();
 			decls.push_back(a.add(d));
 			if (!eat_p(",")) { break; }
 		}

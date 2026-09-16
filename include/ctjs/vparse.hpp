@@ -36,7 +36,11 @@ enum class tk : std::uint8_t {
 
 struct token {
 	tk kind = tk::end;
-	std::string_view s;    // the lexeme (a view into the source)
+	std::string_view s;    // the lexeme (a view into the source, or a decoded name)
+	// WHERE IN THE SOURCE, as offsets: a decoded identifier's lexeme is not a
+	// view into the source, and comparing its pointer against the source is
+	// not a constant expression - so the position is carried, not derived.
+	std::uint32_t begin = 0, end = 0;
 };
 
 // A BYTE OR A CODE POINT: the byte-at-a-time scan passes UTF-8 lead and
@@ -289,7 +293,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			i += 2; while (i + 1 < n && !(src[i] == '*' && src[i + 1] == '/')) { ++i; }
 			// UNTERMINATED: a `/*` that never closes is a SyntaxError (12.4),
 			// not a comment to the end of the file - a token nothing accepts.
-			if (i + 1 >= n) { out.push_back({tk::punct, src.substr(opened, 2)}); i = n; continue; }
+			if (i + 1 >= n) { out.push_back({tk::punct, src.substr(opened, 2), static_cast<std::uint32_t>(opened), static_cast<std::uint32_t>(opened + 2)}); i = n; continue; }
 			i += 2; continue;
 		}
 		std::size_t start = i;
@@ -335,7 +339,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			// AN ESCAPED WORD IS NEVER A KEYWORD (12.7.2): `\u0067et m() {}` is
 			// not an accessor and `\u0061sync () => {}` is not an async arrow -
 			// both are the identifier, and the parse fails on what follows.
-			out.push_back({!private_name && !escaped && is_keyword(w) ? tk::kw : tk::ident, w});
+			out.push_back({!private_name && !escaped && is_keyword(w) ? tk::kw : tk::ident, w, static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(i)});
 			continue;
 		}
 		// number
@@ -385,7 +389,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 				}
 				++i;
 			}
-			out.push_back({tk::num, src.substr(start, i - start)});
+			out.push_back({tk::num, src.substr(start, i - start), static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(i)});
 			continue;
 		}
 		// string
@@ -393,7 +397,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			char q = c; ++i;
 			while (i < n && src[i] != q) { if (src[i] == '\\' && i + 1 < n) { i += 2; } else { ++i; } }
 			if (i < n) { ++i; }
-			out.push_back({tk::str, src.substr(start, i - start)});
+			out.push_back({tk::str, src.substr(start, i - start), static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(i)});
 			continue;
 		}
 		// template literal (whole thing as one token for now; ${} kept inside)
@@ -408,7 +412,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 				if (depth > 0 && d == '}') { --depth; ++i; continue; }
 				++i;
 			}
-			out.push_back({tk::tmpl_full, src.substr(start, i - start)});
+			out.push_back({tk::tmpl_full, src.substr(start, i - start), static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(i)});
 			continue;
 		}
 		// regex vs division
@@ -424,7 +428,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 				++i;
 			}
 			while (i < n && id_part_at(src, i)) { ++i; }
-			out.push_back({tk::regex, src.substr(start, i - start)});
+			out.push_back({tk::regex, src.substr(start, i - start), static_cast<std::uint32_t>(start), static_cast<std::uint32_t>(i)});
 			continue;
 		}
 		// punctuator: longest match among ctjs's operators
@@ -444,7 +448,7 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 				if (report->skipped == 0) { report->first_skip = i; }
 				++report->skipped;
 			}
-			out.push_back({tk::punct, src.substr(i, 1)});
+			out.push_back({tk::punct, src.substr(i, 1), static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(i + 1)});
 			++i;
 			continue;
 		}
@@ -455,10 +459,10 @@ constexpr std::vector<token> lex(std::string_view src, lex_report * report = nul
 			last_brace_closed_object = !brace_is_object.empty() && brace_is_object.back();
 			if (!brace_is_object.empty()) { brace_is_object.pop_back(); }
 		}
-		out.push_back({tk::punct, src.substr(i, matched.size())});
+		out.push_back({tk::punct, src.substr(i, matched.size()), static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(i + matched.size())});
 		i += matched.size();
 	}
-	out.push_back({tk::end, {}});
+	out.push_back({tk::end, {}, static_cast<std::uint32_t>(src.size()), static_cast<std::uint32_t>(src.size())});
 	return out;
 }
 
@@ -596,31 +600,23 @@ struct parser {
 		constexpr ~generator_scope() { flag = saved; }
 	};
 
+	// IS THIS TOKEN'S LEXEME THE SOURCE'S OWN BYTES? A decoded identifier's
+	// is not (decoded_names): `\u006deta` is not `meta`. Decided by content
+	// against the token's span, never by pointer - a pointer into another
+	// object is not comparable in a constant expression.
+	constexpr bool in_source(const token & tok) const {
+		return tok.s.size() == tok.end - tok.begin && tok.begin <= src.size() &&
+		       tok.s == src.substr(tok.begin, tok.s.size());
+	}
 	// The offset a token starts at, and the offset just past the one before
 	// the current position - which together bound everything consumed so far.
-	// A DECODED identifier's lexeme is not in the source (decoded_names): the
-	// nearest in-source token stands in for it, searching back then forward.
-	constexpr bool in_source(std::string_view lexeme) const {
-		return lexeme.data() != nullptr && lexeme.data() >= src.data() &&
-		       lexeme.data() <= src.data() + src.size();
-	}
 	constexpr std::uint32_t offset_at(std::size_t token_index) const {
 		if (src.empty() || token_index >= t.size()) { return 0; }
-		std::string_view lexeme = t[token_index].s;
-		if (lexeme.data() == nullptr) { return static_cast<std::uint32_t>(src.size()); }
-		for (std::size_t k = token_index; !in_source(lexeme) && k > 0; --k) { lexeme = t[k - 1].s; }
-		for (std::size_t k = token_index; !in_source(lexeme) && k + 1 < t.size(); ++k) { lexeme = t[k + 1].s; }
-		if (!in_source(lexeme)) { return 0; }
-		return static_cast<std::uint32_t>(lexeme.data() - src.data());
+		return t[token_index].begin;
 	}
 	constexpr std::uint32_t offset_consumed() const {
 		if (src.empty() || p == 0) { return 0; }
-		std::string_view lexeme = t[p - 1].s;
-		if (lexeme.data() == nullptr) { return static_cast<std::uint32_t>(src.size()); }
-		for (std::size_t k = p - 1; !in_source(lexeme) && k > 0; --k) { lexeme = t[k - 1].s; }
-		if (!in_source(lexeme)) { return 0; }
-		return static_cast<std::uint32_t>(
-		    static_cast<std::size_t>(lexeme.data() - src.data()) + lexeme.size());
+		return t[p - 1].end;
 	}
 
 	// IS THERE A LINE TERMINATOR between the previous token and this one? The
@@ -966,7 +962,7 @@ struct parser {
 					expect_p(")");
 					return a.add(nd);
 				}
-				if (cur().s != "meta" || !in_source(cur().s)) {
+				if (cur().s != "meta" || !in_source(cur())) {
 					fail("import. must be followed by meta");
 					return -1;
 				}
@@ -1013,7 +1009,7 @@ struct parser {
 					// `cur()`, NOT `c`: that is a reference bound when primary()
 					// was entered and two advances ago by now. The branch above
 					// uses is_p() for the same reason.
-					if (cur().kind != tk::ident || cur().s != "target" || !in_source(cur().s)) {
+					if (cur().kind != tk::ident || cur().s != "target" || !in_source(cur())) {
 						fail("new. must be followed by target");
 						return -1;
 					}
@@ -1426,11 +1422,9 @@ struct parser {
 	// IS THERE A LINE TERMINATOR between tokens i and i + 1?
 	constexpr bool newline_between(std::size_t i) const {
 		if (src.empty() || i + 1 >= t.size()) { return false; }
-		const std::string_view a = t[i].s, b = t[i + 1].s;
-		if (!in_source(a) || !in_source(b)) { return false; }
-		const std::size_t from = static_cast<std::size_t>(a.data() - src.data()) + a.size();
-		const std::size_t to = static_cast<std::size_t>(b.data() - src.data());
-		for (std::size_t k = from; k < to; ++k) {
+		const std::size_t from = t[i].end;
+		const std::size_t to = t[i + 1].begin;
+		for (std::size_t k = from; k < to && k < src.size(); ++k) {
 			if (line_terminator_at(src, k) != 0) { return true; }
 		}
 		return false;

@@ -1041,7 +1041,11 @@ struct parser {
 			// top-level statements. Nothing said so.
 			if (c.s == "class") { return class_decl(true); }
 			if (c.s == "async") {
-				if (nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(true, true); }
+				if (nxt().kind == tk::kw && nxt().s == "function") {
+					const std::uint32_t from = offset_at(p);
+					advance();
+					return func(true, true, from);
+				}
 				// AN ASYNC ARROW. `async` fell through to being a bare
 				// identifier, so `async (a, b) => {}` parsed as a CALL to
 				// something named `async` and then met a `=>` it had nowhere to
@@ -1049,6 +1053,7 @@ struct parser {
 				// is restored if it turns out to be an ordinary use of the name.
 				if (nxt().kind == tk::punct && nxt().s == "(") {
 					const std::size_t save = p;
+					const std::uint32_t from = offset_at(p);
 					advance();
 					// `async` [no LineTerminator here] (15.9): on its own line it
 					// is a call of something named async, and the `=>` after
@@ -1056,18 +1061,25 @@ struct parser {
 					if (arrow_ahead() && !newline_before_cur()) {
 						async_arrow = true;
 						const std::int32_t r = paren_or_arrow();
-						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }   // async
+						if (r >= 0) {
+							a.nodes[static_cast<std::size_t>(r)].c = 1;   // async
+							a.nodes[static_cast<std::size_t>(r)].begin = from;   // the text starts at `async`
+						}
 						return r;
 					}
 					p = save;
 				}
 				if (nxt().kind == tk::ident) {
 					const std::size_t save = p;
+					const std::uint32_t from = offset_at(p);
 					advance();
 					if (nxt().kind == tk::punct && nxt().s == "=>" && !newline_before_cur()) {
 						async_arrow = true;
 						const std::int32_t r = arrow_single();
-						if (r >= 0) { a.nodes[static_cast<std::size_t>(r)].c = 1; }
+						if (r >= 0) {
+							a.nodes[static_cast<std::size_t>(r)].c = 1;
+							a.nodes[static_cast<std::size_t>(r)].begin = from;
+						}
 						return r;
 					}
 					p = save;
@@ -1366,10 +1378,13 @@ struct parser {
 
 	// function expression/declaration; `expr` true => expression context;
 	// `is_async` records `async` so the interpreter wraps the return in a promise
-	constexpr std::int32_t func(bool is_expr, bool is_async = false) {
+	static constexpr std::uint32_t no_offset = 0xFFFFFFFFu;
+	constexpr std::int32_t func(bool is_expr, bool is_async = false,
+	                            std::uint32_t span_from = no_offset) {
 		// The span starts at `function`, or at the `async` before it - the
-		// caller has already consumed that, so it passes the offset in.
-		const std::uint32_t span_begin = offset_at(p);
+		// caller has already consumed that, so it passes the offset in
+		// (Function.prototype.toString answers the whole source text, 20.2.3.5).
+		const std::uint32_t span_begin = span_from == no_offset ? offset_at(p) : span_from;
 		eat_kw("function");
 		const bool is_gen = eat_p("*");
 		std::string_view name;
@@ -1469,13 +1484,17 @@ struct parser {
 		std::vector<std::int32_t> members;
 		while (!is_p("}") && !at_end()) {
 			if (eat_p(";")) { continue; }
-			const std::uint32_t member_begin = offset_at(p);
+			std::uint32_t member_begin = offset_at(p);
 			node m{nk::class_member, ""};
 			m.d = 0;   // bit0 = static, bit1 = computed key, bit2 = accessor is a SETTER
 			// `static` is the modifier only when a member follows it; `static = 1`,
 			// `static;`, `static() {}` and `static }` name a member `static`.
 			if (is_kw("static") && !(nxt().kind == tk::punct && (nxt().s == "(" || nxt().s == "=" || nxt().s == ";" || nxt().s == "}"))) {
 				advance(); m.d |= 1;
+				// A METHOD'S SOURCE TEXT IS THE MethodDefinition, which the
+				// `static` is not part of (15.7.1 / 20.2.3.5): the span starts
+				// after it.
+				member_begin = offset_at(p);
 				// A STATIC BLOCK, `static { ... }` (15.7.1 ClassStaticBlock): a
 				// body run once with `this` = the class, in order with the
 				// static fields. c = 3, the block in b. Its body is
@@ -1714,7 +1733,11 @@ struct parser {
 			if (k == "let" || k == "const" || k == "var") { return var_decl(); }
 			if (at_await_using_decl()) { return var_decl(); }
 			if (k == "function") { return func(false); }
-			if (k == "async" && nxt().kind == tk::kw && nxt().s == "function") { advance(); return func(false, true); }
+			if (k == "async" && nxt().kind == tk::kw && nxt().s == "function") {
+				const std::uint32_t from = offset_at(p);
+				advance();
+				return func(false, true, from);
+			}
 			if (k == "class") { return class_decl(false); }
 			// `import` is a declaration UNLESS it is `import(` or `import.`,
 			// which are the expression forms and belong to primary().

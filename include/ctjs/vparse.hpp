@@ -488,6 +488,7 @@ enum class nk : std::uint8_t {
 	//
 	//   import_decl   text = specifier, list = import_spec
 	//   import_spec   text = LOCAL name, c: 0 named, 1 default, 2 namespace,
+	//                 3 a DEFERRED namespace (`import defer * as ns`),
 	//                 a = a str node holding the IMPORTED name when renamed
 	//   export_decl   a = the declaration, list = export_spec,
 	//                 text = specifier for a re-export, c: 1 = default
@@ -1603,8 +1604,14 @@ struct parser {
 			nd.list_len = 0;
 			return a.add(nd);
 		}
+		// `import defer * as ns from ...` (16.2.2, deferred import evaluation):
+		// `defer` is an ordinary identifier - `import defer from "x"` is a
+		// default import named defer - and means deferral only before `*`.
+		const bool deferred = is_word("defer") && nxt().kind == tk::punct && nxt().s == "*";
+		if (deferred) { advance(); }
 		// `import d from ...`
-		if (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s))) {
+		if (!deferred &&
+		    (cur().kind == tk::ident || (cur().kind == tk::kw && is_contextual_keyword(cur().s)))) {
 			node spec{nk::import_spec, cur().s};
 			spec.c = 1; // default
 			advance();
@@ -1615,9 +1622,12 @@ struct parser {
 		if (eat_p("*")) {
 			if (!eat_word("as")) { fail("import * must be followed by as"); return -1; }
 			node spec{nk::import_spec, cur().s};
-			spec.c = 2; // namespace
+			spec.c = deferred ? 3 : 2; // namespace, evaluated lazily when 3
 			advance();
 			specs.push_back(a.add(spec));
+		} else if (deferred) {
+			fail("import defer must be followed by * as");
+			return -1;
 		} else if (eat_p("{")) {
 			// `import { a, b as c } from ...`
 			while (!is_p("}") && !at_end()) {

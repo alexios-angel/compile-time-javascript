@@ -26,6 +26,13 @@ static_assert(vp::is_valid("let s = `x=${1 + 2} y=${z}`;"));
 static_assert(vp::is_valid("let e = new Foo(1, 2).method();"));
 static_assert(vp::is_valid("let u = !-+~a; b++; --c;"));
 
+// Failed operands must not become indices into the AST, including for-in heads.
+static_assert(!vp::is_valid("<"));
+static_assert(!vp::is_valid("1 + <"));
+static_assert(!vp::is_valid("for (<; ; ) {}"));
+static_assert(!vp::is_valid("for (in xs) {}"));
+static_assert(!vp::is_valid("{*a(){}}"));
+
 // --- numeric literal forms ---------------------------------------------------
 // The lexer special-cased 0x alone, so `0o17` came out as the number `0`
 // followed by the identifier `o17` and the parse failed on ordinary modern
@@ -92,6 +99,9 @@ int main() {
 	// a genuine syntax error is reported, not thrown
 	vp::ast bad = vp::parse("let x = ;");
 	CHECK(!bad.ok);
+	for (std::string_view source : {"<", "1 + <", "for (<; ; ) {}", "for (in xs) {}", "{*a(){}}"}) {
+		CHECK(!vp::parse(source).ok);
+	}
 
 	// class members counted
 	vp::ast cls = vp::parse("class C { a = 1; b() {} static c = 3; }");

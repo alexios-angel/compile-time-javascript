@@ -754,6 +754,7 @@ struct parser {
 	// The Pratt loop from an operand already read - for_stmt reads the head's
 	// first operand itself, to see whether `in`/`of` follows it.
 	constexpr std::int32_t expr_rest(std::int32_t left, std::int32_t min_bp) {
+		if (!a.ok || left < 0) { return -1; }
 		for (;;) {
 			std::int32_t bp = lbp();
 			if (bp < 0 || bp < min_bp) { break; }
@@ -1860,6 +1861,7 @@ struct parser {
 			// classic for's init expression. d bit1 says there is nothing to
 			// declare. A name is kept in `text` as the declaration forms do.
 			const std::int32_t head = unary();
+			if (!a.ok || head < 0) { return -1; }
 			if (is_kw("in") || is_kw("of")) {
 				node dd{nk::declarator, ""};
 				const node & h = a.nodes[static_cast<std::size_t>(head)];

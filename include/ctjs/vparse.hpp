@@ -1294,7 +1294,7 @@ struct parser {
 			else {
 				const std::uint32_t member_begin = offset_at(p);
 			node pr{nk::prop, ""};
-				pr.d = 0;   // bit0 = computed key, bit2 = accessor is a SETTER
+				pr.d = 0;   // bit0 = key expression, bit1 = quoted name, bit2 = SETTER
 				// `{ *g() {} }` and `{ async *g() {} }`. Neither parsed: the
 				// star was not expected anywhere in an object literal, so the
 				// key parse took `*` as the property name and the `(` after it
@@ -1316,7 +1316,7 @@ struct parser {
 				// keyword the lexer marks; `\u0067et` is a name.
 				bool accessor_word = false;
 				if (is_p("[")) { advance(); pr.a = expr(0); expect_p("]"); pr.d = 1; /*computed*/ }
-				else if (cur().kind == tk::str) { node k{nk::str, cur().s}; advance(); pr.a = a.add(k); pr.d = 1; }
+				else if (cur().kind == tk::str) { node k{nk::str, cur().s}; advance(); pr.a = a.add(k); pr.d = 3; }
 				else if (cur().kind == tk::num) { node k{nk::num, cur().s}; advance(); pr.a = a.add(k); pr.d = 1; }
 				else { pr.text = cur().s; accessor_word = cur().kind == tk::kw; advance(); }
 				if (accessor_word && (pr.text == "get" || pr.text == "set") &&

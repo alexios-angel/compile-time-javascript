@@ -21,6 +21,15 @@ static_assert(vp::is_valid("a?.b?.(x)?.[y] ?? fallback;"));
 static_assert(vp::is_valid("let f = x => x * 2;"));
 static_assert(vp::is_valid("let g = (a, b = 1, ...rest) => { return a + b; };"));
 static_assert(vp::is_valid("let o = { a: 1, b, c() { return 2; }, [k]: 3, ...more };"));
+// Quoted names and bracketed string literals have different __proto__ semantics.
+static_assert([] {
+	const auto parsed = vp::parse("({'__proto__': null, [ /* key */ '__proto__']: null});");
+	int count = 0;
+	for (const auto & n : parsed.nodes) {
+		if (n.kind == vp::nk::prop && n.d != (++count == 1 ? 3 : 1)) { return false; }
+	}
+	return parsed.ok && count == 2;
+}());
 static_assert(vp::is_valid("let r = /ab+c/gi.test(s);"));
 static_assert(vp::is_valid("let s = `x=${1 + 2} y=${z}`;"));
 static_assert(vp::is_valid("let e = new Foo(1, 2).method();"));

@@ -10,20 +10,22 @@
 
 // Parse-by-VALUE for ctjs.
 //
-// The established ctjs front end parses BY TYPE: ctlark's Earley chart and the
-// parse tree are encoded in the C++ type system. That is O(n^2+) in the input
-// AND pays a template instantiation per node - a real 65 KB script exceeds the
-// constexpr budget outright (see experiments/parse_by_value.cpp for the data).
+// A constexpr recursive-descent / Pratt parser that scans the source ONCE
+// (O(n)) and emits a FLAT VALUE AST - a std::vector of `node`s with child
+// indices, zero types per node. It is `constexpr`, so it runs during constant
+// evaluation - a script passed as a template argument is proven while you
+// compile - as a VALUE computation on the compiler's fast path; it also runs
+// verbatim at runtime. vinterp.hpp is the value tree-walking interpreter over
+// this AST.
 //
-// This is the value alternative: a constexpr recursive-descent / Pratt parser
-// that scans the source ONCE (O(n)) and emits a FLAT VALUE AST - a std::vector
-// of `node`s with child indices, zero types per node. It is `constexpr`, so it
-// still runs during constant evaluation (the compile-time-browser identity is
-// preserved), but as a VALUE computation on the compiler's fast path; it also
-// runs verbatim at runtime. A value tree-walking interpreter over this AST
-// (vinterp.hpp, forthcoming) will replace the type-specialised program_runner.
-//
-// Phase 1 (this file): lexer + expression/statement/function/class parser.
+// Why a value and not a type: the front end this replaced parsed BY TYPE - a
+// ctlark Earley chart and parse tree encoded in the C++ type system. That is
+// O(n^2+) in the input AND pays a template instantiation per node; a real
+// 65 KB script exceeded the constexpr budget outright (over 500M steps, more
+// than 8 minutes, then failure). A prototype of this design parsed and
+// evaluated a 200 KB expression at compile time in 10.5 s at -O0, growing
+// linearly (4 KB: 0.4 s, 20 KB: 1.1 s, 80 KB: 4.0 s). The prototype is in git
+// history: `git show 7eec04c:experiments/parse_by_value.cpp`.
 
 namespace ctjs::vp {
 

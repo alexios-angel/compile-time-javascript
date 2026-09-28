@@ -585,10 +585,9 @@ struct parser {
 	bool in_generator = false;
 	// INSIDE AN ASYNC FUNCTION `await` is the AwaitExpression; inside a plain
 	// function, generator or method it is an identifier in script code
-	// (`function f(await) { return await; }` is legal there). TRUE AT THE TOP
-	// LEVEL: this engine's embedding contract makes a script's top level an
-	// async body - `return await x;` is how unittests/js reads a promise -
-	// and a module's top level is [+Await] anyway. A plain arrow's body is
+	// (`function f(await) { return await; }` is legal there). The root defaults
+	// to [+Await] for embedding async bodies and modules; parse() lets Script
+	// and eval callers select [~Await]. A plain arrow's body is
 	// ConciseBody[~Await], an async arrow's is [+Await] - see async_arrow.
 	bool in_async = true;
 	// Set by the `async` lookahead just before an arrow is parsed, read and
@@ -1926,11 +1925,13 @@ struct parser {
 };
 
 // Parse a source string into a flat value AST (constexpr or runtime).
-constexpr ast parse(std::string_view src) {
+// Embedders and modules admit top-level await; Script and eval callers pass false.
+constexpr ast parse(std::string_view src, bool top_level_await = true) {
 	ast a;
 	lex_report report;
 	std::vector<token> toks = lex(src, &report, &a.decoded);
 	parser ps{toks, a, 0, src};
+	ps.in_async = top_level_await;
 	a.root = ps.program();
 	a.skipped_bytes = report.skipped;
 	a.first_skip_offset = report.first_skip;

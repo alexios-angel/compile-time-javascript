@@ -33,6 +33,15 @@ static_assert(!vp::is_valid("for (<; ; ) {}"));
 static_assert(!vp::is_valid("for (in xs) {}"));
 static_assert(!vp::is_valid("{*a(){}}"));
 
+// Root Await context does not change nested function grammar.
+static_assert(vp::parse("function await() {} await();", false).ok);
+static_assert(!vp::parse("function await() {} await();").ok);
+static_assert(vp::parse("await 1;").ok);
+static_assert(!vp::parse("await 1;", false).ok);
+static_assert(vp::parse("async function f() { await /x/; }", false).ok);
+static_assert(!vp::parse("async function f() { function await() {} }", false).ok);
+static_assert(vp::parse("async function f() { (function await() {}); }", false).ok);
+
 // --- numeric literal forms ---------------------------------------------------
 // The lexer special-cased 0x alone, so `0o17` came out as the number `0`
 // followed by the identifier `o17` and the parse failed on ordinary modern

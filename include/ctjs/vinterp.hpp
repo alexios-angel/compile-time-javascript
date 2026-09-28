@@ -692,14 +692,7 @@ struct vm {
 				std::size_t j = i + 2; std::int32_t depth = 1;
 				while (j < end && depth) { if (raw[j] == '{') { ++depth; } else if (raw[j] == '}') { --depth; } if (depth) { ++j; } }
 				std::string_view expr = raw.substr(i + 2, j - (i + 2));
-				ast sub = parse(std::string{"("} + std::string{expr} + std::string{")"});
-				if (sub.ok && sub.root >= 0) {
-					vm tmp{std::move(sub)};   // parse-only reuse of eval via a scratch walker sharing env is awkward;
-					// evaluate in THIS vm by re-parsing into this tree would shift indices - instead eval on a fresh sub-vm
-					// sharing the current environment & context:
-					(void)tmp;
-				}
-				// Simpler: evaluate the sub-expression via a nested parse+walk on a temporary vm that shares env/cx.
+				// a nested parse+walk that shares this env/cx
 				out += eval_subexpr(expr, env, cx).to_string();
 				i = j + 1;
 				continue;
